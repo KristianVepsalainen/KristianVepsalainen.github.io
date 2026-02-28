@@ -28,3 +28,4 @@ format:
     theme: cosmo
     toc: true
     code-copy: true
+    cache: false

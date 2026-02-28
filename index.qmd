@@ -1,11 +1,8 @@
 ---
-title: "KristianVepsäläinen"
+title: "Kristian Vepsäläinen"
 ---
 
-This is a Quarto website.
+Datatiede ja tilastollinen mallinnus
 
-To learn more about Quarto websites visit <https://quarto.org/docs/websites>.
+Rakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi.
 
-```{r}
-1 + 1
-```

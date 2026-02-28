@@ -9,16 +9,16 @@
   {
     "objectID": "about.html",
     "href": "about.html",
-    "title": "About",
+    "title": "Minusta",
     "section": "",
-    "text": "About this site\n\n1 + 1\n\n[1] 2"
+    "text": "Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella. Olen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta.\nTyöurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finassialalla."
   },
   {
     "objectID": "index.html",
     "href": "index.html",
-    "title": "KristianVepsäläinen",
+    "title": "Kristian Vepsäläinen",
     "section": "",
-    "text": "This is a Quarto website.\nTo learn more about Quarto websites visit https://quarto.org/docs/websites.\n\n1 + 1\n\n[1] 2"
+    "text": "Datatiede ja tilastollinen mallinnus\nRakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi."
   },
   {
     "objectID": "posts/ensimmainen-postaus.html",

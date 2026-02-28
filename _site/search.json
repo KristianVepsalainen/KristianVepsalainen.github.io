@@ -1,0 +1,30 @@
+[
+  {
+    "objectID": "blog.html",
+    "href": "blog.html",
+    "title": "Blogi",
+    "section": "",
+    "text": "Ensimmäinen analyysini\n\n\n\n\n\n\n\n\nFeb 27, 2026\n\n\n\n\n\nNo matching items"
+  },
+  {
+    "objectID": "about.html",
+    "href": "about.html",
+    "title": "About",
+    "section": "",
+    "text": "About this site\n\n1 + 1\n\n[1] 2"
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "KristianVepsäläinen",
+    "section": "",
+    "text": "This is a Quarto website.\nTo learn more about Quarto websites visit https://quarto.org/docs/websites.\n\n1 + 1\n\n[1] 2"
+  },
+  {
+    "objectID": "posts/ensimmainen-postaus.html",
+    "href": "posts/ensimmainen-postaus.html",
+    "title": "Ensimmäinen analyysini",
+    "section": "",
+    "text": "Tässä postauksessa analysoin dataa R:llä.\n```{r} library(tidyverse)\ndf &lt;- tibble( x = 1:10, y = x^2 )\nggplot(df, aes(x, y)) + geom_line()"
+  }
+]

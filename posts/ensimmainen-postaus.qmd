@@ -1,0 +1,13 @@
+---
+title: "Ensimmäinen analyysini"
+date: 2026-02-27
+categories: [R, Data Science]
+---
+
+Tässä postauksessa analysoin dataa R:llä.
+
+\`\`\`{r} library(tidyverse)
+
+df \<- tibble( x = 1:10, y = x\^2 )
+
+ggplot(df, aes(x, y)) + geom_line()

@@ -1,0 +1,7 @@
+---
+title: "Blogi"
+listing:
+  contents: posts
+  sort: "date desc"
+  type: default
+---

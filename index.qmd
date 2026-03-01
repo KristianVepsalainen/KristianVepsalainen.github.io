@@ -65,6 +65,13 @@ Tilastollinen mallinnus on väline – ei itseisarvo.
 - Cross-validation frameworks 
 - Mallien diagnostiikka ja validointi  
 
+### Tekoäly 
+- Suuret kielimallit
+- ChatGPT
+- Claude
+- Tekoälyagentit
+- n8n automaatiot
+
 ### Data workflow
 - SQL  
 - Automated data pipelines  

@@ -4,7 +4,7 @@
     "href": "blog.html",
     "title": "Blogi",
     "section": "",
-    "text": "Ensimmäinen analyysini\n\n\n\n\n\n\n\n\nFeb 27, 2026\n\n\n\n\n\nNo matching items"
+    "text": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?\n\n\n\n\n\n\n\n\nMar 1, 2026\n\n\n\n\n\nNo matching items"
   },
   {
     "objectID": "about.html",
@@ -39,7 +39,7 @@
     "href": "index.html#ydinkyvykkyydet",
     "title": "Kristian Vepsäläinen",
     "section": "Ydinkyvykkyydet",
-    "text": "Ydinkyvykkyydet\n\nTilastolliset mallit\n\nLienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\nKoneoppiminen ja mallien validointi\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\nData workflow\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\nPäätöksen tuki ja viesintä\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus"
+    "text": "Ydinkyvykkyydet\n\nTilastolliset mallit\n\nLienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\nKoneoppiminen ja mallien validointi\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\nTekoäly\n\nSuuret kielimallit\nChatGPT\nClaude\nTekoälyagentit\nn8n automaatiot\n\n\n\nData workflow\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\nPäätöksen tuki ja viesintä\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus"
   },
   {
     "objectID": "index.html#kirjoitan-ja-analysoin",
@@ -58,8 +58,8 @@
   {
     "objectID": "posts/ensimmainen-postaus.html",
     "href": "posts/ensimmainen-postaus.html",
-    "title": "Ensimmäinen analyysini",
+    "title": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?",
     "section": "",
-    "text": "Tässä postauksessa analysoin dataa R:llä.\n```{r} library(tidyverse)\ndf &lt;- tibble( x = 1:10, y = x^2 )\nggplot(df, aes(x, y)) + geom_line()"
+    "text": "Facebookin “Rakastan matematiikkaa”-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.\nTuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.\nOletin myös todelliset väliajat (https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan."
   }
 ]

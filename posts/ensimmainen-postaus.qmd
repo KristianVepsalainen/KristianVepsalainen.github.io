@@ -1,13 +1,96 @@
 ---
-title: "Ensimmäinen analyysini"
-date: 2026-02-27
-categories: [R, Data Science]
+title: "Hävisikö Juha Mieto Thomas Wassbergille parran takia?"
+date: 2026-03-01
+categories: [R, Data Science, urheilu, simulaatio, historia]
 ---
 
-Tässä postauksessa analysoin dataa R:llä.
+Facebookin "Rakastan matematiikkaa"-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.
 
-\`\`\`{r} library(tidyverse)
+Tuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt
+tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.
 
-df \<- tibble( x = 1:10, y = x\^2 )
+Oletin myös todelliset väliajat (<https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html>) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan.
 
-ggplot(df, aes(x, y)) + geom_line()
+```{r echo = FALSE, message=FALSE}
+library(tidyverse)
+
+set.seed(1980)
+
+N <- 100000
+rho <- 1.2
+
+# total time
+T_total <- 41*60 + 57.64
+
+# Average speed (Mieto)
+v_segments <- c(
+  5000 / (13*60 + 25.00),
+  5000 / ((25*60 + 51.97) - (13*60 + 25.00)),
+  5000 / ((41*60 + 57.64) - (25*60 + 51.97))
+)
+
+# Track profile (proxy)
+profile <- c(up = 0.4, flat = 0.3, down = 0.3)
+speed_mult <- c(up = 0.7, flat = 1.0, down = 1.3)
+
+# Priors
+A_body <- 0.5
+A_beard <- runif(N, 0.005, 0.015)
+Cd_body <- runif(N, 0.7, 0.9)
+P_total <- rnorm(N, 400, 30)
+
+# Alpha (speed of beard)
+alpha <- runif(N, 0.25, 0.4)
+
+# mean v^3
+v3_mean <- numeric(N)
+
+for (k in 1:3) {
+  v_obs <- v_segments[k]
+  scale <- v_obs / sum(profile * speed_mult)
+  
+  for (seg in names(profile)) {
+    v <- rnorm(N, speed_mult[seg] * scale, 0.2)
+    v[v < 1] <- 1
+    v3_mean <- v3_mean + profile[seg] * v^3
+  }
+}
+
+v3_mean <- v3_mean / 3
+
+# Kehon ilmanvastusteho
+P_drag_body <- 0.5 * rho * Cd_body * A_body * v3_mean
+
+# Power of drag beard
+P_drag_beard <- P_drag_body *
+  (A_beard / A_body) *
+  (alpha^3)
+
+# Delta time
+delta_time <- T_total * (P_drag_beard / P_total)
+
+# Probability of activation of effect of beard
+p_active <- runif(N, 0.05, 0.2)  # ex. 5–20 % of time
+
+delta_time_real <- delta_time * p_active
+
+
+#Posterioritodennäköisyys
+p_loss <- mean(delta_time >= 0.01)
+
+# Visualisointi
+df <- data.frame(delta_time)
+
+
+ggplot(df, aes(x = delta_time_real)) +
+  geom_density(fill = "lightgray") +
+  geom_vline(xintercept = 0.01, linetype = "dashed", linewidth = 1.2) +
+  annotate("text", x = 0.011, y = 2.5, label = "0.01 s (todellinen ero)") +
+  labs(
+    title = "Posteriorijakauma parran aiheuttamalle ajanhäviölle",
+    subtitle = sprintf("P(Δt ≥ 0.01 s)"),
+    x = "Ajanhäviö (sekunteina)",
+    y = "Tiheys"
+  ) +
+  theme_minimal()
+```

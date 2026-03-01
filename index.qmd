@@ -50,36 +50,42 @@ Tilastollinen mallinnus on väline – ei itseisarvo.
 
 ## Ydinkyvykkyydet
 
-### Statistical & Causal Modeling
-- Linear and generalized linear models  
-- Hierarchical models  
-- Bayesian inference  
-- Causal inference  
+### Tilastolliset mallit
+- Lienaariset ja yleiset lienaariset mallit
+- Hierarkiset mallit
+- Bayeslainen tilastotiede  
 
-### Machine Learning & Model Validation
-- Supervised learning  
+
+### Koneoppiminen ja mallien validointi
+- Ohjattu ja ohjaamton oppminen
+  - Neuroverkot
+  - Gradient boosting
+  - Päätöspuuut
 - Feature engineering  
-- Cross-validation frameworks  
-- Model diagnostics  
+- Cross-validation frameworks 
+- Mallien diagnostiikka ja validointi  
 
-### Reproducible Data Workflows
+### Data workflow
 - SQL  
 - Automated data pipelines  
-- Version control (Git)  
-- Quarto-based reporting  
+- Versionhallinta (Git)  
+- Quarto-Pohjainen raportointi
+- Python
+- R
+- PowerBI
 
-### Communication & Decision Support
-- Executive-level reporting  
-- Technical blogging  
-- Data visualization  
-- Stakeholder communication  
-
+### Päätöksen tuki ja viesintä
+- Vaativa raportointi
+- Datan visualisointi 
+- Tulosten viestintä työntekijöille, asiakkaille ja muille tahoille
+- Kaikkien edellä mainittujen asioiden koulutus
 ---
 
 ## Kirjoitan ja analysoin
 
 Blogissani käsittelen:
 
+- Ajankohtaisia ja minua kiinnostavia aiheita eri sektoreilta data-analyysin keinoin
 - Mallinnuksen käytännön ongelmia
 - Kausaalipäättelyn sudenkuoppia
 - Ennustamisen rajoja
@@ -91,7 +97,7 @@ Blogissani käsittelen:
 
 ## Yhteystiedot
 
-Yhteydenotot: kristia.vepsalainen@proton.me
+Yhteydenotot: kristian.vepsalainen@proton.me
 
 Avoin keskusteluille, projekteille ja yhteistyölle.
 

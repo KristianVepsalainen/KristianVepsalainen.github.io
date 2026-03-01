@@ -1,8 +1,98 @@
 ---
 title: "Kristian Vepsäläinen"
+format:
+  html:
+    toc: false
 ---
 
 Datatiede ja tilastollinen mallinnus
 
 Rakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi.
+
+---
+title: "Kristian Vepsäläinen"
+format:
+  html:
+    toc: false
+---
+
+# Data, päätöksenteko ja epävarmuus
+
+Suurin osa organisaatioista käyttää dataa raportointiin.  
+Minä rakennan malleja, joilla tehdään päätöksiä.
+
+Erikoistun ennustemallinnukseen, kausaalianalyysiin ja päätöksenteon kvantifiointiin.
+
+---
+
+## Mitä tämä tarkoittaa käytännössä?
+
+Autan organisaatioita:
+
+- Ennustamaan kysyntää, myyntiä ja käyttäytymistä
+- Mittaamaan interventioiden todellisia kausaalivaikutuksia
+- Kvantifioimaan epävarmuutta päätöksenteossa
+- Rakentamaan toistettavia ja läpinäkyviä analyysiprosesseja
+
+Työskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia.
+
+---
+
+## Ajatteluni ydin
+
+Datatiede ei ole algoritmien valintaa.
+
+Se on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.
+
+Tilastollinen mallinnus on väline – ei itseisarvo.
+
+---
+
+## Ydinkyvykkyydet
+
+### Statistical & Causal Modeling
+- Linear and generalized linear models  
+- Hierarchical models  
+- Bayesian inference  
+- Causal inference  
+
+### Machine Learning & Model Validation
+- Supervised learning  
+- Feature engineering  
+- Cross-validation frameworks  
+- Model diagnostics  
+
+### Reproducible Data Workflows
+- SQL  
+- Automated data pipelines  
+- Version control (Git)  
+- Quarto-based reporting  
+
+### Communication & Decision Support
+- Executive-level reporting  
+- Technical blogging  
+- Data visualization  
+- Stakeholder communication  
+
+---
+
+## Kirjoitan ja analysoin
+
+Blogissani käsittelen:
+
+- Mallinnuksen käytännön ongelmia
+- Kausaalipäättelyn sudenkuoppia
+- Ennustamisen rajoja
+- Data-analytiikan roolia strategiassa
+
+→ [Siirry blogiin](/blog.qmd)
+
+---
+
+## Yhteystiedot
+
+Yhteydenotot: kristia.vepsalainen@proton.me
+
+Avoin keskusteluille, projekteille ja yhteistyölle.
+
 

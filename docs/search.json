@@ -21,6 +21,41 @@
     "text": "Datatiede ja tilastollinen mallinnus\nRakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi."
   },
   {
+    "objectID": "index.html#mitä-tämä-tarkoittaa-käytännössä",
+    "href": "index.html#mitä-tämä-tarkoittaa-käytännössä",
+    "title": "Kristian Vepsäläinen",
+    "section": "Mitä tämä tarkoittaa käytännössä?",
+    "text": "Mitä tämä tarkoittaa käytännössä?\nAutan organisaatioita:\n\nEnnustamaan kysyntää, myyntiä ja käyttäytymistä\nMittaamaan interventioiden todellisia kausaalivaikutuksia\nKvantifioimaan epävarmuutta päätöksenteossa\nRakentamaan toistettavia ja läpinäkyviä analyysiprosesseja\n\nTyöskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia."
+  },
+  {
+    "objectID": "index.html#ajatteluni-ydin",
+    "href": "index.html#ajatteluni-ydin",
+    "title": "Kristian Vepsäläinen",
+    "section": "Ajatteluni ydin",
+    "text": "Ajatteluni ydin\nDatatiede ei ole algoritmien valintaa.\nSe on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.\nTilastollinen mallinnus on väline – ei itseisarvo."
+  },
+  {
+    "objectID": "index.html#ydinkyvykkyydet",
+    "href": "index.html#ydinkyvykkyydet",
+    "title": "Kristian Vepsäläinen",
+    "section": "Ydinkyvykkyydet",
+    "text": "Ydinkyvykkyydet\n\nStatistical & Causal Modeling\n\nLinear and generalized linear models\n\nHierarchical models\n\nBayesian inference\n\nCausal inference\n\n\n\nMachine Learning & Model Validation\n\nSupervised learning\n\nFeature engineering\n\nCross-validation frameworks\n\nModel diagnostics\n\n\n\nReproducible Data Workflows\n\nSQL\n\nAutomated data pipelines\n\nVersion control (Git)\n\nQuarto-based reporting\n\n\n\nCommunication & Decision Support\n\nExecutive-level reporting\n\nTechnical blogging\n\nData visualization\n\nStakeholder communication"
+  },
+  {
+    "objectID": "index.html#kirjoitan-ja-analysoin",
+    "href": "index.html#kirjoitan-ja-analysoin",
+    "title": "Kristian Vepsäläinen",
+    "section": "Kirjoitan ja analysoin",
+    "text": "Kirjoitan ja analysoin\nBlogissani käsittelen:\n\nMallinnuksen käytännön ongelmia\nKausaalipäättelyn sudenkuoppia\nEnnustamisen rajoja\nData-analytiikan roolia strategiassa\n\n→ Siirry blogiin"
+  },
+  {
+    "objectID": "index.html#yhteystiedot",
+    "href": "index.html#yhteystiedot",
+    "title": "Kristian Vepsäläinen",
+    "section": "Yhteystiedot",
+    "text": "Yhteystiedot\nYhteydenotot: kristia.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
+  },
+  {
     "objectID": "posts/ensimmainen-postaus.html",
     "href": "posts/ensimmainen-postaus.html",
     "title": "Ensimmäinen analyysini",

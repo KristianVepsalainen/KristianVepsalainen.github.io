@@ -1,7 +1,7 @@
 ---
 title: "Minusta"
 ---
-
+![](images/kristian-vepsalainen.jpg){ width=300px }
 Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella. Olen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta. Graudni tein liittyen kansantalouden tilinpitoon ja julkaisin siitä [artikkelin](https://arxiv.org/abs/2012.11282).
 
 Työurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finassialalla.

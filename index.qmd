@@ -5,16 +5,10 @@ format:
     toc: false
 ---
 
-Datatiede ja tilastollinen mallinnus
+Datatiede ja tilastollinen mallinnus ![](images/kristian-vepsalainen.jpg){ width=300px }
 
 Rakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi.
 
----
-title: "Kristian Vepsäläinen"
-format:
-  html:
-    toc: false
----
 
 # Data, päätöksenteko ja epävarmuus
 

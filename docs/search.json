@@ -56,8 +56,8 @@
     "text": "Yhteystiedot\nYhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
   },
   {
-    "objectID": "posts/ensimmainen-postaus.html",
-    "href": "posts/ensimmainen-postaus.html",
+    "objectID": "posts/Mieto-ja-parta.html",
+    "href": "posts/Mieto-ja-parta.html",
     "title": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?",
     "section": "",
     "text": "Facebookin “Rakastan matematiikkaa”-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.\nTuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.\nOletin myös todelliset väliajat (https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan."

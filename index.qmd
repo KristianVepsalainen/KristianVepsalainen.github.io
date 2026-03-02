@@ -86,6 +86,7 @@ Tilastollinen mallinnus on väline – ei itseisarvo.
 - Datan visualisointi 
 - Tulosten viestintä työntekijöille, asiakkaille ja muille tahoille
 - Kaikkien edellä mainittujen asioiden koulutus
+
 ---
 
 ## Kirjoitan ja analysoin

@@ -25,7 +25,12 @@ website:
 
 format:
   html:
-    theme: cosmo
+    smooth-scroll: true
+    anchor-sections: true
+    link-external-newwindow: true
+    theme: 
+      - litera
+      - styles.scss
     toc: true
     code-copy: true
     cache: false

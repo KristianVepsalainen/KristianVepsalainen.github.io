@@ -18,42 +18,42 @@
     "href": "index.html",
     "title": "Kristian Vepsäläinen",
     "section": "",
-    "text": "Datatiede ja tilastollinen mallinnus\nRakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi."
+    "text": "Datatiede ja tilastollinen mallinnus\nRakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi.\n\n\nSuurin osa organisaatioista käyttää dataa raportointiin.\nMinä rakennan malleja, joilla tehdään päätöksiä.\nErikoistun ennustemallinnukseen, kausaalianalyysiin ja päätöksenteon kvantifiointiin.\n\n\n\nAutan organisaatioita:\n\nEnnustamaan kysyntää, myyntiä ja käyttäytymistä\nMittaamaan interventioiden todellisia kausaalivaikutuksia\nKvantifioimaan epävarmuutta päätöksenteossa\nRakentamaan toistettavia ja läpinäkyviä analyysiprosesseja\n\nTyöskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia.\n\n\n\n\nDatatiede ei ole algoritmien valintaa.\nSe on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.\nTilastollinen mallinnus on väline – ei itseisarvo.\n\n\n\n\n\n\n\nLienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\n\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\n\n\nSuuret kielimallit\nChatGPT\nClaude\nTekoälyagentit\nn8n automaatiot\n\n\n\n\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\n\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus\n\n\n\n\n\n\nBlogissani käsittelen:\n\nAjankohtaisia ja minua kiinnostavia aiheita eri sektoreilta data-analyysin keinoin\nMallinnuksen käytännön ongelmia\nKausaalipäättelyn sudenkuoppia\nEnnustamisen rajoja\nData-analytiikan roolia strategiassa\n\n→ Siirry blogiin\n\n\n\n\nYhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
   },
   {
     "objectID": "index.html#mitä-tämä-tarkoittaa-käytännössä",
     "href": "index.html#mitä-tämä-tarkoittaa-käytännössä",
     "title": "Kristian Vepsäläinen",
-    "section": "Mitä tämä tarkoittaa käytännössä?",
-    "text": "Mitä tämä tarkoittaa käytännössä?\nAutan organisaatioita:\n\nEnnustamaan kysyntää, myyntiä ja käyttäytymistä\nMittaamaan interventioiden todellisia kausaalivaikutuksia\nKvantifioimaan epävarmuutta päätöksenteossa\nRakentamaan toistettavia ja läpinäkyviä analyysiprosesseja\n\nTyöskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia."
+    "section": "",
+    "text": "Autan organisaatioita:\n\nEnnustamaan kysyntää, myyntiä ja käyttäytymistä\nMittaamaan interventioiden todellisia kausaalivaikutuksia\nKvantifioimaan epävarmuutta päätöksenteossa\nRakentamaan toistettavia ja läpinäkyviä analyysiprosesseja\n\nTyöskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia."
   },
   {
     "objectID": "index.html#ajatteluni-ydin",
     "href": "index.html#ajatteluni-ydin",
     "title": "Kristian Vepsäläinen",
-    "section": "Ajatteluni ydin",
-    "text": "Ajatteluni ydin\nDatatiede ei ole algoritmien valintaa.\nSe on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.\nTilastollinen mallinnus on väline – ei itseisarvo."
+    "section": "",
+    "text": "Datatiede ei ole algoritmien valintaa.\nSe on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.\nTilastollinen mallinnus on väline – ei itseisarvo."
   },
   {
     "objectID": "index.html#ydinkyvykkyydet",
     "href": "index.html#ydinkyvykkyydet",
     "title": "Kristian Vepsäläinen",
-    "section": "Ydinkyvykkyydet",
-    "text": "Ydinkyvykkyydet\n\nTilastolliset mallit\n\nLienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\nKoneoppiminen ja mallien validointi\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\nTekoäly\n\nSuuret kielimallit\nChatGPT\nClaude\nTekoälyagentit\nn8n automaatiot\n\n\n\nData workflow\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\nPäätöksen tuki ja viesintä\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus"
+    "section": "",
+    "text": "Lienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\n\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\n\n\nSuuret kielimallit\nChatGPT\nClaude\nTekoälyagentit\nn8n automaatiot\n\n\n\n\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\n\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus"
   },
   {
     "objectID": "index.html#kirjoitan-ja-analysoin",
     "href": "index.html#kirjoitan-ja-analysoin",
     "title": "Kristian Vepsäläinen",
-    "section": "Kirjoitan ja analysoin",
-    "text": "Kirjoitan ja analysoin\nBlogissani käsittelen:\n\nAjankohtaisia ja minua kiinnostavia aiheita eri sektoreilta data-analyysin keinoin\nMallinnuksen käytännön ongelmia\nKausaalipäättelyn sudenkuoppia\nEnnustamisen rajoja\nData-analytiikan roolia strategiassa\n\n→ Siirry blogiin"
+    "section": "",
+    "text": "Blogissani käsittelen:\n\nAjankohtaisia ja minua kiinnostavia aiheita eri sektoreilta data-analyysin keinoin\nMallinnuksen käytännön ongelmia\nKausaalipäättelyn sudenkuoppia\nEnnustamisen rajoja\nData-analytiikan roolia strategiassa\n\n→ Siirry blogiin"
   },
   {
     "objectID": "index.html#yhteystiedot",
     "href": "index.html#yhteystiedot",
     "title": "Kristian Vepsäläinen",
-    "section": "Yhteystiedot",
-    "text": "Yhteystiedot\nYhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
+    "section": "",
+    "text": "Yhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
   },
   {
     "objectID": "posts/Mieto-ja-parta.html",

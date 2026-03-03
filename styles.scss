@@ -1,0 +1,19 @@
+/*-- scss:defaults --*/
+
+$primary: #0f172a;
+$secondary: #334155;
+$body-color: #1e293b;
+$link-color: #1d4ed8;
+
+$font-family-sans-serif: "Inter", "Source Sans Pro", sans-serif;
+
+
+/*-- scss:rules --*/
+
+body {
+  line-height: 1.7;
+}
+
+h1, h2, h3 {
+  font-weight: 600;
+}

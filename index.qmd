@@ -5,7 +5,15 @@ format:
     toc: false
 ---
 
-Datatiede ja tilastollinen mallinnus ![](images/kristian-vepsalainen.jpg){ width=300px }
+::: {.columns .v-center}
+
+::: {.column width="35%"}
+![](images/kristian-vepsalainen.jpg){.img-fluid .rounded}
+:::
+
+::: {.column width="65%"}
+
+Datatiede ja tilastollinen mallinnus 
 
 Rakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi.
 

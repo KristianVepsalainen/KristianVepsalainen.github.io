@@ -1,0 +1,147 @@
+---
+title: "Palvelut ja hinnoittelu"
+---
+## Avoin data kilpailuetuna
+
+Autan yrityksiä ja organisaatioita löytämään ja hyödyntämään avointa dataa päätöksenteossa.
+Työni yhdistää avoimen datan kartoituksen, analyysin ja liiketoimintalähtöisen tulkinnan.
+
+Palvelut on suunniteltu niin, että ne tuottavat konkreettisen lopputuloksen:
+paremman ymmärryksen markkinasta, riskeistä tai kasvumahdollisuuksista.
+
+
+
+# Palvelupaketit
+
+## Open Data Scan
+
+Ensimmäinen askel organisaatiolle, joka haluaa selvittää, mitä avoimesta datasta voidaan oppia.
+
+**Sisältö**
+
+* Organisaation kysymyksen tai ongelman määrittely
+* Avoimen datan ja OSINT-lähteiden kartoitus
+* Alustava analyysi ja visualisointi
+* Keskeiset havainnot ja johtopäätökset
+* Suositukset jatkotoimenpiteiksi
+* Kirjallinen raportti (PDF)
+* Etäesitys tuloksista
+
+**Kesto**
+
+2–4 viikkoa
+
+**Hinta**
+
+7 000 – 15 000 € + alv
+
+---
+
+## Strategic Open Data Project
+
+Syvällinen analyysiprojekti, jossa avoimesta datasta rakennetaan päätöksenteon työkaluja.
+
+**Sisältö**
+
+* Avoimen datan laaja kartoitus
+* Datan yhdistely ja rikastaminen
+* Tilastollinen mallinnus
+* Skenaario- ja epävarmuusanalyysi
+* Replikoitava analyysikoodi
+* Johtopäätökset ja strategiset suositukset
+* Tulosten esitys johdolle
+
+**Kesto**
+
+1–3 kuukautta
+
+**Hinta**
+
+20 000 – 60 000 € + alv
+
+---
+
+## Executive Workshop
+
+Johdolle suunnattu työpaja avoimen datan hyödyntämisestä.
+
+**Sisältö**
+
+* Mitä avointa dataa on saatavilla yrityksellenne
+* Miten sitä voidaan hyödyntää kilpailuetuna
+* Käytännön esimerkkejä ja case-analyysejä
+* Keskustelu organisaation omista mahdollisuuksista
+
+**Kesto**
+
+½–1 päivä
+
+**Hinta**
+
+3 000 – 8 000 € + alv
+
+---
+
+# Toimitusehdot
+
+## Tarjous ja sopimus
+
+Jokainen projekti käynnistyy kirjallisella tarjouksella ja tilausvahvistuksella.
+Tarjous sisältää työn laajuuden, aikataulun ja hinnan.
+
+---
+
+## Maksuehdot
+
+* Maksuehto 14 päivää laskun päiväyksestä
+* Projekteissa laskutus yleensä kahdessa erässä:
+
+  * 50 % projektin alussa
+  * 50 % projektin valmistuessa
+
+---
+
+## Asiakkaan vastuut
+
+Asiakas sitoutuu toimittamaan projektin kannalta olennaiset tiedot ja taustamateriaalit sovitussa aikataulussa.
+
+Projektin aikataulu voi muuttua, jos tarvittavia tietoja ei ole saatavilla.
+
+---
+
+## Avoin data ja lähteet
+
+Analyysit perustuvat pääosin avoimiin ja julkisiin tietolähteisiin.
+Lähteet dokumentoidaan raportissa mahdollisimman läpinäkyvästi.
+
+---
+
+## Immateriaalioikeudet
+
+Asiakas saa oikeuden käyttää projektin tuloksia omassa toiminnassaan.
+
+Analyysimenetelmät, koodi ja yleinen osaaminen jäävät palveluntarjoajan käyttöön, ellei toisin sovita.
+
+---
+
+## Vastuun rajaus
+
+Analyysit perustuvat saatavilla olevaan dataan ja parhaaseen mahdolliseen asiantuntija-arvioon.
+Tuloksia ei tule tulkita sitovina ennusteina tai taloudellisina suosituksina.
+
+Palveluntarjoajan vastuu rajoittuu projektin arvoon.
+
+---
+
+## Luottamuksellisuus
+
+Kaikki asiakkaalta saatu tieto käsitellään luottamuksellisesti.
+
+---
+
+# Ota yhteyttä
+
+Jos haluat keskustella, voisiko avoimesta datasta olla hyötyä organisaatiosi päätöksenteossa, ota yhteyttä.
+
+Yhteydenotot:
+kristian.vepsalainen@proton.me

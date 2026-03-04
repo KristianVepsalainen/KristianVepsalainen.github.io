@@ -1,17 +1,94 @@
 [
   {
-    "objectID": "blog.html",
-    "href": "blog.html",
-    "title": "Blogi",
+    "objectID": "pricing.html",
+    "href": "pricing.html",
+    "title": "Palvelut ja hinnoittelu",
     "section": "",
-    "text": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?\n\n\n\n\n\n\n\n\nMar 1, 2026\n\n\n\n\n\nNo matching items"
+    "text": "Autan yrityksiä ja organisaatioita löytämään ja hyödyntämään avointa dataa päätöksenteossa. Työni yhdistää avoimen datan kartoituksen, analyysin ja liiketoimintalähtöisen tulkinnan.\nPalvelut on suunniteltu niin, että ne tuottavat konkreettisen lopputuloksen: paremman ymmärryksen markkinasta, riskeistä tai kasvumahdollisuuksista."
   },
   {
-    "objectID": "about.html",
-    "href": "about.html",
-    "title": "Minusta",
+    "objectID": "pricing.html#avoin-data-kilpailuetuna",
+    "href": "pricing.html#avoin-data-kilpailuetuna",
+    "title": "Palvelut ja hinnoittelu",
     "section": "",
-    "text": "Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella. Olen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta. Graudni tein liittyen kansantalouden tilinpitoon ja julkaisin siitä artikkelin.\nTyöurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finassialalla.\nAloitin työurani jo opiskeluaikana tekemällä matematiikan, fysiikan ja kemian opettajan sijaisuuksia ympäri Itä-Suomea. Tämän jälkeen siirryin Uudellemaalle työskentelemään Sosiaalitaito Oy:llä, jossa tein monipuolista analytiikkaa liittyen Länsi- ja Keski-Uudenmaan sosiaalihuoltoon. Julkaisin tänä aikana myös toisen tieteellisen artikkelini.\nSeuraavaksi siirryin Terveyden ja hyvinvoinnin laitokselle eli THL:lle töihin. THL:llä toimin lukuisissa eri projekteissa datatieteilijänä. Projekteista osa oli talon sisäisiä ja osa oli ulkoisten toimijoiden (sekä yksityisiä yrityksiä että muita valtionhallinnon toimoijta) kanssa yhteistyöprojekteja. Näistä projekteista syntyi myös seuraavat tieteelliset artikkelit\n\nPredicting utilization of healthcare services from individual disease trajectories using RNNs with multi-headed attention\nAssessing health gradient with different equivalence scales for household income – A sensitivity analysis\nImpact of a Conformité Européenne (CE) Certification–Marked Medical Software Sensor on COVID-19 Pandemic Progression Prediction: Register-Based Study Using Machine Learning Methods\n\nsekä konferenssiesitys Assessing the Quality of Finnish Primary Health Care Registers, jonka pidin konferenssissa 9th Nordic Conference of Epidemiology and Register-Based Health Research Tampereen yliopistolla vuonna 2019.\nTHL:tä siirryin finanssialalle data-analyytikoksi. Finanssialan kokemukseni liittyy pääasiassa erilaisten compliance-kysymysten analytiikkaan. Samaan aikaan perustin toiminimen, jolla olen tehnyt erilaisia sivuprojekteja.Näistä sivuprojekteista pitkäkestoisin on ollut Tampereen yliopistosairaalan Silmätautikeskuksen kanssa tehdyt projektit, joissa on tehty benchmarking-menetelmä glaukooman hoitoon. Tässä on syntynyt myös kaksi tieteellistä artikkelia: - Users of reimbursed glaucoma medications in Finland in 1986–2023: A nationwide study - Prototype master protocol for benchmarking of real-world follow-up data in glaucoma\nOlen antanyt myös yksityisopetusta matematiikan ja tilastotieteen aloilla ammattikorkeakoulu- ja yliopisto-opiskeljoille.\nSuoritin tänä aikana myös mainitsemani kyberturvallisuusinsinöörin tutkinnon johon liittyen tein opinnäytetyön, joka liittyi avoimien lähteiden tiedusteluun (OSINT).\nTulevaisuuden tavoitteni on siirtyä täyspäiväiseksi yrittäjäksi data-analytiikan alalla.\nJos sinulla on kiinnostusta projektiin, älä epäröi ottaa yhteyttä kristian.vepsalainen@proton.me"
+    "text": "Autan yrityksiä ja organisaatioita löytämään ja hyödyntämään avointa dataa päätöksenteossa. Työni yhdistää avoimen datan kartoituksen, analyysin ja liiketoimintalähtöisen tulkinnan.\nPalvelut on suunniteltu niin, että ne tuottavat konkreettisen lopputuloksen: paremman ymmärryksen markkinasta, riskeistä tai kasvumahdollisuuksista."
+  },
+  {
+    "objectID": "pricing.html#open-data-scan",
+    "href": "pricing.html#open-data-scan",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Open Data Scan",
+    "text": "Open Data Scan\nEnsimmäinen askel organisaatiolle, joka haluaa selvittää, mitä avoimesta datasta voidaan oppia.\nSisältö\n\nOrganisaation kysymyksen tai ongelman määrittely\nAvoimen datan ja OSINT-lähteiden kartoitus\nAlustava analyysi ja visualisointi\nKeskeiset havainnot ja johtopäätökset\nSuositukset jatkotoimenpiteiksi\nKirjallinen raportti (PDF)\nEtäesitys tuloksista\n\nKesto\n2–4 viikkoa\nHinta\n7 000 – 15 000 € + alv"
+  },
+  {
+    "objectID": "pricing.html#strategic-open-data-project",
+    "href": "pricing.html#strategic-open-data-project",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Strategic Open Data Project",
+    "text": "Strategic Open Data Project\nSyvällinen analyysiprojekti, jossa avoimesta datasta rakennetaan päätöksenteon työkaluja.\nSisältö\n\nAvoimen datan laaja kartoitus\nDatan yhdistely ja rikastaminen\nTilastollinen mallinnus\nSkenaario- ja epävarmuusanalyysi\nReplikoitava analyysikoodi\nJohtopäätökset ja strategiset suositukset\nTulosten esitys johdolle\n\nKesto\n1–3 kuukautta\nHinta\n20 000 – 60 000 € + alv"
+  },
+  {
+    "objectID": "pricing.html#executive-workshop",
+    "href": "pricing.html#executive-workshop",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Executive Workshop",
+    "text": "Executive Workshop\nJohdolle suunnattu työpaja avoimen datan hyödyntämisestä.\nSisältö\n\nMitä avointa dataa on saatavilla yrityksellenne\nMiten sitä voidaan hyödyntää kilpailuetuna\nKäytännön esimerkkejä ja case-analyysejä\nKeskustelu organisaation omista mahdollisuuksista\n\nKesto\n½–1 päivä\nHinta\n3 000 – 8 000 € + alv"
+  },
+  {
+    "objectID": "pricing.html#tarjous-ja-sopimus",
+    "href": "pricing.html#tarjous-ja-sopimus",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Tarjous ja sopimus",
+    "text": "Tarjous ja sopimus\nJokainen projekti käynnistyy kirjallisella tarjouksella ja tilausvahvistuksella. Tarjous sisältää työn laajuuden, aikataulun ja hinnan."
+  },
+  {
+    "objectID": "pricing.html#maksuehdot",
+    "href": "pricing.html#maksuehdot",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Maksuehdot",
+    "text": "Maksuehdot\n\nMaksuehto 14 päivää laskun päiväyksestä\nProjekteissa laskutus yleensä kahdessa erässä:\n\n50 % projektin alussa\n50 % projektin valmistuessa"
+  },
+  {
+    "objectID": "pricing.html#asiakkaan-vastuut",
+    "href": "pricing.html#asiakkaan-vastuut",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Asiakkaan vastuut",
+    "text": "Asiakkaan vastuut\nAsiakas sitoutuu toimittamaan projektin kannalta olennaiset tiedot ja taustamateriaalit sovitussa aikataulussa.\nProjektin aikataulu voi muuttua, jos tarvittavia tietoja ei ole saatavilla."
+  },
+  {
+    "objectID": "pricing.html#avoin-data-ja-lähteet",
+    "href": "pricing.html#avoin-data-ja-lähteet",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Avoin data ja lähteet",
+    "text": "Avoin data ja lähteet\nAnalyysit perustuvat pääosin avoimiin ja julkisiin tietolähteisiin. Lähteet dokumentoidaan raportissa mahdollisimman läpinäkyvästi."
+  },
+  {
+    "objectID": "pricing.html#immateriaalioikeudet",
+    "href": "pricing.html#immateriaalioikeudet",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Immateriaalioikeudet",
+    "text": "Immateriaalioikeudet\nAsiakas saa oikeuden käyttää projektin tuloksia omassa toiminnassaan.\nAnalyysimenetelmät, koodi ja yleinen osaaminen jäävät palveluntarjoajan käyttöön, ellei toisin sovita."
+  },
+  {
+    "objectID": "pricing.html#vastuun-rajaus",
+    "href": "pricing.html#vastuun-rajaus",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Vastuun rajaus",
+    "text": "Vastuun rajaus\nAnalyysit perustuvat saatavilla olevaan dataan ja parhaaseen mahdolliseen asiantuntija-arvioon. Tuloksia ei tule tulkita sitovina ennusteina tai taloudellisina suosituksina.\nPalveluntarjoajan vastuu rajoittuu projektin arvoon."
+  },
+  {
+    "objectID": "pricing.html#luottamuksellisuus",
+    "href": "pricing.html#luottamuksellisuus",
+    "title": "Palvelut ja hinnoittelu",
+    "section": "Luottamuksellisuus",
+    "text": "Luottamuksellisuus\nKaikki asiakkaalta saatu tieto käsitellään luottamuksellisesti."
+  },
+  {
+    "objectID": "posts/Mieto-ja-parta.html",
+    "href": "posts/Mieto-ja-parta.html",
+    "title": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?",
+    "section": "",
+    "text": "Facebookin “Rakastan matematiikkaa”-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.\nTuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.\nOletin myös todelliset väliajat (https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan."
   },
   {
     "objectID": "index.html",
@@ -56,10 +133,17 @@
     "text": "Yhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
   },
   {
-    "objectID": "posts/Mieto-ja-parta.html",
-    "href": "posts/Mieto-ja-parta.html",
-    "title": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?",
+    "objectID": "about.html",
+    "href": "about.html",
+    "title": "Minusta",
     "section": "",
-    "text": "Facebookin “Rakastan matematiikkaa”-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.\nTuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.\nOletin myös todelliset väliajat (https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan."
+    "text": "Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella. Olen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta. Graudni tein liittyen kansantalouden tilinpitoon ja julkaisin siitä artikkelin.\nTyöurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finassialalla.\nAloitin työurani jo opiskeluaikana tekemällä matematiikan, fysiikan ja kemian opettajan sijaisuuksia ympäri Itä-Suomea. Tämän jälkeen siirryin Uudellemaalle työskentelemään Sosiaalitaito Oy:llä, jossa tein monipuolista analytiikkaa liittyen Länsi- ja Keski-Uudenmaan sosiaalihuoltoon. Julkaisin tänä aikana myös toisen tieteellisen artikkelini.\nSeuraavaksi siirryin Terveyden ja hyvinvoinnin laitokselle eli THL:lle töihin. THL:llä toimin lukuisissa eri projekteissa datatieteilijänä. Projekteista osa oli talon sisäisiä ja osa oli ulkoisten toimijoiden (sekä yksityisiä yrityksiä että muita valtionhallinnon toimoijta) kanssa yhteistyöprojekteja. Näistä projekteista syntyi myös seuraavat tieteelliset artikkelit\n\nPredicting utilization of healthcare services from individual disease trajectories using RNNs with multi-headed attention\nAssessing health gradient with different equivalence scales for household income – A sensitivity analysis\nImpact of a Conformité Européenne (CE) Certification–Marked Medical Software Sensor on COVID-19 Pandemic Progression Prediction: Register-Based Study Using Machine Learning Methods\n\nsekä konferenssiesitys Assessing the Quality of Finnish Primary Health Care Registers, jonka pidin konferenssissa 9th Nordic Conference of Epidemiology and Register-Based Health Research Tampereen yliopistolla vuonna 2019.\nTHL:tä siirryin finanssialalle data-analyytikoksi. Finanssialan kokemukseni liittyy pääasiassa erilaisten compliance-kysymysten analytiikkaan. Samaan aikaan perustin toiminimen, jolla olen tehnyt erilaisia sivuprojekteja.Näistä sivuprojekteista pitkäkestoisin on ollut Tampereen yliopistosairaalan Silmätautikeskuksen kanssa tehdyt projektit, joissa on tehty benchmarking-menetelmä glaukooman hoitoon. Tässä on syntynyt myös kaksi tieteellistä artikkelia: - Users of reimbursed glaucoma medications in Finland in 1986–2023: A nationwide study - Prototype master protocol for benchmarking of real-world follow-up data in glaucoma\nOlen antanyt myös yksityisopetusta matematiikan ja tilastotieteen aloilla ammattikorkeakoulu- ja yliopisto-opiskeljoille.\nSuoritin tänä aikana myös mainitsemani kyberturvallisuusinsinöörin tutkinnon johon liittyen tein opinnäytetyön, joka liittyi avoimien lähteiden tiedusteluun (OSINT).\nTulevaisuuden tavoitteni on siirtyä täyspäiväiseksi yrittäjäksi data-analytiikan alalla.\nJos sinulla on kiinnostusta projektiin, älä epäröi ottaa yhteyttä kristian.vepsalainen@proton.me"
+  },
+  {
+    "objectID": "blog.html",
+    "href": "blog.html",
+    "title": "Blogi",
+    "section": "",
+    "text": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?\n\n\n\n\n\n\n\n\nMar 1, 2026\n\n\n\n\n\nNo matching items"
   }
 ]

@@ -13,6 +13,8 @@ website:
         text: Blogi
       - href: about.qmd
         text: Minusta
+      - href: pricing.qmd
+        text: Hinnoittelu
 
   page-footer:
     left: "© 2026 Kristian Vepsäläinen"

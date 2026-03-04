@@ -1,0 +1,125 @@
+---
+title: "Osa 1 — Inflaatio ei ole luku vaan se on prosessi"
+date: 2026-03-04
+categories: [R, Data Science, talous, inflaatio, ennustaminen]
+---
+
+Mediassa inflaatiota käsitellään usein pelkkänä yhtenä lukuna. Se ei kuitenkaan ole pelkkä yksittäinen
+luku, vaan prosessi, joka sisältää jakauman ja virherajat. 
+
+Tämän moniosaisen blogipostauksen tarkoituksena on käydä läpi talouteen ja 
+erityisesti inflaatioon liittyviä datalähteitä sekä näillä tehtäviä ennusteita ja miten ennusteet 
+syntyvät.
+
+Ennustamisen kohteena on Suomen kuluttajintainflaation vuosimuotos eli HICP. Datan kerään Eurostatilta, joka on Euroopan unionin tilastokeskus.
+
+
+```{r echo = FALSE, message=FALSE}
+# Paketointi
+library(eurostat)
+library(dplyr)
+library(tsibble)
+library(ggplot2)
+library(lubridate)
+library(feasts)
+
+# HICP kuukausi-indeksi
+hicp_raw <- get_eurostat(
+  "prc_hicp_midx",
+  time_format = "date"
+)
+
+# Suomi, kokonaisindeksi
+hicp_fi <- hicp_raw |>
+  filter(
+    geo == "FI",
+    coicop == "CP00",
+    unit == "I15"
+  ) |>
+  select(time = TIME_PERIOD, values) |>
+  arrange(time)
+
+# Muodostetaan tsibble
+hicp_ts <- hicp_fi |>
+  mutate(time = yearmonth(time)) |>   # <- kriittinen muunnos
+  as_tsibble(index = time)
+
+# Lasketaan vuosimuutos (%)
+hicp_yoy <- hicp_ts |>
+  mutate(
+    inflation_yoy = 100 * (values / lag(values, 12) - 1)
+  ) |>
+  filter(!is.na(inflation_yoy))
+
+```
+Kirjoita tähän väliin selitystä:
+
+```{r echo = FALSE, message=FALSE}
+hicp_yoy |>
+  ggplot(aes(x = time, y = inflation_yoy)) +
+  geom_line() +
+  labs(
+    title = "Suomen HICP-inflaatio (y/y)",
+    x = NULL,
+    y = "Inflaatio (%)"
+  ) +
+  theme_minimal()
+
+```
+Tähän väliin tekstiä:
+
+```{r echo = FALSE, warning=FALSE}
+hicp_yoy |>
+  features(inflation_yoy, unitroot_kpss)
+
+```
+Kausivaihtelu:
+
+```{r echo = FALSE, warning=FALSE}
+
+hicp_yoy |>
+  mutate(year = year(as.Date(time))) |>
+  ggplot(aes(x = month(as.Date(time), label = TRUE),
+             y = inflation_yoy,
+             group = year)) +
+  geom_line(
+    data = ~ filter(.x, year < max(year) - 2),
+    colour = "grey80",
+    linewidth = 0.6
+  ) +
+  geom_line(
+    data = ~ filter(.x, year >= max(year) - 2),
+    aes(colour = factor(year)),
+    linewidth = 1
+  ) +
+  scale_colour_manual(values = c("#1b9e77", "#d95f02", "#7570b3")) +
+  labs(
+    title = "Suomen inflaation kausiprofiili",
+    subtitle = "Viimeiset kolme vuotta korostettu",
+    x = NULL,
+    y = "Inflaatio (%)",
+    colour = "Vuosi"
+  ) +
+  theme_minimal()
+
+
+```
+Volatiliteetti ei ole vakio:
+```{r echo = FALSE, warning=FALSE}
+hicp_yoy |>
+  mutate(rolling_sd = slider::slide_dbl(
+    inflation_yoy,
+    sd,
+    .before = 12,
+    .complete = TRUE
+  )) |>
+  ggplot(aes(time, rolling_sd)) +
+  geom_line() +
+  labs(
+    title = "Inflaation 12 kk liukuva volatiliteetti",
+    y = "Keskihajonta"
+  ) +
+  theme_minimal()
+
+```
+

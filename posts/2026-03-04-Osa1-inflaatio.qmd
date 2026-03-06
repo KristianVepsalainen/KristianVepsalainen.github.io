@@ -2,6 +2,13 @@
 title: "Osa 1 — Inflaatio ei ole luku vaan se on prosessi"
 date: 2026-03-04
 categories: [R, Data Science, talous, inflaatio, ennustaminen]
+description: "Suomen inflaation kuvailua"
+
+image: preview.png
+
+draft: false
+toc: true
+reading-time: true
 ---
 
 Mediassa inflaatiota käsitellään usein pelkkänä yhtenä lukuna. Se ei kuitenkaan ole pelkkä yksittäinen

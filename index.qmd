@@ -1,5 +1,5 @@
 ---
-title: "Kristian Vepsäläinen"
+title: "Kristian Vepsäläinen - Maailma on jakauma"
 format:
   html:
     toc: false

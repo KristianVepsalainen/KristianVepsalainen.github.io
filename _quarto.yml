@@ -3,7 +3,9 @@ project:
   output-dir: docs
 
 website:
-  title: "Kristian Vepsäläinen – Data Science"
+  title: "Kristian Vepsäläinen – Maailma on jakauma"
+  site-url: https://kristianvepsalainen.github.io
+  repo-url: https://github.com/KristianVepsalainen/KristianVepsalainen.github.io
 
   navbar:
     left:
@@ -22,17 +24,34 @@ website:
   sidebar:
     style: docked
 
-  site-url: https://kristianvepsalainen.github.io
-  repo-url: https://github.com/KristianVepsalainen/KristianVepsalainen.github.io
+  open-graph: true
+  twitter-card: true
+  reader-mode: true
+
+  search: true
+  page-navigation: true
+
+  comments:
+    giscus:
+      repo: KristianVepsalainen/KristianVepsalainen.github.io
 
 format:
   html:
-    smooth-scroll: true
-    anchor-sections: true
-    link-external-newwindow: true
-    theme: 
+    theme:
       - litera
       - styles.scss
     toc: true
+    toc-depth: 3
     code-copy: true
-    cache: false
+    smooth-scroll: true
+    anchor-sections: true
+    link-external-newwindow: true
+    code-tools: true
+    fig-responsive: true
+    image-lazy-loading: true
+
+execute:
+  freeze: auto
+  cache: true
+  warning: false
+  message: false

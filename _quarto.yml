@@ -55,3 +55,4 @@ execute:
   cache: true
   warning: false
   message: false
+  code-fold: true

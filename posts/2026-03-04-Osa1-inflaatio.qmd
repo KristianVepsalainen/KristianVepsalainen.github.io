@@ -19,7 +19,7 @@ syntyvät.
 Ennustamisen kohteena on Suomen kuluttajintainflaation vuosimuotos eli HICP. Datan kerään Eurostatilta, joka on Euroopan unionin tilastokeskus.
 
 
-```{r echo = FALSE, message=FALSE}
+```{r}
 # Paketointi
 library(eurostat)
 library(dplyr)
@@ -59,7 +59,7 @@ hicp_yoy <- hicp_ts |>
 ```
 Kirjoita tähän väliin selitystä:
 
-```{r echo = FALSE, message=FALSE}
+```{r}
 hicp_yoy |>
   ggplot(aes(x = time, y = inflation_yoy)) +
   geom_line() +
@@ -73,14 +73,14 @@ hicp_yoy |>
 ```
 Tähän väliin tekstiä:
 
-```{r echo = FALSE, warning=FALSE}
+```{r}
 hicp_yoy |>
   features(inflation_yoy, unitroot_kpss)
 
 ```
 Kausivaihtelu:
 
-```{r echo = FALSE, warning=FALSE}
+```{r}
 
 hicp_yoy |>
   mutate(year = year(as.Date(time))) |>
@@ -110,7 +110,7 @@ hicp_yoy |>
 
 ```
 Volatiliteetti ei ole vakio:
-```{r echo = FALSE, warning=FALSE}
+```{r}
 hicp_yoy |>
   mutate(rolling_sd = slider::slide_dbl(
     inflation_yoy,

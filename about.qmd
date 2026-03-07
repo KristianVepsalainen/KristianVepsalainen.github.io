@@ -8,7 +8,11 @@ title: "Minusta"
 :::
 
 ::: {.column width="65%"}
-Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella. Olen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta. Graudni tein liittyen kansantalouden tilinpitoon ja julkaisin siitä [artikkelin](https://arxiv.org/abs/2012.11282).
+Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella. 
+
+Jos ihmettelet sloganiani, "Maailma on jakauma", se kuvastaa filosofiaani, jonka mukaan mikä tahansa asia maailmassa on kuvattavissa jollain jakaumalla. Yleensä kuitenkin ihmiset näkevät ilmöistä lähinnä keskiarvoja ja ehkä mediaaneja, mutta vasta jakauma antaa todenmukaisen kuvan siitä, mistä asiassa on oikeasti kyse (ja mistä ei ole). Juuri nämä jakaumat ovat olennaisia todellisuuden ymmärtämisessä. Valitettavasti niitä raportoidaan julkisesti harvoin. Suurin osa maailman avoimesta datasta on piste-estimaatteja, eivät jakaumia. Yksi elämäni missioista on saada tähän muutos ja avoimesta datasta hyödyllisempää jokaiselle.
+
+Olen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta. Graudni tein liittyen kansantalouden tilinpitoon ja julkaisin siitä [artikkelin](https://arxiv.org/abs/2012.11282).
 
 Työurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finassialalla.
 
@@ -31,5 +35,6 @@ Olen antanyt myös yksityisopetusta matematiikan ja tilastotieteen aloilla ammat
 Suoritin tänä aikana myös mainitsemani kyberturvallisuusinsinöörin tutkinnon johon liittyen tein opinnäytetyön, joka liittyi avoimien lähteiden tiedusteluun (OSINT).
 
 Tulevaisuuden tavoitteni on siirtyä täyspäiväiseksi yrittäjäksi data-analytiikan alalla.
+
 
 Jos sinulla on kiinnostusta projektiin, älä epäröi ottaa yhteyttä kristian.vepsalainen@proton.me

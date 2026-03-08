@@ -9,16 +9,45 @@ toc: true
 reading-time: true
 ---
 
-Mediassa inflaatiota käsitellään usein pelkkänä yhtenä lukuna. Se ei kuitenkaan ole pelkkä yksittäinen
-luku, vaan prosessi, joka sisältää jakauman ja virherajat. 
 
-Tämän moniosaisen blogipostauksen tarkoituksena on käydä läpi talouteen ja 
-erityisesti inflaatioon liittyviä datalähteitä sekä näillä tehtäviä ennusteita ja miten ennusteet 
-syntyvät.
+Inflaatio on yksi seuratuimmista talousmittareista maailmassa.
 
-Ennustamisen kohteena on Suomen kuluttajintainflaation vuosimuotos eli HICP. Datan kerään Eurostatilta, joka on Euroopan unionin tilastokeskus.
+Keskuspankit tekevät siitä ennusteita.
+Media raportoi siitä kuukausittain.
+Poliitikot käyttävät sitä argumenttina lähes kaikessa talouspolitiikassa.
+
+Silti yksi asia jää lähes aina keskustelun ulkopuolelle:
+
+Kuinka hyvin inflaatiota oikeasti pystytään ennustamaan?
+
+Makrotaloudessa ennusteet esitetään lähes aina yksittäisinä lukuina:
+
+“Inflaatio on ensi vuonna 2,1 %.”
+
+Mutta todellisuudessa inflaatio ei ole deterministinen luku.
+Se on stokastinen prosessi, johon vaikuttavat esimerkiksi:
+
+ - energiamarkkinat
+
+ - geopoliittiset shokit
+
+ - rahapolitiikka
+
+ - odotukset
+
+ - talouden rakenteelliset muutokset
+
+Siksi tässä sarjassa lähestyn inflaatiota todennäköisyysjakaumana, en yksittäisenä lukuna.
+
+Aian ennen kuin aloitetaan rakentamaan malleja, tulee ymmärtää data. Tämä ensimmäinen osa keskittyy siihen. Toisessa osassa mennään varsinaisiin malleihin.
 
 
+Data: Eurostatin HICP-indeksi
+
+Inflaatiota mitataan monella tavalla. Tässä sarjassa käytän HICP-indeksiä (Harmonised Index of Consumer Prices), joka on EU:n harmonisoitu kuluttajahintaindeksi.Datan lähde on Eurostat, jonka datat ovat saatavissa avoimen rajapinnan kautta. Tämä mahdollistaa toistettavan analyysin ja sen päivittämisen myös tulevalla datalla.
+
+Eurostatin taulukoissa on useita indeksiperustoja (esimerkiksi 2005=100 ja 2015=100).
+Valitsen 2015=100 -indeksin, joka on nykyinen standardi. Samalla rajaan analyysin Suomeen ja kokonaisinflaatioon (COICOP-luokka CP0).
 ```{r}
 # Paketointi
 library(eurostat)
@@ -57,8 +86,28 @@ hicp_yoy <- hicp_ts |>
   filter(!is.na(inflation_yoy))
 
 ```
-Kirjoita tähän väliin selitystä:
+Aikarakenne: kuukausisarja
 
+Makrodata on lähes aina aikarivimuotoista, joten rakennan analyysin tsibble-rakenteen päälle.
+
+Tässä vaiheessa on tärkeää huomioida yksi yksityiskohta: vaikka päivämäärä näyttää Date-muotoiselta, data on todellisuudessa kuukausisarja. Siksi muutan indeksin eksplisiittisesti kuukausitasolle.
+
+Muunnos inflaatioksi
+
+HICP on indeksisarja. Inflaatio lasketaan yleensä vuosimuutoksena, eli kuinka paljon hinnat ovat muuttuneet verrattuna samaan kuukauteen vuotta aiemmin.
+
+Tässä vaiheessa meillä on analyysiin valmis aikarivi:
+
+ - kuukausidata
+
+ - vuosimuutos prosentteina
+
+ - yli 25 vuoden historia
+ 
+ 
+ Suomen inflaatio 1997–2025
+
+Ensimmäinen askel on katsoa, miltä inflaatio näyttää pitkällä aikavälillä.
 ```{r}
 hicp_yoy |>
   ggplot(aes(x = time, y = inflation_yoy)) +
@@ -71,14 +120,42 @@ hicp_yoy |>
   theme_minimal()
 
 ```
-Tähän väliin tekstiä:
+Pitkä aikahistoria paljastaa useita selkeitä jaksoja:
 
+2000–2007: suhteellisen vakaa inflaatio
+
+2008–2009: finanssikriisin vaikutus
+
+2010-luku: matala inflaatio Euroopassa
+
+2020: pandemian aiheuttama talousshokki
+
+2022: energiakriisi ja inflaatiopiikki
+
+Erityisesti vuoden 2022 inflaatiohuippu on makrotaloudessa poikkeuksellinen tapahtuma. Tällaiset shokit tekevät ennustamisesta vaikeaa.
+
+Inflaation kausivaihtelu
+
+Vaikka käytän vuosimuutosta, inflaatiossa voi silti esiintyä kausivaihtelua.
+
+Tätä voidaan tarkastella season plot -kuvaajalla.
 ```{r}
 hicp_yoy |>
   features(inflation_yoy, unitroot_kpss)
 
 ```
-Kausivaihtelu:
+Season plot näyttää, miten inflaatio käyttäytyy eri kuukausina eri vuosina.
+
+Makrotaloudessa tämä voi paljastaa esimerkiksi:
+
+ - energiahintojen talvikausivaihtelun
+
+ - veromuutosten vaikutukset
+
+ - kulutuskausien vaikutuksen hintatasoon
+
+Samalla voidaan nähdä, kuinka poikkeuksellinen vuosi 2022 oli suhteessa aikaisempaan historiaan.
+
 
 ```{r}
 
@@ -109,7 +186,14 @@ hicp_yoy |>
 
 
 ```
-Volatiliteetti ei ole vakio:
+
+
+Inflaation volatiliteetti
+
+Inflaation keskiarvo kertoo vain osan tarinaa. Yhtä tärkeää on ymmärtää volatiliteetti, eli kuinka paljon inflaatio vaihtelee.
+
+Tarkastellaan 12 kuukauden liukuvaa keskihajontaa.
+
 ```{r}
 hicp_yoy |>
   mutate(rolling_sd = slider::slide_dbl(
@@ -128,3 +212,30 @@ hicp_yoy |>
 
 ```
 
+Tuloksesta näkyy selvästi, että inflaation volatiliteetti ei ole vakio.
+
+Erityisesti vuoden 2022 jälkeen volatiliteetti kasvaa selvästi.
+
+Tämä on tärkeä havainto mallinnuksen kannalta.
+
+Monet perinteiset aikarivimallit olettavat vakion volatiliteetin, mikä voi johtaa liian optimistisiin ennusteisiin kriisiaikoina.
+
+Bayesilainen lähestymistapa mahdollistaa epävarmuuden eksplisiittisen mallintamisen.
+
+Mitä “hyvä ennuste” tarkoittaa?
+
+Ennen kuin rakennan yhtään mallia, täytyy määritellä arviointikriteerit.
+
+Hyvä ennuste ei ole vain tarkka piste-ennuste.
+
+Hyvä ennuste on myös:
+
+ - kalibroitu (todennäköisyydet vastaavat toteumaa)
+
+ - realistinen epävarmuuden suhteen
+ 
+ - robusti talousshokeille
+
+Siksi tässä sarjassa käytetään arviointiin proper scoring ruleja, kuten CRPS- ja log score -mittareita.
+
+Ne arvioivat koko ennustejakaumaa, eivät vain yhtä pistettä.

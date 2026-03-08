@@ -34,6 +34,13 @@ website:
   comments:
     giscus:
       repo: KristianVepsalainen/KristianVepsalainen.github.io
+      repo-id: R_kgDORbGjOA
+      category: General
+      category-id: DIC_kwDORbGjOM4C38fV
+      mapping: pathname
+      reactions-enabled: true
+      input-position: bottom
+      theme: light
 
 format:
   html:

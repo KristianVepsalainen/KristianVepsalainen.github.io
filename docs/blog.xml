@@ -1,0 +1,876 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss  xmlns:atom="http://www.w3.org/2005/Atom" 
+      xmlns:media="http://search.yahoo.com/mrss/" 
+      xmlns:content="http://purl.org/rss/1.0/modules/content/" 
+      xmlns:dc="http://purl.org/dc/elements/1.1/" 
+      version="2.0">
+<channel>
+<title>Kristian Vepsäläinen – Maailma on jakauma</title>
+<link>https://kristianvepsalainen.github.io/blog.html</link>
+<atom:link href="https://kristianvepsalainen.github.io/blog.xml" rel="self" type="application/rss+xml"/>
+<description></description>
+<generator>quarto-1.8.27</generator>
+<lastBuildDate>Tue, 03 Mar 2026 22:00:00 GMT</lastBuildDate>
+<item>
+  <title>Osa 1 — Inflaatio ei ole luku vaan se on prosessi</title>
+  <link>https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<p>Mediassa inflaatiota käsitellään usein pelkkänä yhtenä lukuna. Se ei kuitenkaan ole pelkkä yksittäinen luku, vaan prosessi, joka sisältää jakauman ja virherajat.</p>
+<p>Tämän moniosaisen blogipostauksen tarkoituksena on käydä läpi talouteen ja erityisesti inflaatioon liittyviä datalähteitä sekä näillä tehtäviä ennusteita ja miten ennusteet syntyvät.</p>
+<p>Ennustamisen kohteena on Suomen kuluttajintainflaation vuosimuotos eli HICP. Datan kerään Eurostatilta, joka on Euroopan unionin tilastokeskus.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Paketointi</span></span>
+<span id="cb1-2"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">library</span>(eurostat)</span>
+<span id="cb1-3"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">library</span>(dplyr)</span>
+<span id="cb1-4"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">library</span>(tsibble)</span>
+<span id="cb1-5"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">library</span>(ggplot2)</span>
+<span id="cb1-6"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">library</span>(lubridate)</span>
+<span id="cb1-7"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">library</span>(feasts)</span>
+<span id="cb1-8"></span>
+<span id="cb1-9"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># HICP kuukausi-indeksi</span></span>
+<span id="cb1-10">hicp_raw <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">get_eurostat</span>(</span>
+<span id="cb1-11">  <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"prc_hicp_midx"</span>,</span>
+<span id="cb1-12">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">time_format =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"date"</span></span>
+<span id="cb1-13">)</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+indexed 0B in  0s, 0B/s
+indexed 19.53MB in  0s, 97.28MB/s
+indexed 19.66MB in  0s, 97.43MB/s
+indexed 19.79MB in  0s, 97.59MB/s
+indexed 19.92MB in  0s, 97.78MB/s
+indexed 20.05MB in  0s, 97.94MB/s
+indexed 20.18MB in  0s, 97.98MB/s
+indexed 20.32MB in  0s, 97.92MB/s
+indexed 20.45MB in  0s, 97.95MB/s
+indexed 20.58MB in  0s, 97.93MB/s
+indexed 20.71MB in  0s, 97.72MB/s
+indexed 20.84MB in  0s, 97.79MB/s
+indexed 20.97MB in  0s, 97.70MB/s
+indexed 21.10MB in  0s, 97.52MB/s
+indexed 21.23MB in  0s, 97.60MB/s
+indexed 21.36MB in  0s, 97.56MB/s
+indexed 21.50MB in  0s, 97.64MB/s
+indexed 21.63MB in  0s, 97.61MB/s
+indexed 21.76MB in  0s, 97.67MB/s
+indexed 21.89MB in  0s, 97.72MB/s
+indexed 22.02MB in  0s, 97.56MB/s
+indexed 22.15MB in  0s, 97.59MB/s
+indexed 22.28MB in  0s, 97.38MB/s
+indexed 22.41MB in  0s, 97.37MB/s
+indexed 22.54MB in  0s, 97.50MB/s
+indexed 22.68MB in  0s, 97.57MB/s
+indexed 22.81MB in  0s, 97.59MB/s
+indexed 22.94MB in  0s, 97.70MB/s
+indexed 23.07MB in  0s, 97.80MB/s
+indexed 23.20MB in  0s, 97.87MB/s
+indexed 23.33MB in  0s, 97.98MB/s
+indexed 23.46MB in  0s, 98.07MB/s
+indexed 23.59MB in  0s, 97.96MB/s
+indexed 23.72MB in  0s, 97.84MB/s
+indexed 23.85MB in  0s, 97.89MB/s
+indexed 23.99MB in  0s, 97.97MB/s
+indexed 24.12MB in  0s, 97.92MB/s
+indexed 24.25MB in  0s, 97.98MB/s
+indexed 24.38MB in  0s, 98.09MB/s
+indexed 24.51MB in  0s, 98.18MB/s
+indexed 24.64MB in  0s, 98.17MB/s
+indexed 24.77MB in  0s, 98.21MB/s
+indexed 24.90MB in  0s, 98.34MB/s
+indexed 25.03MB in  0s, 98.38MB/s
+indexed 25.17MB in  0s, 98.12MB/s
+indexed 25.30MB in  0s, 98.02MB/s
+indexed 25.43MB in  0s, 98.05MB/s
+indexed 25.56MB in  0s, 98.11MB/s
+indexed 25.69MB in  0s, 98.04MB/s
+indexed 25.82MB in  0s, 98.06MB/s
+indexed 25.95MB in  0s, 98.14MB/s
+indexed 26.08MB in  0s, 98.27MB/s
+indexed 26.21MB in  0s, 98.22MB/s
+indexed 26.35MB in  0s, 98.29MB/s
+indexed 26.48MB in  0s, 98.35MB/s
+indexed 26.61MB in  0s, 98.20MB/s
+indexed 26.74MB in  0s, 98.05MB/s
+indexed 26.87MB in  0s, 97.94MB/s
+indexed 27.00MB in  0s, 98.02MB/s
+indexed 27.13MB in  0s, 97.95MB/s
+indexed 27.26MB in  0s, 97.98MB/s
+indexed 27.39MB in  0s, 97.92MB/s
+indexed 27.52MB in  0s, 97.93MB/s
+indexed 27.66MB in  0s, 87.66MB/s
+indexed 27.79MB in  0s, 87.69MB/s
+indexed 27.92MB in  0s, 87.85MB/s
+indexed 28.05MB in  0s, 87.90MB/s
+indexed 28.18MB in  0s, 88.00MB/s
+indexed 28.31MB in  0s, 87.89MB/s
+indexed 28.44MB in  0s, 87.96MB/s
+indexed 28.57MB in  0s, 88.05MB/s
+indexed 28.70MB in  0s, 88.18MB/s
+indexed 28.84MB in  0s, 88.20MB/s
+indexed 28.97MB in  0s, 88.15MB/s
+indexed 29.10MB in  0s, 88.26MB/s
+indexed 29.23MB in  0s, 88.39MB/s
+indexed 29.36MB in  0s, 88.46MB/s
+indexed 29.49MB in  0s, 88.52MB/s
+indexed 29.62MB in  0s, 88.64MB/s
+indexed 29.75MB in  0s, 88.78MB/s
+indexed 29.88MB in  0s, 88.75MB/s
+indexed 30.02MB in  0s, 88.71MB/s
+indexed 30.15MB in  0s, 88.52MB/s
+indexed 30.28MB in  0s, 88.30MB/s
+indexed 30.41MB in  0s, 88.29MB/s
+indexed 30.54MB in  0s, 88.25MB/s
+indexed 30.67MB in  0s, 88.19MB/s
+indexed 30.80MB in  0s, 88.29MB/s
+indexed 30.93MB in  0s, 88.38MB/s
+indexed 31.06MB in  0s, 88.52MB/s
+indexed 31.19MB in  0s, 88.63MB/s
+indexed 31.33MB in  0s, 88.74MB/s
+indexed 31.46MB in  0s, 88.80MB/s
+indexed 31.59MB in  0s, 88.87MB/s
+indexed 31.72MB in  0s, 88.93MB/s
+indexed 31.85MB in  0s, 88.97MB/s
+indexed 31.98MB in  0s, 89.08MB/s
+indexed 32.11MB in  0s, 89.16MB/s
+indexed 32.24MB in  0s, 89.21MB/s
+indexed 32.37MB in  0s, 89.30MB/s
+indexed 32.51MB in  0s, 89.34MB/s
+indexed 32.64MB in  0s, 89.36MB/s
+indexed 32.77MB in  0s, 89.30MB/s
+indexed 32.90MB in  0s, 89.21MB/s
+indexed 33.03MB in  0s, 89.29MB/s
+indexed 33.16MB in  0s, 89.35MB/s
+indexed 33.29MB in  0s, 89.21MB/s
+indexed 33.42MB in  0s, 89.12MB/s
+indexed 33.55MB in  0s, 89.21MB/s
+indexed 33.69MB in  0s, 89.23MB/s
+indexed 33.82MB in  0s, 89.27MB/s
+indexed 33.95MB in  0s, 89.32MB/s
+indexed 34.08MB in  0s, 89.36MB/s
+indexed 34.21MB in  0s, 89.43MB/s
+indexed 34.34MB in  0s, 89.52MB/s
+indexed 34.47MB in  0s, 89.64MB/s
+indexed 34.60MB in  0s, 89.72MB/s
+indexed 34.73MB in  0s, 89.80MB/s
+indexed 34.86MB in  0s, 89.77MB/s
+indexed 35.00MB in  0s, 89.73MB/s
+indexed 35.13MB in  0s, 89.75MB/s
+indexed 35.26MB in  0s, 89.84MB/s
+indexed 35.39MB in  0s, 89.85MB/s
+indexed 35.52MB in  0s, 89.87MB/s
+indexed 35.65MB in  0s, 89.93MB/s
+indexed 35.78MB in  0s, 89.96MB/s
+indexed 35.91MB in  0s, 90.01MB/s
+indexed 36.04MB in  0s, 90.07MB/s
+indexed 36.18MB in  0s, 90.11MB/s
+indexed 36.31MB in  0s, 90.18MB/s
+indexed 36.44MB in  0s, 90.27MB/s
+indexed 36.57MB in  0s, 90.32MB/s
+indexed 36.70MB in  0s, 90.36MB/s
+indexed 36.83MB in  0s, 90.39MB/s
+indexed 36.96MB in  0s, 90.40MB/s
+indexed 37.09MB in  0s, 90.39MB/s
+indexed 37.22MB in  0s, 90.42MB/s
+indexed 37.36MB in  0s, 90.53MB/s
+indexed 37.49MB in  0s, 90.62MB/s
+indexed 37.62MB in  0s, 90.74MB/s
+indexed 37.75MB in  0s, 90.81MB/s
+indexed 37.88MB in  0s, 90.81MB/s
+indexed 38.01MB in  0s, 90.88MB/s
+indexed 38.14MB in  0s, 90.93MB/s
+indexed 38.27MB in  0s, 91.01MB/s
+indexed 38.40MB in  0s, 91.12MB/s
+indexed 38.53MB in  0s, 91.20MB/s
+indexed 38.67MB in  0s, 91.26MB/s
+indexed 38.80MB in  0s, 91.37MB/s
+indexed 38.93MB in  0s, 91.44MB/s
+indexed 39.06MB in  0s, 91.51MB/s
+indexed 39.19MB in  0s, 91.54MB/s
+indexed 39.32MB in  0s, 91.57MB/s
+indexed 39.45MB in  0s, 91.59MB/s
+indexed 39.58MB in  0s, 91.66MB/s
+indexed 39.71MB in  0s, 91.75MB/s
+indexed 39.85MB in  0s, 91.79MB/s
+indexed 39.98MB in  0s, 91.89MB/s
+indexed 40.11MB in  0s, 91.87MB/s
+indexed 40.24MB in  0s, 91.76MB/s
+indexed 40.37MB in  0s, 91.34MB/s
+indexed 40.50MB in  0s, 91.34MB/s
+indexed 40.63MB in  0s, 91.42MB/s
+indexed 40.76MB in  0s, 91.47MB/s
+indexed 40.89MB in  0s, 91.47MB/s
+indexed 41.03MB in  0s, 91.50MB/s
+indexed 41.16MB in  0s, 91.56MB/s
+indexed 41.29MB in  0s, 91.69MB/s
+indexed 41.42MB in  0s, 91.73MB/s
+indexed 41.55MB in  0s, 91.74MB/s
+indexed 41.68MB in  0s, 91.84MB/s
+indexed 41.81MB in  0s, 91.91MB/s
+indexed 41.94MB in  0s, 91.97MB/s
+indexed 42.07MB in  0s, 91.87MB/s
+indexed 42.20MB in  0s, 91.98MB/s
+indexed 42.34MB in  0s, 91.91MB/s
+indexed 42.47MB in  0s, 91.81MB/s
+indexed 42.60MB in  0s, 91.84MB/s
+indexed 42.73MB in  0s, 91.87MB/s
+indexed 42.86MB in  0s, 91.95MB/s
+indexed 42.99MB in  0s, 91.98MB/s
+indexed 43.12MB in  0s, 92.00MB/s
+indexed 43.25MB in  0s, 92.13MB/s
+indexed 43.38MB in  0s, 92.18MB/s
+indexed 43.52MB in  0s, 92.27MB/s
+indexed 43.65MB in  0s, 92.21MB/s
+indexed 43.78MB in  0s, 92.19MB/s
+indexed 43.91MB in  0s, 92.06MB/s
+indexed 44.04MB in  0s, 91.97MB/s
+indexed 44.17MB in  0s, 91.90MB/s
+indexed 44.30MB in  0s, 91.96MB/s
+indexed 44.43MB in  0s, 92.06MB/s
+indexed 44.56MB in  0s, 92.13MB/s
+indexed 44.70MB in  0s, 92.20MB/s
+indexed 44.83MB in  0s, 92.26MB/s
+indexed 44.96MB in  0s, 92.29MB/s
+indexed 45.09MB in  0s, 92.34MB/s
+indexed 45.22MB in  0s, 92.43MB/s
+indexed 45.35MB in  0s, 92.49MB/s
+indexed 45.48MB in  0s, 92.53MB/s
+indexed 45.61MB in  0s, 92.60MB/s
+indexed 45.74MB in  0s, 92.63MB/s
+indexed 45.87MB in  0s, 92.63MB/s
+indexed 46.01MB in  1s, 90.13MB/s
+indexed 46.14MB in  1s, 90.15MB/s
+indexed 46.27MB in  1s, 90.17MB/s
+indexed 46.40MB in  1s, 90.15MB/s
+indexed 46.53MB in  1s, 90.20MB/s
+indexed 46.66MB in  1s, 90.24MB/s
+indexed 46.79MB in  1s, 90.26MB/s
+indexed 46.92MB in  1s, 90.30MB/s
+indexed 47.05MB in  1s, 90.33MB/s
+indexed 47.19MB in  1s, 90.32MB/s
+indexed 47.32MB in  1s, 90.36MB/s
+indexed 47.45MB in  1s, 90.39MB/s
+indexed 47.58MB in  1s, 90.42MB/s
+indexed 47.71MB in  1s, 90.35MB/s
+indexed 47.84MB in  1s, 90.41MB/s
+indexed 47.97MB in  1s, 90.46MB/s
+indexed 48.10MB in  1s, 90.53MB/s
+indexed 48.23MB in  1s, 90.57MB/s
+indexed 48.37MB in  1s, 90.60MB/s
+indexed 48.50MB in  1s, 90.64MB/s
+indexed 48.63MB in  1s, 90.73MB/s
+indexed 48.76MB in  1s, 90.76MB/s
+indexed 48.89MB in  1s, 90.82MB/s
+indexed 49.02MB in  1s, 90.91MB/s
+indexed 49.15MB in  1s, 90.87MB/s
+indexed 49.28MB in  1s, 90.82MB/s
+indexed 49.41MB in  1s, 90.78MB/s
+indexed 49.54MB in  1s, 90.81MB/s
+indexed 49.68MB in  1s, 90.88MB/s
+indexed 49.81MB in  1s, 90.93MB/s
+indexed 49.94MB in  1s, 90.98MB/s
+indexed 50.07MB in  1s, 91.05MB/s
+indexed 50.20MB in  1s, 91.09MB/s
+indexed 50.33MB in  1s, 91.15MB/s
+indexed 50.46MB in  1s, 91.18MB/s
+indexed 50.59MB in  1s, 91.25MB/s
+indexed 50.72MB in  1s, 82.01MB/s
+indexed 50.86MB in  1s, 82.08MB/s
+indexed 50.99MB in  1s, 82.11MB/s
+indexed 51.12MB in  1s, 82.07MB/s
+indexed 51.25MB in  1s, 82.00MB/s
+indexed 51.38MB in  1s, 81.90MB/s
+indexed 51.51MB in  1s, 81.90MB/s
+indexed 51.64MB in  1s, 81.91MB/s
+indexed 51.77MB in  1s, 81.91MB/s
+indexed 51.90MB in  1s, 81.93MB/s
+indexed 52.04MB in  1s, 81.91MB/s
+indexed 52.17MB in  1s, 81.98MB/s
+indexed 52.30MB in  1s, 82.02MB/s
+indexed 52.43MB in  1s, 81.95MB/s
+indexed 52.56MB in  1s, 81.92MB/s
+indexed 52.69MB in  1s, 81.86MB/s
+indexed 52.82MB in  1s, 81.87MB/s
+indexed 52.95MB in  1s, 81.91MB/s
+indexed 53.08MB in  1s, 81.97MB/s
+indexed 53.21MB in  1s, 82.01MB/s
+indexed 53.35MB in  1s, 82.06MB/s
+indexed 53.48MB in  1s, 82.12MB/s
+indexed 53.61MB in  1s, 82.18MB/s
+indexed 53.74MB in  1s, 82.24MB/s
+indexed 53.87MB in  1s, 82.31MB/s
+indexed 54.00MB in  1s, 82.34MB/s
+indexed 54.13MB in  1s, 82.21MB/s
+indexed 54.26MB in  1s, 82.25MB/s
+indexed 54.39MB in  1s, 82.23MB/s
+indexed 54.53MB in  1s, 82.25MB/s
+indexed 54.66MB in  1s, 82.32MB/s
+indexed 54.79MB in  1s, 82.39MB/s
+indexed 54.92MB in  1s, 82.45MB/s
+indexed 55.05MB in  1s, 82.52MB/s
+indexed 55.18MB in  1s, 82.60MB/s
+indexed 55.31MB in  1s, 82.67MB/s
+indexed 55.44MB in  1s, 82.75MB/s
+indexed 55.57MB in  1s, 82.82MB/s
+indexed 55.71MB in  1s, 82.89MB/s
+indexed 55.84MB in  1s, 82.97MB/s
+indexed 55.97MB in  1s, 83.02MB/s
+indexed 56.10MB in  1s, 83.10MB/s
+indexed 56.23MB in  1s, 83.18MB/s
+indexed 56.36MB in  1s, 83.26MB/s
+indexed 56.49MB in  1s, 83.33MB/s
+indexed 56.62MB in  1s, 83.42MB/s
+indexed 56.75MB in  1s, 83.51MB/s
+indexed 56.88MB in  1s, 83.59MB/s
+indexed 57.02MB in  1s, 83.67MB/s
+indexed 57.15MB in  1s, 83.75MB/s
+indexed 57.28MB in  1s, 83.84MB/s
+indexed 57.41MB in  1s, 83.92MB/s
+indexed 57.54MB in  1s, 84.00MB/s
+indexed 57.67MB in  1s, 84.07MB/s
+indexed 57.80MB in  1s, 84.16MB/s
+indexed 57.93MB in  1s, 84.24MB/s
+indexed 58.06MB in  1s, 84.31MB/s
+indexed 58.20MB in  1s, 84.37MB/s
+indexed 58.33MB in  1s, 84.38MB/s
+indexed 58.46MB in  1s, 84.46MB/s
+indexed 58.59MB in  1s, 84.54MB/s
+indexed 58.72MB in  1s, 84.61MB/s
+indexed 58.85MB in  1s, 84.68MB/s
+indexed 58.98MB in  1s, 84.74MB/s
+indexed 59.11MB in  1s, 84.80MB/s
+indexed 59.24MB in  1s, 84.85MB/s
+indexed 59.38MB in  1s, 84.86MB/s
+indexed 59.51MB in  1s, 84.93MB/s
+indexed 59.64MB in  1s, 84.97MB/s
+indexed 59.77MB in  1s, 85.00MB/s
+indexed 59.90MB in  1s, 85.04MB/s
+indexed 60.03MB in  1s, 85.10MB/s
+indexed 60.16MB in  1s, 85.17MB/s
+indexed 60.29MB in  1s, 85.23MB/s
+indexed 60.42MB in  1s, 85.30MB/s
+indexed 60.55MB in  1s, 85.38MB/s
+indexed 60.69MB in  1s, 85.39MB/s
+indexed 60.82MB in  1s, 85.46MB/s
+indexed 60.95MB in  1s, 85.53MB/s
+indexed 61.08MB in  1s, 85.60MB/s
+indexed 61.21MB in  1s, 85.51MB/s
+indexed 61.34MB in  1s, 85.53MB/s
+indexed 61.47MB in  1s, 85.57MB/s
+indexed 61.60MB in  1s, 85.63MB/s
+indexed 61.73MB in  1s, 85.66MB/s
+indexed 61.87MB in  1s, 85.72MB/s
+indexed 62.00MB in  1s, 85.79MB/s
+indexed 62.13MB in  1s, 85.86MB/s
+indexed 62.26MB in  1s, 85.93MB/s
+indexed 62.39MB in  1s, 86.00MB/s
+indexed 62.52MB in  1s, 86.06MB/s
+indexed 62.65MB in  1s, 86.13MB/s
+indexed 62.78MB in  1s, 86.21MB/s
+indexed 62.91MB in  1s, 86.28MB/s
+indexed 63.05MB in  1s, 86.35MB/s
+indexed 63.18MB in  1s, 86.42MB/s
+indexed 63.31MB in  1s, 86.49MB/s
+indexed 63.44MB in  1s, 86.55MB/s
+indexed 63.57MB in  1s, 86.63MB/s
+indexed 63.70MB in  1s, 86.70MB/s
+indexed 63.83MB in  1s, 86.77MB/s
+indexed 63.96MB in  1s, 86.84MB/s
+indexed 64.09MB in  1s, 86.89MB/s
+indexed 64.22MB in  1s, 86.92MB/s
+indexed 64.36MB in  1s, 86.86MB/s
+indexed 64.49MB in  1s, 86.92MB/s
+indexed 64.62MB in  1s, 86.96MB/s
+indexed 64.75MB in  1s, 87.00MB/s
+indexed 64.88MB in  1s, 87.07MB/s
+indexed 65.01MB in  1s, 87.13MB/s
+indexed 65.14MB in  1s, 87.18MB/s
+indexed 65.27MB in  1s, 87.23MB/s
+indexed 65.40MB in  1s, 87.25MB/s
+indexed 65.54MB in  1s, 87.23MB/s
+indexed 65.67MB in  1s, 87.26MB/s
+indexed 65.80MB in  1s, 87.12MB/s
+indexed 65.90MB in  1s, 86.96MB/s
+                                                                              
+indexed 1.00TB in  1s, 1.32TB/s
+                                                                              </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Suomi, kokonaisindeksi</span></span>
+<span id="cb3-2">hicp_fi <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> hicp_raw <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb3-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(</span>
+<span id="cb3-4">    geo <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"FI"</span>,</span>
+<span id="cb3-5">    coicop <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"CP00"</span>,</span>
+<span id="cb3-6">    unit <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"I15"</span></span>
+<span id="cb3-7">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb3-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">select</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">time =</span> TIME_PERIOD, values) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb3-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">arrange</span>(time)</span>
+<span id="cb3-10"></span>
+<span id="cb3-11"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Muodostetaan tsibble</span></span>
+<span id="cb3-12">hicp_ts <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> hicp_fi <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb3-13">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">time =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">yearmonth</span>(time)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span>   <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># &lt;- kriittinen muunnos</span></span>
+<span id="cb3-14">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as_tsibble</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">index =</span> time)</span>
+<span id="cb3-15"></span>
+<span id="cb3-16"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Lasketaan vuosimuutos (%)</span></span>
+<span id="cb3-17">hicp_yoy <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> hicp_ts <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb3-18">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(</span>
+<span id="cb3-19">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">inflation_yoy =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> (values <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">lag</span>(values, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">12</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb3-20">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb3-21">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">!</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(inflation_yoy))</span></code></pre></div></div>
+</div>
+<p>Kirjoita tähän väliin selitystä:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1">hicp_yoy <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb4-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> inflation_yoy)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb4-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>() <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb4-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(</span>
+<span id="cb4-5">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">title =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Suomen HICP-inflaatio (y/y)"</span>,</span>
+<span id="cb4-6">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NULL</span>,</span>
+<span id="cb4-7">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Inflaatio (%)"</span></span>
+<span id="cb4-8">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb4-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-2-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Tähän väliin tekstiä:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1">hicp_yoy <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb5-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">features</span>(inflation_yoy, unitroot_kpss)</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 1 × 2
+  kpss_stat kpss_pvalue
+      &lt;dbl&gt;       &lt;dbl&gt;
+1     0.246         0.1</code></pre>
+</div>
+</div>
+<p>Kausivaihtelu:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1">hicp_yoy <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb7-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">year =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">year</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.Date</span>(time))) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb7-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">month</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.Date</span>(time), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">label =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>),</span>
+<span id="cb7-4">             <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> inflation_yoy,</span>
+<span id="cb7-5">             <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">group =</span> year)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb7-6">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>(</span>
+<span id="cb7-7">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(.x, year <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(year) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>),</span>
+<span id="cb7-8">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">colour =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"grey80"</span>,</span>
+<span id="cb7-9">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.6</span></span>
+<span id="cb7-10">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb7-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>(</span>
+<span id="cb7-12">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(.x, year <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;=</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(year) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>),</span>
+<span id="cb7-13">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">colour =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">factor</span>(year)),</span>
+<span id="cb7-14">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb7-15">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb7-16">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_colour_manual</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#1b9e77"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#d95f02"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#7570b3"</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb7-17">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(</span>
+<span id="cb7-18">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">title =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Suomen inflaation kausiprofiili"</span>,</span>
+<span id="cb7-19">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">subtitle =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Viimeiset kolme vuotta korostettu"</span>,</span>
+<span id="cb7-20">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NULL</span>,</span>
+<span id="cb7-21">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Inflaatio (%)"</span>,</span>
+<span id="cb7-22">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">colour =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Vuosi"</span></span>
+<span id="cb7-23">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb7-24">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-4-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Volatiliteetti ei ole vakio:</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1">hicp_yoy <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb8-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">rolling_sd =</span> slider<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">slide_dbl</span>(</span>
+<span id="cb8-3">    inflation_yoy,</span>
+<span id="cb8-4">    sd,</span>
+<span id="cb8-5">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">.before =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">12</span>,</span>
+<span id="cb8-6">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">.complete =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span></span>
+<span id="cb8-7">  )) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span></span>
+<span id="cb8-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(time, rolling_sd)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb8-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>() <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb8-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(</span>
+<span id="cb8-11">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">title =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Inflaation 12 kk liukuva volatiliteetti"</span>,</span>
+<span id="cb8-12">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Keskihajonta"</span></span>
+<span id="cb8-13">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb8-14">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+
+
+<!-- -->
+
+
+ ]]></description>
+  <category>R</category>
+  <category>Data Science</category>
+  <category>talous</category>
+  <category>inflaatio</category>
+  <category>ennustaminen</category>
+  <guid>https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio.html</guid>
+  <pubDate>Tue, 03 Mar 2026 22:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>Hävisikö Juha Mieto Thomas Wassbergille parran takia?</title>
+  <link>https://kristianvepsalainen.github.io/posts/Mieto-ja-parta.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<p>Facebookin “Rakastan matematiikkaa”-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.</p>
+<p>Tuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.</p>
+<p>Oletin myös todelliset väliajat (<a href="https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html" class="uri">https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html</a>) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/Mieto-ja-parta_files/figure-html/unnamed-chunk-1-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+
+
+<!-- -->
+
+
+ ]]></description>
+  <category>R</category>
+  <category>Data Science</category>
+  <category>urheilu</category>
+  <category>simulaatio</category>
+  <category>historia</category>
+  <guid>https://kristianvepsalainen.github.io/posts/Mieto-ja-parta.html</guid>
+  <pubDate>Sat, 28 Feb 2026 22:00:00 GMT</pubDate>
+</item>
+</channel>
+</rss>

@@ -231,208 +231,414 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>Tämän moniosaisen blogipostauksen tarkoituksena on käydä läpi talouteen ja erityisesti inflaatioon liittyviä datalähteitä sekä näillä tehtäviä ennusteita ja miten ennusteet syntyvät.</p>
 <p>Ennustamisen kohteena on Suomen kuluttajintainflaation vuosimuotos eli HICP. Datan kerään Eurostatilta, joka on Euroopan unionin tilastokeskus.</p>
 <div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Paketointi</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(eurostat)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tsibble)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(lubridate)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(feasts)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co"># HICP kuukausi-indeksi</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>hicp_raw <span class="ot">&lt;-</span> <span class="fu">get_eurostat</span>(</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">"prc_hicp_midx"</span>,</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">time_format =</span> <span class="st">"date"</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code>
 indexed 0B in  0s, 0B/s
-indexed 40.89MB in  0s, 203.85MB/s
-indexed 41.03MB in  0s, 203.95MB/s
-indexed 41.16MB in  0s, 204.07MB/s
-indexed 41.29MB in  0s, 204.30MB/s
-indexed 41.42MB in  0s, 204.33MB/s
-indexed 41.55MB in  0s, 204.36MB/s
-indexed 41.68MB in  0s, 204.50MB/s
-indexed 41.81MB in  0s, 204.54MB/s
-indexed 41.94MB in  0s, 204.56MB/s
-indexed 42.07MB in  0s, 203.98MB/s
-indexed 42.20MB in  0s, 204.15MB/s
-indexed 42.34MB in  0s, 204.01MB/s
-indexed 42.47MB in  0s, 204.11MB/s
-indexed 42.60MB in  0s, 204.24MB/s
-indexed 42.73MB in  0s, 204.26MB/s
-indexed 42.86MB in  0s, 204.39MB/s
-indexed 42.99MB in  0s, 204.46MB/s
-indexed 43.12MB in  0s, 204.60MB/s
-indexed 43.25MB in  0s, 204.80MB/s
-indexed 43.38MB in  0s, 204.81MB/s
-indexed 43.52MB in  0s, 205.01MB/s
-indexed 43.65MB in  0s, 205.04MB/s
-indexed 43.78MB in  0s, 205.03MB/s
-indexed 43.91MB in  0s, 205.02MB/s
-indexed 44.04MB in  0s, 205.02MB/s
-indexed 44.17MB in  0s, 205.17MB/s
-indexed 44.30MB in  0s, 205.32MB/s
-indexed 44.43MB in  0s, 205.52MB/s
-indexed 44.56MB in  0s, 205.61MB/s
-indexed 44.70MB in  0s, 205.76MB/s
-indexed 44.83MB in  0s, 205.83MB/s
-indexed 44.96MB in  0s, 205.77MB/s
-indexed 45.09MB in  0s, 205.75MB/s
-indexed 45.22MB in  0s, 205.49MB/s
-indexed 45.35MB in  0s, 205.50MB/s
-indexed 45.48MB in  0s, 205.51MB/s
-indexed 45.61MB in  0s, 205.54MB/s
-indexed 45.74MB in  0s, 205.57MB/s
-indexed 45.87MB in  0s, 205.61MB/s
-indexed 46.01MB in  0s, 200.25MB/s
-indexed 46.14MB in  0s, 200.35MB/s
-indexed 46.27MB in  0s, 200.49MB/s
-indexed 46.40MB in  0s, 200.53MB/s
-indexed 46.53MB in  0s, 200.65MB/s
-indexed 46.66MB in  0s, 200.69MB/s
-indexed 46.79MB in  0s, 200.70MB/s
-indexed 46.92MB in  0s, 200.73MB/s
-indexed 47.05MB in  0s, 200.85MB/s
-indexed 47.19MB in  0s, 201.06MB/s
-indexed 47.32MB in  0s, 201.16MB/s
-indexed 47.45MB in  0s, 201.20MB/s
-indexed 47.58MB in  0s, 201.41MB/s
-indexed 47.71MB in  0s, 201.49MB/s
-indexed 47.84MB in  0s, 201.61MB/s
-indexed 47.97MB in  0s, 201.63MB/s
-indexed 48.10MB in  0s, 201.77MB/s
-indexed 48.23MB in  0s, 201.80MB/s
-indexed 48.37MB in  0s, 201.81MB/s
-indexed 48.50MB in  0s, 201.81MB/s
-indexed 48.63MB in  0s, 201.66MB/s
-indexed 48.76MB in  0s, 201.70MB/s
-indexed 48.89MB in  0s, 201.82MB/s
-indexed 49.02MB in  0s, 201.95MB/s
-indexed 49.15MB in  0s, 202.07MB/s
-indexed 49.28MB in  0s, 202.19MB/s
-indexed 49.41MB in  0s, 202.28MB/s
-indexed 49.54MB in  0s, 202.25MB/s
-indexed 49.68MB in  0s, 202.29MB/s
-indexed 49.81MB in  0s, 202.33MB/s
-indexed 49.94MB in  0s, 202.39MB/s
-indexed 50.07MB in  0s, 202.52MB/s
-indexed 50.20MB in  0s, 202.65MB/s
-indexed 50.33MB in  0s, 202.80MB/s
-indexed 50.46MB in  0s, 202.87MB/s
-indexed 50.59MB in  0s, 203.00MB/s
-indexed 50.72MB in  0s, 179.91MB/s
-indexed 50.86MB in  0s, 180.00MB/s
-indexed 50.99MB in  0s, 180.07MB/s
-indexed 51.12MB in  0s, 180.07MB/s
-indexed 51.25MB in  0s, 180.17MB/s
-indexed 51.38MB in  0s, 180.31MB/s
-indexed 51.51MB in  0s, 180.45MB/s
-indexed 51.64MB in  0s, 180.60MB/s
-indexed 51.77MB in  0s, 180.74MB/s
-indexed 51.90MB in  0s, 180.91MB/s
-indexed 52.04MB in  0s, 181.07MB/s
-indexed 52.17MB in  0s, 181.24MB/s
-indexed 52.30MB in  0s, 181.42MB/s
-indexed 52.43MB in  0s, 181.54MB/s
-indexed 52.56MB in  0s, 181.67MB/s
-indexed 52.69MB in  0s, 181.82MB/s
-indexed 52.82MB in  0s, 181.97MB/s
-indexed 52.95MB in  0s, 182.09MB/s
-indexed 53.08MB in  0s, 182.27MB/s
-indexed 53.21MB in  0s, 182.42MB/s
-indexed 53.35MB in  0s, 182.48MB/s
-indexed 53.48MB in  0s, 182.58MB/s
-indexed 53.61MB in  0s, 182.69MB/s
-indexed 53.74MB in  0s, 182.82MB/s
-indexed 53.87MB in  0s, 182.97MB/s
-indexed 54.00MB in  0s, 183.14MB/s
-indexed 54.13MB in  0s, 183.24MB/s
-indexed 54.26MB in  0s, 183.38MB/s
-indexed 54.39MB in  0s, 183.52MB/s
-indexed 54.53MB in  0s, 183.69MB/s
-indexed 54.66MB in  0s, 183.86MB/s
-indexed 54.79MB in  0s, 184.03MB/s
-indexed 54.92MB in  0s, 184.20MB/s
-indexed 55.05MB in  0s, 184.36MB/s
-indexed 55.18MB in  0s, 184.50MB/s
-indexed 55.31MB in  0s, 184.67MB/s
-indexed 55.44MB in  0s, 184.76MB/s
-indexed 55.57MB in  0s, 184.88MB/s
-indexed 55.71MB in  0s, 185.04MB/s
-indexed 55.84MB in  0s, 185.16MB/s
-indexed 55.97MB in  0s, 185.34MB/s
-indexed 56.10MB in  0s, 185.48MB/s
-indexed 56.23MB in  0s, 185.63MB/s
-indexed 56.36MB in  0s, 185.79MB/s
-indexed 56.49MB in  0s, 185.96MB/s
-indexed 56.62MB in  0s, 186.11MB/s
-indexed 56.75MB in  0s, 186.20MB/s
-indexed 56.88MB in  0s, 186.13MB/s
-indexed 57.02MB in  0s, 186.28MB/s
-indexed 57.15MB in  0s, 186.37MB/s
-indexed 57.28MB in  0s, 186.51MB/s
-indexed 57.41MB in  0s, 186.67MB/s
-indexed 57.54MB in  0s, 186.79MB/s
-indexed 57.67MB in  0s, 186.95MB/s
-indexed 57.80MB in  0s, 187.07MB/s
-indexed 57.93MB in  0s, 187.21MB/s
-indexed 58.06MB in  0s, 187.35MB/s
-indexed 58.20MB in  0s, 187.45MB/s
-indexed 58.33MB in  0s, 187.57MB/s
-indexed 58.46MB in  0s, 187.70MB/s
-indexed 58.59MB in  0s, 187.82MB/s
-indexed 58.72MB in  0s, 187.74MB/s
-indexed 58.85MB in  0s, 187.86MB/s
-indexed 58.98MB in  0s, 187.99MB/s
-indexed 59.11MB in  0s, 188.11MB/s
-indexed 59.24MB in  0s, 188.24MB/s
-indexed 59.38MB in  0s, 188.38MB/s
-indexed 59.51MB in  0s, 188.52MB/s
-indexed 59.64MB in  0s, 188.66MB/s
-indexed 59.77MB in  0s, 188.80MB/s
-indexed 59.90MB in  0s, 188.94MB/s
-indexed 60.03MB in  0s, 189.05MB/s
-indexed 60.16MB in  0s, 189.18MB/s
-indexed 60.29MB in  0s, 189.29MB/s
-indexed 60.42MB in  0s, 189.43MB/s
-indexed 60.55MB in  0s, 189.55MB/s
-indexed 60.69MB in  0s, 189.59MB/s
-indexed 60.82MB in  0s, 189.73MB/s
-indexed 60.95MB in  0s, 189.85MB/s
-indexed 61.08MB in  0s, 189.96MB/s
-indexed 61.21MB in  0s, 190.07MB/s
-indexed 61.34MB in  0s, 190.19MB/s
-indexed 61.47MB in  0s, 190.30MB/s
-indexed 61.60MB in  0s, 190.37MB/s
-indexed 61.73MB in  0s, 190.47MB/s
-indexed 61.87MB in  0s, 190.62MB/s
-indexed 62.00MB in  0s, 190.73MB/s
-indexed 62.13MB in  0s, 190.83MB/s
-indexed 62.26MB in  0s, 190.96MB/s
-indexed 62.39MB in  0s, 190.88MB/s
-indexed 62.52MB in  0s, 190.94MB/s
-indexed 62.65MB in  0s, 190.99MB/s
-indexed 62.78MB in  0s, 191.09MB/s
-indexed 62.91MB in  0s, 191.22MB/s
-indexed 63.05MB in  0s, 191.34MB/s
-indexed 63.18MB in  0s, 191.48MB/s
-indexed 63.31MB in  0s, 191.57MB/s
-indexed 63.44MB in  0s, 191.66MB/s
-indexed 63.57MB in  0s, 191.73MB/s
-indexed 63.70MB in  0s, 191.85MB/s
-indexed 63.83MB in  0s, 191.95MB/s
-indexed 63.96MB in  0s, 192.07MB/s
-indexed 64.09MB in  0s, 192.20MB/s
-indexed 64.22MB in  0s, 192.06MB/s
-indexed 64.36MB in  0s, 192.13MB/s
-indexed 64.49MB in  0s, 192.25MB/s
-indexed 64.62MB in  0s, 192.36MB/s
-indexed 64.75MB in  0s, 192.47MB/s
-indexed 64.88MB in  0s, 192.58MB/s
-indexed 65.01MB in  0s, 192.70MB/s
-indexed 65.14MB in  0s, 192.81MB/s
-indexed 65.27MB in  0s, 192.94MB/s
-indexed 65.40MB in  0s, 193.04MB/s
-indexed 65.54MB in  0s, 193.14MB/s
-indexed 65.67MB in  0s, 193.28MB/s
-indexed 65.80MB in  0s, 193.36MB/s
-indexed 65.90MB in  0s, 193.25MB/s
+indexed 19.53MB in  0s, 97.28MB/s
+indexed 19.66MB in  0s, 97.43MB/s
+indexed 19.79MB in  0s, 97.59MB/s
+indexed 19.92MB in  0s, 97.78MB/s
+indexed 20.05MB in  0s, 97.94MB/s
+indexed 20.18MB in  0s, 97.98MB/s
+indexed 20.32MB in  0s, 97.92MB/s
+indexed 20.45MB in  0s, 97.95MB/s
+indexed 20.58MB in  0s, 97.93MB/s
+indexed 20.71MB in  0s, 97.72MB/s
+indexed 20.84MB in  0s, 97.79MB/s
+indexed 20.97MB in  0s, 97.70MB/s
+indexed 21.10MB in  0s, 97.52MB/s
+indexed 21.23MB in  0s, 97.60MB/s
+indexed 21.36MB in  0s, 97.56MB/s
+indexed 21.50MB in  0s, 97.64MB/s
+indexed 21.63MB in  0s, 97.61MB/s
+indexed 21.76MB in  0s, 97.67MB/s
+indexed 21.89MB in  0s, 97.72MB/s
+indexed 22.02MB in  0s, 97.56MB/s
+indexed 22.15MB in  0s, 97.59MB/s
+indexed 22.28MB in  0s, 97.38MB/s
+indexed 22.41MB in  0s, 97.37MB/s
+indexed 22.54MB in  0s, 97.50MB/s
+indexed 22.68MB in  0s, 97.57MB/s
+indexed 22.81MB in  0s, 97.59MB/s
+indexed 22.94MB in  0s, 97.70MB/s
+indexed 23.07MB in  0s, 97.80MB/s
+indexed 23.20MB in  0s, 97.87MB/s
+indexed 23.33MB in  0s, 97.98MB/s
+indexed 23.46MB in  0s, 98.07MB/s
+indexed 23.59MB in  0s, 97.96MB/s
+indexed 23.72MB in  0s, 97.84MB/s
+indexed 23.85MB in  0s, 97.89MB/s
+indexed 23.99MB in  0s, 97.97MB/s
+indexed 24.12MB in  0s, 97.92MB/s
+indexed 24.25MB in  0s, 97.98MB/s
+indexed 24.38MB in  0s, 98.09MB/s
+indexed 24.51MB in  0s, 98.18MB/s
+indexed 24.64MB in  0s, 98.17MB/s
+indexed 24.77MB in  0s, 98.21MB/s
+indexed 24.90MB in  0s, 98.34MB/s
+indexed 25.03MB in  0s, 98.38MB/s
+indexed 25.17MB in  0s, 98.12MB/s
+indexed 25.30MB in  0s, 98.02MB/s
+indexed 25.43MB in  0s, 98.05MB/s
+indexed 25.56MB in  0s, 98.11MB/s
+indexed 25.69MB in  0s, 98.04MB/s
+indexed 25.82MB in  0s, 98.06MB/s
+indexed 25.95MB in  0s, 98.14MB/s
+indexed 26.08MB in  0s, 98.27MB/s
+indexed 26.21MB in  0s, 98.22MB/s
+indexed 26.35MB in  0s, 98.29MB/s
+indexed 26.48MB in  0s, 98.35MB/s
+indexed 26.61MB in  0s, 98.20MB/s
+indexed 26.74MB in  0s, 98.05MB/s
+indexed 26.87MB in  0s, 97.94MB/s
+indexed 27.00MB in  0s, 98.02MB/s
+indexed 27.13MB in  0s, 97.95MB/s
+indexed 27.26MB in  0s, 97.98MB/s
+indexed 27.39MB in  0s, 97.92MB/s
+indexed 27.52MB in  0s, 97.93MB/s
+indexed 27.66MB in  0s, 87.66MB/s
+indexed 27.79MB in  0s, 87.69MB/s
+indexed 27.92MB in  0s, 87.85MB/s
+indexed 28.05MB in  0s, 87.90MB/s
+indexed 28.18MB in  0s, 88.00MB/s
+indexed 28.31MB in  0s, 87.89MB/s
+indexed 28.44MB in  0s, 87.96MB/s
+indexed 28.57MB in  0s, 88.05MB/s
+indexed 28.70MB in  0s, 88.18MB/s
+indexed 28.84MB in  0s, 88.20MB/s
+indexed 28.97MB in  0s, 88.15MB/s
+indexed 29.10MB in  0s, 88.26MB/s
+indexed 29.23MB in  0s, 88.39MB/s
+indexed 29.36MB in  0s, 88.46MB/s
+indexed 29.49MB in  0s, 88.52MB/s
+indexed 29.62MB in  0s, 88.64MB/s
+indexed 29.75MB in  0s, 88.78MB/s
+indexed 29.88MB in  0s, 88.75MB/s
+indexed 30.02MB in  0s, 88.71MB/s
+indexed 30.15MB in  0s, 88.52MB/s
+indexed 30.28MB in  0s, 88.30MB/s
+indexed 30.41MB in  0s, 88.29MB/s
+indexed 30.54MB in  0s, 88.25MB/s
+indexed 30.67MB in  0s, 88.19MB/s
+indexed 30.80MB in  0s, 88.29MB/s
+indexed 30.93MB in  0s, 88.38MB/s
+indexed 31.06MB in  0s, 88.52MB/s
+indexed 31.19MB in  0s, 88.63MB/s
+indexed 31.33MB in  0s, 88.74MB/s
+indexed 31.46MB in  0s, 88.80MB/s
+indexed 31.59MB in  0s, 88.87MB/s
+indexed 31.72MB in  0s, 88.93MB/s
+indexed 31.85MB in  0s, 88.97MB/s
+indexed 31.98MB in  0s, 89.08MB/s
+indexed 32.11MB in  0s, 89.16MB/s
+indexed 32.24MB in  0s, 89.21MB/s
+indexed 32.37MB in  0s, 89.30MB/s
+indexed 32.51MB in  0s, 89.34MB/s
+indexed 32.64MB in  0s, 89.36MB/s
+indexed 32.77MB in  0s, 89.30MB/s
+indexed 32.90MB in  0s, 89.21MB/s
+indexed 33.03MB in  0s, 89.29MB/s
+indexed 33.16MB in  0s, 89.35MB/s
+indexed 33.29MB in  0s, 89.21MB/s
+indexed 33.42MB in  0s, 89.12MB/s
+indexed 33.55MB in  0s, 89.21MB/s
+indexed 33.69MB in  0s, 89.23MB/s
+indexed 33.82MB in  0s, 89.27MB/s
+indexed 33.95MB in  0s, 89.32MB/s
+indexed 34.08MB in  0s, 89.36MB/s
+indexed 34.21MB in  0s, 89.43MB/s
+indexed 34.34MB in  0s, 89.52MB/s
+indexed 34.47MB in  0s, 89.64MB/s
+indexed 34.60MB in  0s, 89.72MB/s
+indexed 34.73MB in  0s, 89.80MB/s
+indexed 34.86MB in  0s, 89.77MB/s
+indexed 35.00MB in  0s, 89.73MB/s
+indexed 35.13MB in  0s, 89.75MB/s
+indexed 35.26MB in  0s, 89.84MB/s
+indexed 35.39MB in  0s, 89.85MB/s
+indexed 35.52MB in  0s, 89.87MB/s
+indexed 35.65MB in  0s, 89.93MB/s
+indexed 35.78MB in  0s, 89.96MB/s
+indexed 35.91MB in  0s, 90.01MB/s
+indexed 36.04MB in  0s, 90.07MB/s
+indexed 36.18MB in  0s, 90.11MB/s
+indexed 36.31MB in  0s, 90.18MB/s
+indexed 36.44MB in  0s, 90.27MB/s
+indexed 36.57MB in  0s, 90.32MB/s
+indexed 36.70MB in  0s, 90.36MB/s
+indexed 36.83MB in  0s, 90.39MB/s
+indexed 36.96MB in  0s, 90.40MB/s
+indexed 37.09MB in  0s, 90.39MB/s
+indexed 37.22MB in  0s, 90.42MB/s
+indexed 37.36MB in  0s, 90.53MB/s
+indexed 37.49MB in  0s, 90.62MB/s
+indexed 37.62MB in  0s, 90.74MB/s
+indexed 37.75MB in  0s, 90.81MB/s
+indexed 37.88MB in  0s, 90.81MB/s
+indexed 38.01MB in  0s, 90.88MB/s
+indexed 38.14MB in  0s, 90.93MB/s
+indexed 38.27MB in  0s, 91.01MB/s
+indexed 38.40MB in  0s, 91.12MB/s
+indexed 38.53MB in  0s, 91.20MB/s
+indexed 38.67MB in  0s, 91.26MB/s
+indexed 38.80MB in  0s, 91.37MB/s
+indexed 38.93MB in  0s, 91.44MB/s
+indexed 39.06MB in  0s, 91.51MB/s
+indexed 39.19MB in  0s, 91.54MB/s
+indexed 39.32MB in  0s, 91.57MB/s
+indexed 39.45MB in  0s, 91.59MB/s
+indexed 39.58MB in  0s, 91.66MB/s
+indexed 39.71MB in  0s, 91.75MB/s
+indexed 39.85MB in  0s, 91.79MB/s
+indexed 39.98MB in  0s, 91.89MB/s
+indexed 40.11MB in  0s, 91.87MB/s
+indexed 40.24MB in  0s, 91.76MB/s
+indexed 40.37MB in  0s, 91.34MB/s
+indexed 40.50MB in  0s, 91.34MB/s
+indexed 40.63MB in  0s, 91.42MB/s
+indexed 40.76MB in  0s, 91.47MB/s
+indexed 40.89MB in  0s, 91.47MB/s
+indexed 41.03MB in  0s, 91.50MB/s
+indexed 41.16MB in  0s, 91.56MB/s
+indexed 41.29MB in  0s, 91.69MB/s
+indexed 41.42MB in  0s, 91.73MB/s
+indexed 41.55MB in  0s, 91.74MB/s
+indexed 41.68MB in  0s, 91.84MB/s
+indexed 41.81MB in  0s, 91.91MB/s
+indexed 41.94MB in  0s, 91.97MB/s
+indexed 42.07MB in  0s, 91.87MB/s
+indexed 42.20MB in  0s, 91.98MB/s
+indexed 42.34MB in  0s, 91.91MB/s
+indexed 42.47MB in  0s, 91.81MB/s
+indexed 42.60MB in  0s, 91.84MB/s
+indexed 42.73MB in  0s, 91.87MB/s
+indexed 42.86MB in  0s, 91.95MB/s
+indexed 42.99MB in  0s, 91.98MB/s
+indexed 43.12MB in  0s, 92.00MB/s
+indexed 43.25MB in  0s, 92.13MB/s
+indexed 43.38MB in  0s, 92.18MB/s
+indexed 43.52MB in  0s, 92.27MB/s
+indexed 43.65MB in  0s, 92.21MB/s
+indexed 43.78MB in  0s, 92.19MB/s
+indexed 43.91MB in  0s, 92.06MB/s
+indexed 44.04MB in  0s, 91.97MB/s
+indexed 44.17MB in  0s, 91.90MB/s
+indexed 44.30MB in  0s, 91.96MB/s
+indexed 44.43MB in  0s, 92.06MB/s
+indexed 44.56MB in  0s, 92.13MB/s
+indexed 44.70MB in  0s, 92.20MB/s
+indexed 44.83MB in  0s, 92.26MB/s
+indexed 44.96MB in  0s, 92.29MB/s
+indexed 45.09MB in  0s, 92.34MB/s
+indexed 45.22MB in  0s, 92.43MB/s
+indexed 45.35MB in  0s, 92.49MB/s
+indexed 45.48MB in  0s, 92.53MB/s
+indexed 45.61MB in  0s, 92.60MB/s
+indexed 45.74MB in  0s, 92.63MB/s
+indexed 45.87MB in  0s, 92.63MB/s
+indexed 46.01MB in  1s, 90.13MB/s
+indexed 46.14MB in  1s, 90.15MB/s
+indexed 46.27MB in  1s, 90.17MB/s
+indexed 46.40MB in  1s, 90.15MB/s
+indexed 46.53MB in  1s, 90.20MB/s
+indexed 46.66MB in  1s, 90.24MB/s
+indexed 46.79MB in  1s, 90.26MB/s
+indexed 46.92MB in  1s, 90.30MB/s
+indexed 47.05MB in  1s, 90.33MB/s
+indexed 47.19MB in  1s, 90.32MB/s
+indexed 47.32MB in  1s, 90.36MB/s
+indexed 47.45MB in  1s, 90.39MB/s
+indexed 47.58MB in  1s, 90.42MB/s
+indexed 47.71MB in  1s, 90.35MB/s
+indexed 47.84MB in  1s, 90.41MB/s
+indexed 47.97MB in  1s, 90.46MB/s
+indexed 48.10MB in  1s, 90.53MB/s
+indexed 48.23MB in  1s, 90.57MB/s
+indexed 48.37MB in  1s, 90.60MB/s
+indexed 48.50MB in  1s, 90.64MB/s
+indexed 48.63MB in  1s, 90.73MB/s
+indexed 48.76MB in  1s, 90.76MB/s
+indexed 48.89MB in  1s, 90.82MB/s
+indexed 49.02MB in  1s, 90.91MB/s
+indexed 49.15MB in  1s, 90.87MB/s
+indexed 49.28MB in  1s, 90.82MB/s
+indexed 49.41MB in  1s, 90.78MB/s
+indexed 49.54MB in  1s, 90.81MB/s
+indexed 49.68MB in  1s, 90.88MB/s
+indexed 49.81MB in  1s, 90.93MB/s
+indexed 49.94MB in  1s, 90.98MB/s
+indexed 50.07MB in  1s, 91.05MB/s
+indexed 50.20MB in  1s, 91.09MB/s
+indexed 50.33MB in  1s, 91.15MB/s
+indexed 50.46MB in  1s, 91.18MB/s
+indexed 50.59MB in  1s, 91.25MB/s
+indexed 50.72MB in  1s, 82.01MB/s
+indexed 50.86MB in  1s, 82.08MB/s
+indexed 50.99MB in  1s, 82.11MB/s
+indexed 51.12MB in  1s, 82.07MB/s
+indexed 51.25MB in  1s, 82.00MB/s
+indexed 51.38MB in  1s, 81.90MB/s
+indexed 51.51MB in  1s, 81.90MB/s
+indexed 51.64MB in  1s, 81.91MB/s
+indexed 51.77MB in  1s, 81.91MB/s
+indexed 51.90MB in  1s, 81.93MB/s
+indexed 52.04MB in  1s, 81.91MB/s
+indexed 52.17MB in  1s, 81.98MB/s
+indexed 52.30MB in  1s, 82.02MB/s
+indexed 52.43MB in  1s, 81.95MB/s
+indexed 52.56MB in  1s, 81.92MB/s
+indexed 52.69MB in  1s, 81.86MB/s
+indexed 52.82MB in  1s, 81.87MB/s
+indexed 52.95MB in  1s, 81.91MB/s
+indexed 53.08MB in  1s, 81.97MB/s
+indexed 53.21MB in  1s, 82.01MB/s
+indexed 53.35MB in  1s, 82.06MB/s
+indexed 53.48MB in  1s, 82.12MB/s
+indexed 53.61MB in  1s, 82.18MB/s
+indexed 53.74MB in  1s, 82.24MB/s
+indexed 53.87MB in  1s, 82.31MB/s
+indexed 54.00MB in  1s, 82.34MB/s
+indexed 54.13MB in  1s, 82.21MB/s
+indexed 54.26MB in  1s, 82.25MB/s
+indexed 54.39MB in  1s, 82.23MB/s
+indexed 54.53MB in  1s, 82.25MB/s
+indexed 54.66MB in  1s, 82.32MB/s
+indexed 54.79MB in  1s, 82.39MB/s
+indexed 54.92MB in  1s, 82.45MB/s
+indexed 55.05MB in  1s, 82.52MB/s
+indexed 55.18MB in  1s, 82.60MB/s
+indexed 55.31MB in  1s, 82.67MB/s
+indexed 55.44MB in  1s, 82.75MB/s
+indexed 55.57MB in  1s, 82.82MB/s
+indexed 55.71MB in  1s, 82.89MB/s
+indexed 55.84MB in  1s, 82.97MB/s
+indexed 55.97MB in  1s, 83.02MB/s
+indexed 56.10MB in  1s, 83.10MB/s
+indexed 56.23MB in  1s, 83.18MB/s
+indexed 56.36MB in  1s, 83.26MB/s
+indexed 56.49MB in  1s, 83.33MB/s
+indexed 56.62MB in  1s, 83.42MB/s
+indexed 56.75MB in  1s, 83.51MB/s
+indexed 56.88MB in  1s, 83.59MB/s
+indexed 57.02MB in  1s, 83.67MB/s
+indexed 57.15MB in  1s, 83.75MB/s
+indexed 57.28MB in  1s, 83.84MB/s
+indexed 57.41MB in  1s, 83.92MB/s
+indexed 57.54MB in  1s, 84.00MB/s
+indexed 57.67MB in  1s, 84.07MB/s
+indexed 57.80MB in  1s, 84.16MB/s
+indexed 57.93MB in  1s, 84.24MB/s
+indexed 58.06MB in  1s, 84.31MB/s
+indexed 58.20MB in  1s, 84.37MB/s
+indexed 58.33MB in  1s, 84.38MB/s
+indexed 58.46MB in  1s, 84.46MB/s
+indexed 58.59MB in  1s, 84.54MB/s
+indexed 58.72MB in  1s, 84.61MB/s
+indexed 58.85MB in  1s, 84.68MB/s
+indexed 58.98MB in  1s, 84.74MB/s
+indexed 59.11MB in  1s, 84.80MB/s
+indexed 59.24MB in  1s, 84.85MB/s
+indexed 59.38MB in  1s, 84.86MB/s
+indexed 59.51MB in  1s, 84.93MB/s
+indexed 59.64MB in  1s, 84.97MB/s
+indexed 59.77MB in  1s, 85.00MB/s
+indexed 59.90MB in  1s, 85.04MB/s
+indexed 60.03MB in  1s, 85.10MB/s
+indexed 60.16MB in  1s, 85.17MB/s
+indexed 60.29MB in  1s, 85.23MB/s
+indexed 60.42MB in  1s, 85.30MB/s
+indexed 60.55MB in  1s, 85.38MB/s
+indexed 60.69MB in  1s, 85.39MB/s
+indexed 60.82MB in  1s, 85.46MB/s
+indexed 60.95MB in  1s, 85.53MB/s
+indexed 61.08MB in  1s, 85.60MB/s
+indexed 61.21MB in  1s, 85.51MB/s
+indexed 61.34MB in  1s, 85.53MB/s
+indexed 61.47MB in  1s, 85.57MB/s
+indexed 61.60MB in  1s, 85.63MB/s
+indexed 61.73MB in  1s, 85.66MB/s
+indexed 61.87MB in  1s, 85.72MB/s
+indexed 62.00MB in  1s, 85.79MB/s
+indexed 62.13MB in  1s, 85.86MB/s
+indexed 62.26MB in  1s, 85.93MB/s
+indexed 62.39MB in  1s, 86.00MB/s
+indexed 62.52MB in  1s, 86.06MB/s
+indexed 62.65MB in  1s, 86.13MB/s
+indexed 62.78MB in  1s, 86.21MB/s
+indexed 62.91MB in  1s, 86.28MB/s
+indexed 63.05MB in  1s, 86.35MB/s
+indexed 63.18MB in  1s, 86.42MB/s
+indexed 63.31MB in  1s, 86.49MB/s
+indexed 63.44MB in  1s, 86.55MB/s
+indexed 63.57MB in  1s, 86.63MB/s
+indexed 63.70MB in  1s, 86.70MB/s
+indexed 63.83MB in  1s, 86.77MB/s
+indexed 63.96MB in  1s, 86.84MB/s
+indexed 64.09MB in  1s, 86.89MB/s
+indexed 64.22MB in  1s, 86.92MB/s
+indexed 64.36MB in  1s, 86.86MB/s
+indexed 64.49MB in  1s, 86.92MB/s
+indexed 64.62MB in  1s, 86.96MB/s
+indexed 64.75MB in  1s, 87.00MB/s
+indexed 64.88MB in  1s, 87.07MB/s
+indexed 65.01MB in  1s, 87.13MB/s
+indexed 65.14MB in  1s, 87.18MB/s
+indexed 65.27MB in  1s, 87.23MB/s
+indexed 65.40MB in  1s, 87.25MB/s
+indexed 65.54MB in  1s, 87.23MB/s
+indexed 65.67MB in  1s, 87.26MB/s
+indexed 65.80MB in  1s, 87.12MB/s
+indexed 65.90MB in  1s, 86.96MB/s
                                                                               
-indexed 1.00TB in  0s, 2.93TB/s
+indexed 1.00TB in  1s, 1.32TB/s
                                                                               </code></pre>
 </div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Suomi, kokonaisindeksi</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>hicp_fi <span class="ot">&lt;-</span> hicp_raw <span class="sc">|&gt;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    geo <span class="sc">==</span> <span class="st">"FI"</span>,</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    coicop <span class="sc">==</span> <span class="st">"CP00"</span>,</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    unit <span class="sc">==</span> <span class="st">"I15"</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(<span class="at">time =</span> TIME_PERIOD, values) <span class="sc">|&gt;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(time)</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Muodostetaan tsibble</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>hicp_ts <span class="ot">&lt;-</span> hicp_fi <span class="sc">|&gt;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">time =</span> <span class="fu">yearmonth</span>(time)) <span class="sc">|&gt;</span>   <span class="co"># &lt;- kriittinen muunnos</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">as_tsibble</span>(<span class="at">index =</span> time)</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="co"># Lasketaan vuosimuutos (%)</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="ot">&lt;-</span> hicp_ts <span class="sc">|&gt;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">inflation_yoy =</span> <span class="dv">100</span> <span class="sc">*</span> (values <span class="sc">/</span> <span class="fu">lag</span>(values, <span class="dv">12</span>) <span class="sc">-</span> <span class="dv">1</span>)</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(inflation_yoy))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>Kirjoita tähän väliin selitystä:</p>
 <div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> time, <span class="at">y =</span> inflation_yoy)) <span class="sc">+</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Suomen HICP-inflaatio (y/y)"</span>,</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>,</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Inflaatio (%)"</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -443,6 +649,8 @@ indexed 1.00TB in  0s, 2.93TB/s
 </div>
 <p>Tähän väliin tekstiä:</p>
 <div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">features</span>(inflation_yoy, unitroot_kpss)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
 <pre><code># A tibble: 1 × 2
   kpss_stat kpss_pvalue
@@ -452,6 +660,30 @@ indexed 1.00TB in  0s, 2.93TB/s
 </div>
 <p>Kausivaihtelu:</p>
 <div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">year =</span> <span class="fu">year</span>(<span class="fu">as.Date</span>(time))) <span class="sc">|&gt;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">month</span>(<span class="fu">as.Date</span>(time), <span class="at">label =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>             <span class="at">y =</span> inflation_yoy,</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>             <span class="at">group =</span> year)) <span class="sc">+</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> <span class="sc">~</span> <span class="fu">filter</span>(.x, year <span class="sc">&lt;</span> <span class="fu">max</span>(year) <span class="sc">-</span> <span class="dv">2</span>),</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">colour =</span> <span class="st">"grey80"</span>,</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.6</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> <span class="sc">~</span> <span class="fu">filter</span>(.x, year <span class="sc">&gt;=</span> <span class="fu">max</span>(year) <span class="sc">-</span> <span class="dv">2</span>),</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">colour =</span> <span class="fu">factor</span>(year)),</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="dv">1</span></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"#1b9e77"</span>, <span class="st">"#d95f02"</span>, <span class="st">"#7570b3"</span>)) <span class="sc">+</span></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Suomen inflaation kausiprofiili"</span>,</span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Viimeiset kolme vuotta korostettu"</span>,</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>,</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Inflaatio (%)"</span>,</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">colour =</span> <span class="st">"Vuosi"</span></span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -462,6 +694,20 @@ indexed 1.00TB in  0s, 2.93TB/s
 </div>
 <p>Volatiliteetti ei ole vakio:</p>
 <div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">rolling_sd =</span> slider<span class="sc">::</span><span class="fu">slide_dbl</span>(</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>    inflation_yoy,</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    sd,</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">.before =</span> <span class="dv">12</span>,</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">.complete =</span> <span class="cn">TRUE</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">|&gt;</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(time, rolling_sd)) <span class="sc">+</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Inflaation 12 kk liukuva volatiliteetti"</span>,</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Keskihajonta"</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
@@ -961,135 +1207,135 @@ indexed 1.00TB in  0s, 2.93TB/s
   }
   loadGiscus();
 </script><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> "Osa 1 — Inflaatio ei ole luku vaan se on prosessi"</span></span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="an">date:</span><span class="co"> 2026-03-04</span></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="an">categories:</span><span class="co"> [R, Data Science, talous, inflaatio, ennustaminen]</span></span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="an">description:</span><span class="co"> "Suomen inflaation kuvailua"</span></span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="an">draft:</span><span class="co"> false</span></span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="an">toc:</span><span class="co"> true</span></span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="an">reading-time:</span><span class="co"> true</span></span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>Mediassa inflaatiota käsitellään usein pelkkänä yhtenä lukuna. Se ei kuitenkaan ole pelkkä yksittäinen</span>
-<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>luku, vaan prosessi, joka sisältää jakauman ja virherajat. </span>
-<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>Tämän moniosaisen blogipostauksen tarkoituksena on käydä läpi talouteen ja </span>
-<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>erityisesti inflaatioon liittyviä datalähteitä sekä näillä tehtäviä ennusteita ja miten ennusteet </span>
-<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>syntyvät.</span>
-<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>Ennustamisen kohteena on Suomen kuluttajintainflaation vuosimuotos eli HICP. Datan kerään Eurostatilta, joka on Euroopan unionin tilastokeskus.</span>
-<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a><span class="in">```{r echo = FALSE, message=FALSE}</span></span>
-<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a><span class="co"># Paketointi</span></span>
-<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(eurostat)</span>
-<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
-<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tsibble)</span>
-<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
-<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(lubridate)</span>
-<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(feasts)</span>
-<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a><span class="co"># HICP kuukausi-indeksi</span></span>
-<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>hicp_raw <span class="ot">&lt;-</span> <span class="fu">get_eurostat</span>(</span>
-<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>  <span class="st">"prc_hicp_midx"</span>,</span>
-<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>  <span class="at">time_format =</span> <span class="st">"date"</span></span>
-<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a><span class="co"># Suomi, kokonaisindeksi</span></span>
-<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>hicp_fi <span class="ot">&lt;-</span> hicp_raw <span class="sc">|&gt;</span></span>
-<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(</span>
-<span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a>    geo <span class="sc">==</span> <span class="st">"FI"</span>,</span>
-<span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a>    coicop <span class="sc">==</span> <span class="st">"CP00"</span>,</span>
-<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a>    unit <span class="sc">==</span> <span class="st">"I15"</span></span>
-<span id="cb3-43"><a href="#cb3-43" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb3-44"><a href="#cb3-44" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(<span class="at">time =</span> TIME_PERIOD, values) <span class="sc">|&gt;</span></span>
-<span id="cb3-45"><a href="#cb3-45" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(time)</span>
-<span id="cb3-46"><a href="#cb3-46" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-47"><a href="#cb3-47" aria-hidden="true" tabindex="-1"></a><span class="co"># Muodostetaan tsibble</span></span>
-<span id="cb3-48"><a href="#cb3-48" aria-hidden="true" tabindex="-1"></a>hicp_ts <span class="ot">&lt;-</span> hicp_fi <span class="sc">|&gt;</span></span>
-<span id="cb3-49"><a href="#cb3-49" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">time =</span> <span class="fu">yearmonth</span>(time)) <span class="sc">|&gt;</span>   <span class="co"># &lt;- kriittinen muunnos</span></span>
-<span id="cb3-50"><a href="#cb3-50" aria-hidden="true" tabindex="-1"></a>  <span class="fu">as_tsibble</span>(<span class="at">index =</span> time)</span>
-<span id="cb3-51"><a href="#cb3-51" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-52"><a href="#cb3-52" aria-hidden="true" tabindex="-1"></a><span class="co"># Lasketaan vuosimuutos (%)</span></span>
-<span id="cb3-53"><a href="#cb3-53" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="ot">&lt;-</span> hicp_ts <span class="sc">|&gt;</span></span>
-<span id="cb3-54"><a href="#cb3-54" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
-<span id="cb3-55"><a href="#cb3-55" aria-hidden="true" tabindex="-1"></a>    <span class="at">inflation_yoy =</span> <span class="dv">100</span> <span class="sc">*</span> (values <span class="sc">/</span> <span class="fu">lag</span>(values, <span class="dv">12</span>) <span class="sc">-</span> <span class="dv">1</span>)</span>
-<span id="cb3-56"><a href="#cb3-56" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
-<span id="cb3-57"><a href="#cb3-57" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(inflation_yoy))</span>
-<span id="cb3-58"><a href="#cb3-58" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-59"><a href="#cb3-59" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb3-60"><a href="#cb3-60" aria-hidden="true" tabindex="-1"></a>Kirjoita tähän väliin selitystä:</span>
-<span id="cb3-61"><a href="#cb3-61" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-62"><a href="#cb3-62" aria-hidden="true" tabindex="-1"></a><span class="in">```{r echo = FALSE, message=FALSE}</span></span>
-<span id="cb3-63"><a href="#cb3-63" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
-<span id="cb3-64"><a href="#cb3-64" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> time, <span class="at">y =</span> inflation_yoy)) <span class="sc">+</span></span>
-<span id="cb3-65"><a href="#cb3-65" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
-<span id="cb3-66"><a href="#cb3-66" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb3-67"><a href="#cb3-67" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Suomen HICP-inflaatio (y/y)"</span>,</span>
-<span id="cb3-68"><a href="#cb3-68" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>,</span>
-<span id="cb3-69"><a href="#cb3-69" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Inflaatio (%)"</span></span>
-<span id="cb3-70"><a href="#cb3-70" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb3-71"><a href="#cb3-71" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span>
-<span id="cb3-72"><a href="#cb3-72" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-73"><a href="#cb3-73" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb3-74"><a href="#cb3-74" aria-hidden="true" tabindex="-1"></a>Tähän väliin tekstiä:</span>
-<span id="cb3-75"><a href="#cb3-75" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-76"><a href="#cb3-76" aria-hidden="true" tabindex="-1"></a><span class="in">```{r echo = FALSE, warning=FALSE}</span></span>
-<span id="cb3-77"><a href="#cb3-77" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
-<span id="cb3-78"><a href="#cb3-78" aria-hidden="true" tabindex="-1"></a>  <span class="fu">features</span>(inflation_yoy, unitroot_kpss)</span>
-<span id="cb3-79"><a href="#cb3-79" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-80"><a href="#cb3-80" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb3-81"><a href="#cb3-81" aria-hidden="true" tabindex="-1"></a>Kausivaihtelu:</span>
-<span id="cb3-82"><a href="#cb3-82" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-83"><a href="#cb3-83" aria-hidden="true" tabindex="-1"></a><span class="in">```{r echo = FALSE, warning=FALSE}</span></span>
-<span id="cb3-84"><a href="#cb3-84" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-85"><a href="#cb3-85" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
-<span id="cb3-86"><a href="#cb3-86" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">year =</span> <span class="fu">year</span>(<span class="fu">as.Date</span>(time))) <span class="sc">|&gt;</span></span>
-<span id="cb3-87"><a href="#cb3-87" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">month</span>(<span class="fu">as.Date</span>(time), <span class="at">label =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb3-88"><a href="#cb3-88" aria-hidden="true" tabindex="-1"></a>             <span class="at">y =</span> inflation_yoy,</span>
-<span id="cb3-89"><a href="#cb3-89" aria-hidden="true" tabindex="-1"></a>             <span class="at">group =</span> year)) <span class="sc">+</span></span>
-<span id="cb3-90"><a href="#cb3-90" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(</span>
-<span id="cb3-91"><a href="#cb3-91" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> <span class="sc">~</span> <span class="fu">filter</span>(.x, year <span class="sc">&lt;</span> <span class="fu">max</span>(year) <span class="sc">-</span> <span class="dv">2</span>),</span>
-<span id="cb3-92"><a href="#cb3-92" aria-hidden="true" tabindex="-1"></a>    <span class="at">colour =</span> <span class="st">"grey80"</span>,</span>
-<span id="cb3-93"><a href="#cb3-93" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.6</span></span>
-<span id="cb3-94"><a href="#cb3-94" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb3-95"><a href="#cb3-95" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(</span>
-<span id="cb3-96"><a href="#cb3-96" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> <span class="sc">~</span> <span class="fu">filter</span>(.x, year <span class="sc">&gt;=</span> <span class="fu">max</span>(year) <span class="sc">-</span> <span class="dv">2</span>),</span>
-<span id="cb3-97"><a href="#cb3-97" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">colour =</span> <span class="fu">factor</span>(year)),</span>
-<span id="cb3-98"><a href="#cb3-98" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="dv">1</span></span>
-<span id="cb3-99"><a href="#cb3-99" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb3-100"><a href="#cb3-100" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"#1b9e77"</span>, <span class="st">"#d95f02"</span>, <span class="st">"#7570b3"</span>)) <span class="sc">+</span></span>
-<span id="cb3-101"><a href="#cb3-101" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb3-102"><a href="#cb3-102" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Suomen inflaation kausiprofiili"</span>,</span>
-<span id="cb3-103"><a href="#cb3-103" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Viimeiset kolme vuotta korostettu"</span>,</span>
-<span id="cb3-104"><a href="#cb3-104" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>,</span>
-<span id="cb3-105"><a href="#cb3-105" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Inflaatio (%)"</span>,</span>
-<span id="cb3-106"><a href="#cb3-106" aria-hidden="true" tabindex="-1"></a>    <span class="at">colour =</span> <span class="st">"Vuosi"</span></span>
-<span id="cb3-107"><a href="#cb3-107" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb3-108"><a href="#cb3-108" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span>
-<span id="cb3-109"><a href="#cb3-109" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-110"><a href="#cb3-110" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-111"><a href="#cb3-111" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb3-112"><a href="#cb3-112" aria-hidden="true" tabindex="-1"></a>Volatiliteetti ei ole vakio:</span>
-<span id="cb3-113"><a href="#cb3-113" aria-hidden="true" tabindex="-1"></a><span class="in">```{r echo = FALSE, warning=FALSE}</span></span>
-<span id="cb3-114"><a href="#cb3-114" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
-<span id="cb3-115"><a href="#cb3-115" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">rolling_sd =</span> slider<span class="sc">::</span><span class="fu">slide_dbl</span>(</span>
-<span id="cb3-116"><a href="#cb3-116" aria-hidden="true" tabindex="-1"></a>    inflation_yoy,</span>
-<span id="cb3-117"><a href="#cb3-117" aria-hidden="true" tabindex="-1"></a>    sd,</span>
-<span id="cb3-118"><a href="#cb3-118" aria-hidden="true" tabindex="-1"></a>    <span class="at">.before =</span> <span class="dv">12</span>,</span>
-<span id="cb3-119"><a href="#cb3-119" aria-hidden="true" tabindex="-1"></a>    <span class="at">.complete =</span> <span class="cn">TRUE</span></span>
-<span id="cb3-120"><a href="#cb3-120" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">|&gt;</span></span>
-<span id="cb3-121"><a href="#cb3-121" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(time, rolling_sd)) <span class="sc">+</span></span>
-<span id="cb3-122"><a href="#cb3-122" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
-<span id="cb3-123"><a href="#cb3-123" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
-<span id="cb3-124"><a href="#cb3-124" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Inflaation 12 kk liukuva volatiliteetti"</span>,</span>
-<span id="cb3-125"><a href="#cb3-125" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Keskihajonta"</span></span>
-<span id="cb3-126"><a href="#cb3-126" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
-<span id="cb3-127"><a href="#cb3-127" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span>
-<span id="cb3-128"><a href="#cb3-128" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-129"><a href="#cb3-129" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> "Osa 1 — Inflaatio ei ole luku vaan se on prosessi"</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="an">date:</span><span class="co"> 2026-03-04</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="an">categories:</span><span class="co"> [R, Data Science, talous, inflaatio, ennustaminen]</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="an">description:</span><span class="co"> "Suomen inflaation kuvailua"</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a><span class="an">draft:</span><span class="co"> false</span></span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a><span class="an">toc:</span><span class="co"> true</span></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a><span class="an">reading-time:</span><span class="co"> true</span></span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>Mediassa inflaatiota käsitellään usein pelkkänä yhtenä lukuna. Se ei kuitenkaan ole pelkkä yksittäinen</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>luku, vaan prosessi, joka sisältää jakauman ja virherajat. </span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>Tämän moniosaisen blogipostauksen tarkoituksena on käydä läpi talouteen ja </span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>erityisesti inflaatioon liittyviä datalähteitä sekä näillä tehtäviä ennusteita ja miten ennusteet </span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>syntyvät.</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>Ennustamisen kohteena on Suomen kuluttajintainflaation vuosimuotos eli HICP. Datan kerään Eurostatilta, joka on Euroopan unionin tilastokeskus.</span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-24"><a href="#cb9-24" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb9-25"><a href="#cb9-25" aria-hidden="true" tabindex="-1"></a><span class="co"># Paketointi</span></span>
+<span id="cb9-26"><a href="#cb9-26" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(eurostat)</span>
+<span id="cb9-27"><a href="#cb9-27" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
+<span id="cb9-28"><a href="#cb9-28" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(tsibble)</span>
+<span id="cb9-29"><a href="#cb9-29" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
+<span id="cb9-30"><a href="#cb9-30" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(lubridate)</span>
+<span id="cb9-31"><a href="#cb9-31" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(feasts)</span>
+<span id="cb9-32"><a href="#cb9-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-33"><a href="#cb9-33" aria-hidden="true" tabindex="-1"></a><span class="co"># HICP kuukausi-indeksi</span></span>
+<span id="cb9-34"><a href="#cb9-34" aria-hidden="true" tabindex="-1"></a>hicp_raw <span class="ot">&lt;-</span> <span class="fu">get_eurostat</span>(</span>
+<span id="cb9-35"><a href="#cb9-35" aria-hidden="true" tabindex="-1"></a>  <span class="st">"prc_hicp_midx"</span>,</span>
+<span id="cb9-36"><a href="#cb9-36" aria-hidden="true" tabindex="-1"></a>  <span class="at">time_format =</span> <span class="st">"date"</span></span>
+<span id="cb9-37"><a href="#cb9-37" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb9-38"><a href="#cb9-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-39"><a href="#cb9-39" aria-hidden="true" tabindex="-1"></a><span class="co"># Suomi, kokonaisindeksi</span></span>
+<span id="cb9-40"><a href="#cb9-40" aria-hidden="true" tabindex="-1"></a>hicp_fi <span class="ot">&lt;-</span> hicp_raw <span class="sc">|&gt;</span></span>
+<span id="cb9-41"><a href="#cb9-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(</span>
+<span id="cb9-42"><a href="#cb9-42" aria-hidden="true" tabindex="-1"></a>    geo <span class="sc">==</span> <span class="st">"FI"</span>,</span>
+<span id="cb9-43"><a href="#cb9-43" aria-hidden="true" tabindex="-1"></a>    coicop <span class="sc">==</span> <span class="st">"CP00"</span>,</span>
+<span id="cb9-44"><a href="#cb9-44" aria-hidden="true" tabindex="-1"></a>    unit <span class="sc">==</span> <span class="st">"I15"</span></span>
+<span id="cb9-45"><a href="#cb9-45" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb9-46"><a href="#cb9-46" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(<span class="at">time =</span> TIME_PERIOD, values) <span class="sc">|&gt;</span></span>
+<span id="cb9-47"><a href="#cb9-47" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(time)</span>
+<span id="cb9-48"><a href="#cb9-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-49"><a href="#cb9-49" aria-hidden="true" tabindex="-1"></a><span class="co"># Muodostetaan tsibble</span></span>
+<span id="cb9-50"><a href="#cb9-50" aria-hidden="true" tabindex="-1"></a>hicp_ts <span class="ot">&lt;-</span> hicp_fi <span class="sc">|&gt;</span></span>
+<span id="cb9-51"><a href="#cb9-51" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">time =</span> <span class="fu">yearmonth</span>(time)) <span class="sc">|&gt;</span>   <span class="co"># &lt;- kriittinen muunnos</span></span>
+<span id="cb9-52"><a href="#cb9-52" aria-hidden="true" tabindex="-1"></a>  <span class="fu">as_tsibble</span>(<span class="at">index =</span> time)</span>
+<span id="cb9-53"><a href="#cb9-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-54"><a href="#cb9-54" aria-hidden="true" tabindex="-1"></a><span class="co"># Lasketaan vuosimuutos (%)</span></span>
+<span id="cb9-55"><a href="#cb9-55" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="ot">&lt;-</span> hicp_ts <span class="sc">|&gt;</span></span>
+<span id="cb9-56"><a href="#cb9-56" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb9-57"><a href="#cb9-57" aria-hidden="true" tabindex="-1"></a>    <span class="at">inflation_yoy =</span> <span class="dv">100</span> <span class="sc">*</span> (values <span class="sc">/</span> <span class="fu">lag</span>(values, <span class="dv">12</span>) <span class="sc">-</span> <span class="dv">1</span>)</span>
+<span id="cb9-58"><a href="#cb9-58" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">|&gt;</span></span>
+<span id="cb9-59"><a href="#cb9-59" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="sc">!</span><span class="fu">is.na</span>(inflation_yoy))</span>
+<span id="cb9-60"><a href="#cb9-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-61"><a href="#cb9-61" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb9-62"><a href="#cb9-62" aria-hidden="true" tabindex="-1"></a>Kirjoita tähän väliin selitystä:</span>
+<span id="cb9-63"><a href="#cb9-63" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-66"><a href="#cb9-66" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb9-67"><a href="#cb9-67" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
+<span id="cb9-68"><a href="#cb9-68" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> time, <span class="at">y =</span> inflation_yoy)) <span class="sc">+</span></span>
+<span id="cb9-69"><a href="#cb9-69" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
+<span id="cb9-70"><a href="#cb9-70" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb9-71"><a href="#cb9-71" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Suomen HICP-inflaatio (y/y)"</span>,</span>
+<span id="cb9-72"><a href="#cb9-72" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>,</span>
+<span id="cb9-73"><a href="#cb9-73" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Inflaatio (%)"</span></span>
+<span id="cb9-74"><a href="#cb9-74" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb9-75"><a href="#cb9-75" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span>
+<span id="cb9-76"><a href="#cb9-76" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-77"><a href="#cb9-77" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb9-78"><a href="#cb9-78" aria-hidden="true" tabindex="-1"></a>Tähän väliin tekstiä:</span>
+<span id="cb9-79"><a href="#cb9-79" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-82"><a href="#cb9-82" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb9-83"><a href="#cb9-83" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
+<span id="cb9-84"><a href="#cb9-84" aria-hidden="true" tabindex="-1"></a>  <span class="fu">features</span>(inflation_yoy, unitroot_kpss)</span>
+<span id="cb9-85"><a href="#cb9-85" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-86"><a href="#cb9-86" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb9-87"><a href="#cb9-87" aria-hidden="true" tabindex="-1"></a>Kausivaihtelu:</span>
+<span id="cb9-88"><a href="#cb9-88" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-91"><a href="#cb9-91" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb9-92"><a href="#cb9-92" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
+<span id="cb9-93"><a href="#cb9-93" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">year =</span> <span class="fu">year</span>(<span class="fu">as.Date</span>(time))) <span class="sc">|&gt;</span></span>
+<span id="cb9-94"><a href="#cb9-94" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">month</span>(<span class="fu">as.Date</span>(time), <span class="at">label =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb9-95"><a href="#cb9-95" aria-hidden="true" tabindex="-1"></a>             <span class="at">y =</span> inflation_yoy,</span>
+<span id="cb9-96"><a href="#cb9-96" aria-hidden="true" tabindex="-1"></a>             <span class="at">group =</span> year)) <span class="sc">+</span></span>
+<span id="cb9-97"><a href="#cb9-97" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(</span>
+<span id="cb9-98"><a href="#cb9-98" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> <span class="sc">~</span> <span class="fu">filter</span>(.x, year <span class="sc">&lt;</span> <span class="fu">max</span>(year) <span class="sc">-</span> <span class="dv">2</span>),</span>
+<span id="cb9-99"><a href="#cb9-99" aria-hidden="true" tabindex="-1"></a>    <span class="at">colour =</span> <span class="st">"grey80"</span>,</span>
+<span id="cb9-100"><a href="#cb9-100" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="fl">0.6</span></span>
+<span id="cb9-101"><a href="#cb9-101" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb9-102"><a href="#cb9-102" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(</span>
+<span id="cb9-103"><a href="#cb9-103" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> <span class="sc">~</span> <span class="fu">filter</span>(.x, year <span class="sc">&gt;=</span> <span class="fu">max</span>(year) <span class="sc">-</span> <span class="dv">2</span>),</span>
+<span id="cb9-104"><a href="#cb9-104" aria-hidden="true" tabindex="-1"></a>    <span class="fu">aes</span>(<span class="at">colour =</span> <span class="fu">factor</span>(year)),</span>
+<span id="cb9-105"><a href="#cb9-105" aria-hidden="true" tabindex="-1"></a>    <span class="at">linewidth =</span> <span class="dv">1</span></span>
+<span id="cb9-106"><a href="#cb9-106" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb9-107"><a href="#cb9-107" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_colour_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"#1b9e77"</span>, <span class="st">"#d95f02"</span>, <span class="st">"#7570b3"</span>)) <span class="sc">+</span></span>
+<span id="cb9-108"><a href="#cb9-108" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb9-109"><a href="#cb9-109" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Suomen inflaation kausiprofiili"</span>,</span>
+<span id="cb9-110"><a href="#cb9-110" aria-hidden="true" tabindex="-1"></a>    <span class="at">subtitle =</span> <span class="st">"Viimeiset kolme vuotta korostettu"</span>,</span>
+<span id="cb9-111"><a href="#cb9-111" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="cn">NULL</span>,</span>
+<span id="cb9-112"><a href="#cb9-112" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Inflaatio (%)"</span>,</span>
+<span id="cb9-113"><a href="#cb9-113" aria-hidden="true" tabindex="-1"></a>    <span class="at">colour =</span> <span class="st">"Vuosi"</span></span>
+<span id="cb9-114"><a href="#cb9-114" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb9-115"><a href="#cb9-115" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span>
+<span id="cb9-116"><a href="#cb9-116" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-117"><a href="#cb9-117" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-118"><a href="#cb9-118" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb9-119"><a href="#cb9-119" aria-hidden="true" tabindex="-1"></a>Volatiliteetti ei ole vakio:</span>
+<span id="cb9-122"><a href="#cb9-122" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb9-123"><a href="#cb9-123" aria-hidden="true" tabindex="-1"></a>hicp_yoy <span class="sc">|&gt;</span></span>
+<span id="cb9-124"><a href="#cb9-124" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">rolling_sd =</span> slider<span class="sc">::</span><span class="fu">slide_dbl</span>(</span>
+<span id="cb9-125"><a href="#cb9-125" aria-hidden="true" tabindex="-1"></a>    inflation_yoy,</span>
+<span id="cb9-126"><a href="#cb9-126" aria-hidden="true" tabindex="-1"></a>    sd,</span>
+<span id="cb9-127"><a href="#cb9-127" aria-hidden="true" tabindex="-1"></a>    <span class="at">.before =</span> <span class="dv">12</span>,</span>
+<span id="cb9-128"><a href="#cb9-128" aria-hidden="true" tabindex="-1"></a>    <span class="at">.complete =</span> <span class="cn">TRUE</span></span>
+<span id="cb9-129"><a href="#cb9-129" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">|&gt;</span></span>
+<span id="cb9-130"><a href="#cb9-130" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(time, rolling_sd)) <span class="sc">+</span></span>
+<span id="cb9-131"><a href="#cb9-131" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>() <span class="sc">+</span></span>
+<span id="cb9-132"><a href="#cb9-132" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb9-133"><a href="#cb9-133" aria-hidden="true" tabindex="-1"></a>    <span class="at">title =</span> <span class="st">"Inflaation 12 kk liukuva volatiliteetti"</span>,</span>
+<span id="cb9-134"><a href="#cb9-134" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Keskihajonta"</span></span>
+<span id="cb9-135"><a href="#cb9-135" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb9-136"><a href="#cb9-136" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span>
+<span id="cb9-137"><a href="#cb9-137" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-138"><a href="#cb9-138" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+</code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
 <footer class="footer">

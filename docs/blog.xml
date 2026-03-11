@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss  xmlns:atom="http://www.w3.org/2005/Atom" 
+      xmlns:media="http://search.yahoo.com/mrss/" 
+      xmlns:content="http://purl.org/rss/1.0/modules/content/" 
+      xmlns:dc="http://purl.org/dc/elements/1.1/" 
+      version="2.0">
+<channel>
+<title>Kristian Vepsäläinen – Maailma on jakauma</title>
+<link>https://kristianvepsalainen.github.io/blog.html</link>
+<atom:link href="https://kristianvepsalainen.github.io/blog.xml" rel="self" type="application/rss+xml"/>
+<description></description>
+<generator>quarto-1.8.27</generator>
+<lastBuildDate>Tue, 10 Mar 2026 22:00:00 GMT</lastBuildDate>
+<item>
+  <title>Osa 2: Kuinka vaikeaa inflaation ennustaminen on?</title>
+  <link>https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<p>Edellisessä osassa tarkasteltiin Suomen inflaatiodataa ja sen keskeisiä tilastollisia piirteitä. Analyysi osoitti, että inflaatio ei ole vakaa prosessi: siihen liittyy rakenteellisia muutoksia ja merkittäviä volatiliteetin vaihteluita.</p>
+<p>Seuraava kysymys kuuluu:</p>
+<p>Kuinka hyvin inflaatiota voidaan ennustaa?</p>
+<p>Ennen monimutkaisten mallien rakentamista on hyödyllistä aloittaa yksinkertaisista vertailumalleista. Taloustieteessä nämä tunnetaan nimellä baseline models.</p>
+<p>Yllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Siksi niitä käytetään usein vertailukohtina monimutkaisemmille menetelmille.</p>
+<p>Tässä osassa tarkastellaan kahta klassista baseline-mallia:</p>
+<p>random walk</p>
+<p>ARIMA</p>
+<p>Näiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on.</p>
+<p>##Ennustamisen arviointikehikko</p>
+<p>Ennustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.</p>
+<p>Aikarivianalyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.</p>
+<p>Siksi käytetään <strong>rolling-origin</strong> -arviointia.</p>
+<p>Tässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista.</p>
+<p>Tämä vastaa realistista ennustamistilannetta.</p>
+<p>Ennustehorisontti</p>
+<p>Makrotaloudessa inflaatiota tarkastellaan usein vuositasolla. Tässä analyysissä käytetään 12 kuukauden ennustehorisonttia.</p>
+<p>Tämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden päähän.</p>
+<p>Random walk -malli</p>
+<p>Yksinkertaisin mahdollinen ennustemalli on random walk.</p>
+<p>Random walk -mallissa oletetaan, että paras ennuste tulevalle arvolle on nykyinen arvo. Toisin sanoen muutokset ovat täysin satunnaisia.</p>
+<p>Matemaattisesti malli voidaan kirjoittaa</p>
+<p><img src="https://latex.codecogs.com/png.latex?y_%7Bt+1%7D=y_t+%5Cepsilon_t">, missä</p>
+<p><img src="https://latex.codecogs.com/png.latex?%5Cepsilon_t"> on satunnainen virhetermi.</p>
+<p>Vaikka malli on äärimmäisen yksinkertainen, se toimii monissa taloudellisissa aikasarjoissa yllättävän hyvin.</p>
+<section id="random-walk--mallin-estimointi" class="level2">
+<h2 class="anchored" data-anchor-id="random-walk--mallin-estimointi">Random walk -mallin estimointi</h2>
+<p>Random walk voidaan estimoida helposti fable-paketin avulla.</p>
+</section>
+<section id="ennusteen-visualisointi" class="level2">
+<h2 class="anchored" data-anchor-id="ennusteen-visualisointi">Ennusteen visualisointi</h2>
+<p>Seuraavaksi tuotetaan ennuste vuoden päähän.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio_files/figure-html/unnamed-chunk-2-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Random walk -malli tuottaa ennusteen, joka seuraa viimeisintä havaintoa. Ennusteeseen liittyvä epävarmuus kasvaa ajan myötä.</p>
+<p>Tämä on tyypillistä stokastisille prosesseille.</p>
+</section>
+<section id="arima-malli" class="level2">
+<h2 class="anchored" data-anchor-id="arima-malli">ARIMA-malli</h2>
+<p>Toinen klassinen aikarivimalli on <strong>ARIMA</strong> (<strong>AutoRegressive Integrated Moving Average</strong>).</p>
+<p>ARIMA-mallit yhdistävät kolme komponenttia:</p>
+<ul>
+<li><p>autoregressio (AR)</p></li>
+<li><p>differensointi (I)</p></li>
+<li><p>liukuvan keskiarvon termi (MA)</p></li>
+</ul>
+<p>Näiden avulla voidaan mallintaa sarjan riippuvuuksia menneisiin havaintoihin.</p>
+</section>
+<section id="arima-mallin-estimointi" class="level2">
+<h2 class="anchored" data-anchor-id="arima-mallin-estimointi">ARIMA-mallin estimointi</h2>
+<p>fable-paketti sisältää automaattisen ARIMA-mallin valinnan.</p>
+<p>Mallin rakennetta voidaan tarkastella seuraavasti.</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>Series: inflation_yoy 
+Model: ARIMA(3,0,1)(0,0,2)[12] w/ mean 
+
+Coefficients:
+         ar1      ar2      ar3      ma1     sma1     sma2  constant
+      1.6836  -0.4907  -0.1995  -0.7549  -0.6611  -0.1811    0.0118
+s.e.  0.0871   0.1367   0.0576   0.0766   0.0559   0.0586    0.0008
+
+sigma^2 estimated as 0.09142:  log likelihood=-82.24
+AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
+</div>
+</div>
+<p>Automaattinen mallinvalinta valitsee parametrien yhdistelmän, joka minimoi informaatiokriteerin (yleensä AICc).</p>
+</section>
+<section id="arima-ennuste" class="level2">
+<h2 class="anchored" data-anchor-id="arima-ennuste">ARIMA-ennuste</h2>
+<p>Seuraavaksi tuotetaan ennuste vuoden päähän.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>ARIMA-malli reagoi inflaation historialliseen dynamiikkaan. Tämä voi tuottaa realistisempia ennusteita kuin random walk, jos sarjassa on systemaattisia riippuvuuksia.</p>
+</section>
+<section id="rolling-origin--arviointi" class="level2">
+<h2 class="anchored" data-anchor-id="rolling-origin--arviointi">Rolling-origin -arviointi</h2>
+<p>Yksittäinen ennuste ei kuitenkaan riitä mallien vertailuun.</p>
+<p>Tarvitaan systemaattinen arviointi useiden ennustetilanteiden yli. Tämä voidaan tehdä stretch_tsibble()-funktion avulla.</p>
+<p>Tässä:</p>
+<ul>
+<li><p>ensimmäinen estimointijakso sisältää 120 havaintoa</p></li>
+<li><p>ennusteharjoitus toistetaan jokaisessa seuraavassa ajankohdassa</p></li>
+</ul>
+<p>Tämä tuottaa realistisen simulaation ennustetilanteista.</p>
+</section>
+<section id="mallien-estimointi-cross-validationissa" class="level2">
+<h2 class="anchored" data-anchor-id="mallien-estimointi-cross-validationissa">Mallien estimointi cross-validationissa</h2>
+</section>
+<section id="ennusteet" class="level2">
+<h2 class="anchored" data-anchor-id="ennusteet">Ennusteet</h2>
+</section>
+<section id="ennustetarkkuus" class="level2">
+<h2 class="anchored" data-anchor-id="ennustetarkkuus">Ennustetarkkuus</h2>
+<p>Ennustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:</p>
+<ul>
+<li><p>RMSE (Root Mean Squared Error)</p></li>
+<li><p>MAE (Mean Absolute Error)</p></li>
+</ul>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 10
+  .model .type      ME  RMSE   MAE    MPE  MAPE  MASE RMSSE  ACF1
+  &lt;chr&gt;  &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+1 ARIMA  Test   0.254   1.42 0.912   7.72  174. 0.694 0.729 0.888
+2 RW     Test  -0.0232  1.57 1.00  -11.5   121. 0.761 0.809 0.888</code></pre>
+</div>
+</div>
+<p>Tulokset kertovat, kumpi baseline-malli tuottaa tarkempia ennusteita historiallisessa datassa.</p>
+<p>Makrotaloudessa ei ole harvinaista, että random walk toimii lähes yhtä hyvin kuin monimutkaisemmat mallit.</p>
+<p>Jos näin tapahtuu, se kertoo paljon itse ilmiön ennustettavuudesta.</p>
+<p>Baseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähimmäistason, jonka monimutkaisempien mallien tulee ylittää.</p>
+<p>Jos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.</p>
+
+
+<!-- -->
+
+</section>
+
+ ]]></description>
+  <category>R</category>
+  <category>Data Science</category>
+  <category>talous</category>
+  <category>inflaatio</category>
+  <category>ennustaminen</category>
+  <guid>https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio.html</guid>
+  <pubDate>Tue, 10 Mar 2026 22:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>Osa 1 — Inflaatio ei ole luku vaan se on prosessi</title>
+  <link>https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<p>Inflaatio on yksi seuratuimmista talousmittareista maailmassa.</p>
+<p>Keskuspankit tekevät siitä ennusteita. Media raportoi siitä kuukausittain. Poliitikot käyttävät sitä argumenttina lähes kaikessa talouspolitiikassa.</p>
+<p>Silti yksi asia jää lähes aina keskustelun ulkopuolelle:</p>
+<p>Kuinka hyvin inflaatiota oikeasti pystytään ennustamaan?</p>
+<p>Makrotaloudessa ennusteet esitetään lähes aina yksittäisinä lukuina:</p>
+<p>“Inflaatio on ensi vuonna 2,1 %.”</p>
+<p>Mutta todellisuudessa inflaatio ei ole deterministinen luku. Se on stokastinen prosessi, johon vaikuttavat esimerkiksi:</p>
+<ul>
+<li><p>energiamarkkinat</p></li>
+<li><p>geopoliittiset shokit</p></li>
+<li><p>rahapolitiikka</p></li>
+<li><p>odotukset</p></li>
+<li><p>talouden rakenteelliset muutokset</p></li>
+</ul>
+<p>Siksi tässä sarjassa lähestyn inflaatiota todennäköisyysjakaumana, en yksittäisenä lukuna.</p>
+<p>Aian ennen kuin aloitetaan rakentamaan malleja, tulee ymmärtää data. Tämä ensimmäinen osa keskittyy siihen. Toisessa osassa mennään varsinaisiin malleihin.</p>
+<p>Data: Eurostatin HICP-indeksi</p>
+<p>Inflaatiota mitataan monella tavalla. Tässä sarjassa käytän HICP-indeksiä (Harmonised Index of Consumer Prices), joka on EU:n harmonisoitu kuluttajahintaindeksi.Datan lähde on Eurostat, jonka datat ovat saatavissa avoimen rajapinnan kautta. Tämä mahdollistaa toistettavan analyysin ja sen päivittämisen myös tulevalla datalla.</p>
+<p>Eurostatin taulukoissa on useita indeksiperustoja (esimerkiksi 2005=100 ja 2015=100). Valitsen 2015=100 -indeksin, joka on nykyinen standardi. Samalla rajaan analyysin Suomeen ja kokonaisinflaatioon (COICOP-luokka CP0).</p>
+<p>Aikarakenne: kuukausisarja</p>
+<p>Makrodata on lähes aina aikarivimuotoista, joten rakennan analyysin tsibble-rakenteen päälle.</p>
+<p>Tässä vaiheessa on tärkeää huomioida yksi yksityiskohta: vaikka päivämäärä näyttää Date-muotoiselta, data on todellisuudessa kuukausisarja. Siksi muutan indeksin eksplisiittisesti kuukausitasolle.</p>
+<p>Muunnos inflaatioksi</p>
+<p>HICP on indeksisarja. Inflaatio lasketaan yleensä vuosimuutoksena, eli kuinka paljon hinnat ovat muuttuneet verrattuna samaan kuukauteen vuotta aiemmin.</p>
+<p>Tässä vaiheessa meillä on analyysiin valmis aikarivi:</p>
+<ul>
+<li><p>kuukausidata</p></li>
+<li><p>vuosimuutos prosentteina</p></li>
+<li><p>yli 25 vuoden historia</p></li>
+</ul>
+<p>Suomen inflaatio 1997–2025</p>
+<p>Ensimmäinen askel on katsoa, miltä inflaatio näyttää pitkällä aikavälillä.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-2-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Pitkä aikahistoria paljastaa useita selkeitä jaksoja:</p>
+<p>2000–2007: suhteellisen vakaa inflaatio</p>
+<p>2008–2009: finanssikriisin vaikutus</p>
+<p>2010-luku: matala inflaatio Euroopassa</p>
+<p>2020: pandemian aiheuttama talousshokki</p>
+<p>2022: energiakriisi ja inflaatiopiikki</p>
+<p>Erityisesti vuoden 2022 inflaatiohuippu on makrotaloudessa poikkeuksellinen tapahtuma. Tällaiset shokit tekevät ennustamisesta vaikeaa.</p>
+<p>Inflaation kausivaihtelu</p>
+<p>Vaikka käytän vuosimuutosta, inflaatiossa voi silti esiintyä kausivaihtelua.</p>
+<p>Tätä voidaan tarkastella season plot -kuvaajalla.</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 1 × 2
+  kpss_stat kpss_pvalue
+      &lt;dbl&gt;       &lt;dbl&gt;
+1     0.246         0.1</code></pre>
+</div>
+</div>
+<p>Season plot näyttää, miten inflaatio käyttäytyy eri kuukausina eri vuosina.</p>
+<p>Makrotaloudessa tämä voi paljastaa esimerkiksi:</p>
+<ul>
+<li><p>energiahintojen talvikausivaihtelun</p></li>
+<li><p>veromuutosten vaikutukset</p></li>
+<li><p>kulutuskausien vaikutuksen hintatasoon</p></li>
+</ul>
+<p>Samalla voidaan nähdä, kuinka poikkeuksellinen vuosi 2022 oli suhteessa aikaisempaan historiaan.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-4-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Inflaation volatiliteetti</p>
+<p>Inflaation keskiarvo kertoo vain osan tarinaa. Yhtä tärkeää on ymmärtää volatiliteetti, eli kuinka paljon inflaatio vaihtelee.</p>
+<p>Tarkastellaan 12 kuukauden liukuvaa keskihajontaa.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Tuloksesta näkyy selvästi, että inflaation volatiliteetti ei ole vakio.</p>
+<p>Erityisesti vuoden 2022 jälkeen volatiliteetti kasvaa selvästi.</p>
+<p>Tämä on tärkeä havainto mallinnuksen kannalta.</p>
+<p>Monet perinteiset aikarivimallit olettavat vakion volatiliteetin, mikä voi johtaa liian optimistisiin ennusteisiin kriisiaikoina.</p>
+<p>Bayesilainen lähestymistapa mahdollistaa epävarmuuden eksplisiittisen mallintamisen.</p>
+<p>Mitä “hyvä ennuste” tarkoittaa?</p>
+<p>Ennen kuin rakennan yhtään mallia, täytyy määritellä arviointikriteerit.</p>
+<p>Hyvä ennuste ei ole vain tarkka piste-ennuste.</p>
+<p>Hyvä ennuste on myös:</p>
+<ul>
+<li><p>kalibroitu (todennäköisyydet vastaavat toteumaa)</p></li>
+<li><p>realistinen epävarmuuden suhteen</p></li>
+<li><p>robusti talousshokeille</p></li>
+</ul>
+<p>Siksi tässä sarjassa käytetään arviointiin proper scoring ruleja, kuten CRPS- ja log score -mittareita.</p>
+<p>Ne arvioivat koko ennustejakaumaa, eivät vain yhtä pistettä.</p>
+<p>Seuraavassa osassa rakennetaan ensimmäiset ennustemallit. Analyysi aloitetaan tarkoituksella yksinkertaisista baseline-malleista:</p>
+<p>random walk</p>
+<p>ARIMA</p>
+<p>Makrotaloudessa nämä mallit toimivat usein yllättävän vahvoina vertailukohtina.</p>
+<p>Vasta tämän jälkeen rakennetaan bayesilainen aikarivimalli brms-paketilla, jonka avulla inflaation ennusteet voidaan esittää täysinä todennäköisyysjakaumina.</p>
+<p>Keskeinen kysymys pysyy samana:</p>
+<p>Kuinka hyvin inflaatiota on ylipäätään mahdollista ennustaa?</p>
+<p>Se selviää sarjan seuraavissa osissa.</p>
+
+
+<!-- -->
+
+
+ ]]></description>
+  <category>R</category>
+  <category>Data Science</category>
+  <category>talous</category>
+  <category>inflaatio</category>
+  <category>ennustaminen</category>
+  <guid>https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio.html</guid>
+  <pubDate>Tue, 03 Mar 2026 22:00:00 GMT</pubDate>
+</item>
+<item>
+  <title>Hävisikö Juha Mieto Thomas Wassbergille parran takia?</title>
+  <link>https://kristianvepsalainen.github.io/posts/Mieto-ja-parta.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<p>Facebookin “Rakastan matematiikkaa”-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.</p>
+<p>Tuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.</p>
+<p>Oletin myös todelliset väliajat (<a href="https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html" class="uri">https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html</a>) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.github.io/posts/Mieto-ja-parta_files/figure-html/unnamed-chunk-1-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+
+
+<!-- -->
+
+
+ ]]></description>
+  <category>R</category>
+  <category>Data Science</category>
+  <category>urheilu</category>
+  <category>simulaatio</category>
+  <category>historia</category>
+  <guid>https://kristianvepsalainen.github.io/posts/Mieto-ja-parta.html</guid>
+  <pubDate>Sat, 28 Feb 2026 22:00:00 GMT</pubDate>
+</item>
+</channel>
+</rss>

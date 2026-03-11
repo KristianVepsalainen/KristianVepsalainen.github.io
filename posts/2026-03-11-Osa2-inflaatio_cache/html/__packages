@@ -2,3 +2,8 @@ fabletools
 fable
 tsibble
 dplyr
+eurostat
+ggplot2
+lubridate
+feasts
+slider

@@ -21,13 +21,13 @@ Yllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudess
 
 Tässä osassa tarkastellaan kahta klassista baseline-mallia:
 
-random walk
+* random walk
 
-ARIMA
+* ARIMA
 
 Näiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on.
 
-##Ennustamisen arviointikehikko
+## Ennustamisen arviointikehikko
 
 Ennustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.
 
@@ -39,13 +39,13 @@ Tässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste 
 
 Tämä vastaa realistista ennustamistilannetta.
 
-Ennustehorisontti
+## Ennustehorisontti
 
 Makrotaloudessa inflaatiota tarkastellaan usein vuositasolla. Tässä analyysissä käytetään 12 kuukauden ennustehorisonttia.
 
 Tämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden päähän.
 
-Random walk -malli
+## Random walk -malli
 
 Yksinkertaisin mahdollinen ennustemalli on random walk.
 
@@ -185,6 +185,32 @@ Tämä tuottaa realistisen simulaation ennustetilanteista.
 
 ## Mallien estimointi cross-validationissa
 
+
+Yksittäinen malli ei vielä kerro mitään ennustemenetelmän todellisesta suorituskyvystä. Mallien toimivuutta on arvioitava tilanteessa, jossa ennuste tehdään aina vain menneeseen tietoon perustuen.
+
+Tätä varten käytetään rolling-origin cross-validation -menetelmää, joka on aikarivianalyysin standardi lähestymistapa. Menetelmässä aineistoa ei jaeta satunnaisesti opetus- ja testijoukkoihin. Sen sijaan mallia estimoidaan toistuvasti kasvavalla havaintojoukolla, ja jokaisessa vaiheessa ennuste tehdään tulevaisuuteen.
+
+Prosessi etenee seuraavasti:
+
+1. Malli estimoidaan ensimmäisestä havaintojaksosta.
+
+2. Ennuste tuotetaan tuleville kuukausille.
+
+3. Malli estimoidaan uudelleen hieman pidemmällä datalla.
+
+4. Ennuste tuotetaan uudelleen.
+
+5. Tämä toistetaan jokaisessa ajankohdassa koko aineiston läpi.
+
+Tällä tavoin syntyy suuri joukko ennusteita, jotka simuloivat realistista ennustamistilannetta. Jokainen ennuste perustuu vain siihen tietoon, joka olisi ollut saatavilla kyseisenä ajankohtana.
+
+Tässä analyysissä cross-validationissa estimoidaan kaksi mallia:
+
+* random walk
+
+* ARIMA
+
+Näitä käytetään baseline-malleina, joihin myöhemmät bayesilaiset mallit voidaan myöhemmin verrata.
 ```{r}
 cv_models <- cv_data |>
   model(
@@ -195,6 +221,22 @@ cv_models <- cv_data |>
 
 
 ## Ennusteet
+
+Kun mallit on estimoitu cross-validation -kehikossa, voidaan tuottaa ennusteet jokaiselle arviointijaksolle.
+
+Jokaisessa iteroinnissa malli tuottaa ennusteen inflaatiolle seuraaville kuukausille. Näin muodostuu suuri joukko ennusteita eri ajankohdista. Tämä mahdollistaa mallien suorituskyvyn arvioinnin historiallisessa datassa.
+
+Keskeinen etu tässä lähestymistavassa on se, että ennusteita ei arvioida vain yhdessä tilanteessa. Sen sijaan mallin suorituskykyä tarkastellaan monissa eri taloustilanteissa, kuten
+
+* matalan inflaation aikana
+
+* talouskriisien aikana
+
+* voimakkaiden hintashokkien aikana
+
+Tämä on tärkeää erityisesti makrotaloudessa, jossa talouden dynamiikka voi muuttua nopeasti.
+
+Kun ennusteet on tuotettu, niiden tarkkuutta voidaan arvioida vertaamalla ennustettuja arvoja toteutuneeseen inflaatioon. Seuraavassa vaiheessa mallien suorituskykyä arvioidaan erilaisten ennustetarkkuusmittareiden avulla.
 
 ```{r}
 cv_forecasts <- cv_models |>

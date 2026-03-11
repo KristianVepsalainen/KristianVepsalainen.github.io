@@ -241,3 +241,19 @@ Hyvä ennuste on myös:
 Siksi tässä sarjassa käytetään arviointiin proper scoring ruleja, kuten CRPS- ja log score -mittareita.
 
 Ne arvioivat koko ennustejakaumaa, eivät vain yhtä pistettä.
+
+Seuraavassa osassa rakennetaan ensimmäiset ennustemallit. Analyysi aloitetaan tarkoituksella yksinkertaisista baseline-malleista:
+
+random walk
+
+ARIMA
+
+Makrotaloudessa nämä mallit toimivat usein yllättävän vahvoina vertailukohtina.
+
+Vasta tämän jälkeen rakennetaan bayesilainen aikarivimalli brms-paketilla, jonka avulla inflaation ennusteet voidaan esittää täysinä todennäköisyysjakaumina.
+
+Keskeinen kysymys pysyy samana:
+
+Kuinka hyvin inflaatiota on ylipäätään mahdollista ennustaa?
+
+Se selviää sarjan seuraavissa osissa.

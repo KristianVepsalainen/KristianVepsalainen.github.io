@@ -1,0 +1,220 @@
+---
+title: "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?"
+date: 2026-03-11
+categories: [R, Data Science, talous, inflaatio, ennustaminen]
+description: "Suomen inflaation kuvailua"
+
+draft: false
+toc: true
+reading-time: true
+---
+
+Edellisessä osassa tarkasteltiin Suomen inflaatiodataa ja sen keskeisiä tilastollisia piirteitä. Analyysi osoitti, että inflaatio ei ole vakaa prosessi: siihen liittyy rakenteellisia muutoksia ja merkittäviä volatiliteetin vaihteluita.
+
+Seuraava kysymys kuuluu:
+
+Kuinka hyvin inflaatiota voidaan ennustaa?
+
+Ennen monimutkaisten mallien rakentamista on hyödyllistä aloittaa yksinkertaisista vertailumalleista. Taloustieteessä nämä tunnetaan nimellä baseline models.
+
+Yllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Siksi niitä käytetään usein vertailukohtina monimutkaisemmille menetelmille.
+
+Tässä osassa tarkastellaan kahta klassista baseline-mallia:
+
+random walk
+
+ARIMA
+
+Näiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on.
+
+##Ennustamisen arviointikehikko
+
+Ennustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.
+
+Aikarivianalyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.
+
+Siksi käytetään **rolling-origin** -arviointia.
+
+Tässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista.
+
+Tämä vastaa realistista ennustamistilannetta.
+
+Ennustehorisontti
+
+Makrotaloudessa inflaatiota tarkastellaan usein vuositasolla. Tässä analyysissä käytetään 12 kuukauden ennustehorisonttia.
+
+Tämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden päähän.
+
+Random walk -malli
+
+Yksinkertaisin mahdollinen ennustemalli on random walk.
+
+Random walk -mallissa oletetaan, että paras ennuste tulevalle arvolle on nykyinen arvo. Toisin sanoen muutokset ovat täysin satunnaisia.
+
+Matemaattisesti malli voidaan kirjoittaa
+
+$y_{t+1}=y_t+\epsilon_t$, missä 
+
+$\epsilon_t$ on satunnainen virhetermi.
+
+Vaikka malli on äärimmäisen yksinkertainen, se toimii monissa taloudellisissa aikasarjoissa yllättävän hyvin.
+
+## Random walk -mallin estimointi
+
+Random walk voidaan estimoida helposti fable-paketin avulla.
+
+```{r}
+library(fable)
+library(tsibble)
+library(dplyr)
+
+rw_model <- hicp_yoy |>
+  model(
+    RW(inflation_yoy ~ drift())
+  )
+```
+
+## Ennusteen visualisointi
+
+Seuraavaksi tuotetaan ennuste vuoden päähän.
+```{r}
+rw_forecast <- rw_model |>
+  forecast(h = "12 months")
+
+rw_forecast |>
+  autoplot(hicp_yoy) +
+  labs(
+    title = "Random walk -ennuste inflaatiolle",
+    y = "Inflaatio (%)",
+    x = NULL
+  )
+```
+
+
+
+Random walk -malli tuottaa ennusteen, joka seuraa viimeisintä havaintoa. Ennusteeseen liittyvä epävarmuus kasvaa ajan myötä.
+
+Tämä on tyypillistä stokastisille prosesseille.
+
+
+## ARIMA-malli
+
+Toinen klassinen aikarivimalli on **ARIMA** (**AutoRegressive Integrated Moving Average**).
+
+ARIMA-mallit yhdistävät kolme komponenttia:
+
+* autoregressio (AR)
+
+* differensointi (I)
+
+* liukuvan keskiarvon termi (MA)
+
+Näiden avulla voidaan mallintaa sarjan riippuvuuksia menneisiin havaintoihin.
+
+## ARIMA-mallin estimointi
+
+fable-paketti sisältää automaattisen ARIMA-mallin valinnan.
+```{r}
+arima_model <- hicp_yoy |>
+  model(
+    ARIMA(inflation_yoy)
+  )
+```
+
+
+Mallin rakennetta voidaan tarkastella seuraavasti.
+
+
+```{r}
+report(arima_model)
+```
+
+Automaattinen mallinvalinta valitsee parametrien yhdistelmän, joka minimoi informaatiokriteerin (yleensä AICc).
+
+## ARIMA-ennuste
+
+Seuraavaksi tuotetaan ennuste vuoden päähän.
+
+```{r}
+arima_forecast <- arima_model |>
+  forecast(h = "12 months")
+
+arima_forecast |>
+  autoplot(hicp_yoy) +
+  labs(
+    title = "ARIMA-ennuste inflaatiolle",
+    y = "Inflaatio (%)",
+    x = NULL
+  )
+```
+
+ARIMA-malli reagoi inflaation historialliseen dynamiikkaan. Tämä voi tuottaa realistisempia ennusteita kuin random walk, jos sarjassa on systemaattisia riippuvuuksia.
+
+## Rolling-origin -arviointi
+
+Yksittäinen ennuste ei kuitenkaan riitä mallien vertailuun.
+
+Tarvitaan systemaattinen arviointi useiden ennustetilanteiden yli. Tämä voidaan tehdä stretch_tsibble()-funktion avulla.
+
+```{r}
+library(tsibble)
+
+cv_data <- hicp_yoy |>
+  stretch_tsibble(
+    .init = 120,
+    .step = 1
+  )
+```
+
+
+
+Tässä:
+
+* ensimmäinen estimointijakso sisältää 120 havaintoa
+
+* ennusteharjoitus toistetaan jokaisessa seuraavassa ajankohdassa
+
+Tämä tuottaa realistisen simulaation ennustetilanteista.
+
+
+## Mallien estimointi cross-validationissa
+
+```{r}
+cv_models <- cv_data |>
+  model(
+    RW = RW(inflation_yoy ~ drift()),
+    ARIMA = ARIMA(inflation_yoy)
+  )
+```
+
+
+## Ennusteet
+
+```{r}
+cv_forecasts <- cv_models |>
+  forecast(h = 12)
+```
+
+
+## Ennustetarkkuus
+
+Ennustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:
+
+* RMSE (Root Mean Squared Error)
+
+* MAE (Mean Absolute Error)
+```{r}
+accuracy(cv_forecasts, hicp_yoy)
+```
+
+
+
+Tulokset kertovat, kumpi baseline-malli tuottaa tarkempia ennusteita historiallisessa datassa.
+
+Makrotaloudessa ei ole harvinaista, että random walk toimii lähes yhtä hyvin kuin monimutkaisemmat mallit.
+
+Jos näin tapahtuu, se kertoo paljon itse ilmiön ennustettavuudesta.
+
+Baseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähimmäistason, jonka monimutkaisempien mallien tulee ylittää.
+
+Jos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.

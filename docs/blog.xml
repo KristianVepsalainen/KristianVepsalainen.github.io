@@ -10,7 +10,44 @@
 <atom:link href="https://kristianvepsalainen.github.io/blog.xml" rel="self" type="application/rss+xml"/>
 <description></description>
 <generator>quarto-1.8.27</generator>
-<lastBuildDate>Tue, 03 Mar 2026 22:00:00 GMT</lastBuildDate>
+<lastBuildDate>Tue, 10 Mar 2026 22:00:00 GMT</lastBuildDate>
+<item>
+  <title>Osa 2: Kuinka vaikeaa inflaation ennustaminen on?</title>
+  <link>https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<p>Edellisessä osassa tarkasteltiin Suomen inflaatiodataa ja sen keskeisiä tilastollisia piirteitä. Analyysi osoitti, että inflaatio ei ole vakaa prosessi: siihen liittyy rakenteellisia muutoksia ja merkittäviä volatiliteetin vaihteluita.</p>
+<p>Seuraava kysymys kuuluu:</p>
+<p>Kuinka hyvin inflaatiota voidaan ennustaa?</p>
+<p>Ennen monimutkaisten mallien rakentamista on hyödyllistä aloittaa yksinkertaisista vertailumalleista. Taloustieteessä nämä tunnetaan nimellä baseline models.</p>
+<p>Yllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Siksi niitä käytetään usein vertailukohtina monimutkaisemmille menetelmille.</p>
+<p>Tässä osassa tarkastellaan kahta klassista baseline-mallia:</p>
+<p>random walk</p>
+<p>ARIMA</p>
+<p>Näiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on.</p>
+<p><em>Ennustamisen arviointikehikko</em></p>
+<p>Ennustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.</p>
+<p>Aikarivianalyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.</p>
+<p>Siksi käytetään rolling-origin -arviointia.</p>
+<p>Tässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista.</p>
+<p>Tämä vastaa realistista ennustamistilannetta.</p>
+
+
+<!-- -->
+
+
+ ]]></description>
+  <category>R</category>
+  <category>Data Science</category>
+  <category>talous</category>
+  <category>inflaatio</category>
+  <category>ennustaminen</category>
+  <guid>https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio.html</guid>
+  <pubDate>Tue, 10 Mar 2026 22:00:00 GMT</pubDate>
+</item>
 <item>
   <title>Osa 1 — Inflaatio ei ole luku vaan se on prosessi</title>
   <link>https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio.html</link>
@@ -123,6 +160,14 @@
 </ul>
 <p>Siksi tässä sarjassa käytetään arviointiin proper scoring ruleja, kuten CRPS- ja log score -mittareita.</p>
 <p>Ne arvioivat koko ennustejakaumaa, eivät vain yhtä pistettä.</p>
+<p>Seuraavassa osassa rakennetaan ensimmäiset ennustemallit. Analyysi aloitetaan tarkoituksella yksinkertaisista baseline-malleista:</p>
+<p>random walk</p>
+<p>ARIMA</p>
+<p>Makrotaloudessa nämä mallit toimivat usein yllättävän vahvoina vertailukohtina.</p>
+<p>Vasta tämän jälkeen rakennetaan bayesilainen aikarivimalli brms-paketilla, jonka avulla inflaation ennusteet voidaan esittää täysinä todennäköisyysjakaumina.</p>
+<p>Keskeinen kysymys pysyy samana:</p>
+<p>Kuinka hyvin inflaatiota on ylipäätään mahdollista ennustaa?</p>
+<p>Se selviää sarjan seuraavissa osissa.</p>
 
 
 <!-- -->

@@ -87,6 +87,8 @@ hicp_yoy <- hicp_ts |>
   ) |>
   filter(!is.na(inflation_yoy))
 
+saveRDS(hicp_yoy,here::here("data/hicp_yoy.rds"))
+
 ```
 Aikarakenne: kuukausisarja
 

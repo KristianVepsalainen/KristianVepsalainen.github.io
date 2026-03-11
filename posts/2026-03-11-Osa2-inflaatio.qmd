@@ -64,10 +64,14 @@ Vaikka malli on äärimmäisen yksinkertainen, se toimii monissa taloudellisissa
 Random walk voidaan estimoida helposti fable-paketin avulla.
 
 ```{r}
-library(fable)
-library(tsibble)
+library(eurostat)
 library(dplyr)
-
+library(tsibble)
+library(ggplot2)
+library(lubridate)
+library(feasts)
+library(fable)
+library(slider)
 hicp_yoy <- readRDS(here::here("data/hicp_yoy.rds"))
 
 rw_model <- hicp_yoy |>

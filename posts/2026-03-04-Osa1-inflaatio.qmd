@@ -48,7 +48,7 @@ Inflaatiota mitataan monella tavalla. Tässä sarjassa käytän HICP-indeksiä (
 
 Eurostatin taulukoissa on useita indeksiperustoja (esimerkiksi 2005=100 ja 2015=100).
 Valitsen 2015=100 -indeksin, joka on nykyinen standardi. Samalla rajaan analyysin Suomeen ja kokonaisinflaatioon (COICOP-luokka CP0).
-```{r}
+```{r results='hide'}
 # Paketointi
 library(eurostat)
 library(dplyr)
@@ -60,7 +60,9 @@ library(feasts)
 # HICP kuukausi-indeksi
 hicp_raw <- get_eurostat(
   "prc_hicp_midx",
-  time_format = "date"
+  time_format = "date",
+  cache = TRUE,
+  progress = FALSE
 )
 
 # Suomi, kokonaisindeksi

@@ -62,4 +62,5 @@ execute:
   cache: true
   warning: false
   message: false
+  echo: false
   code-fold: true

@@ -68,7 +68,8 @@ library(fable)
 library(tsibble)
 library(dplyr)
 
-hicp_yoy <- readRDS(hicp_yoy,here::here("data/hicp_yoy.rds"))
+hicp_yoy <- readRDS(here::here("data/hicp_yoy.rds"))
+
 rw_model <- hicp_yoy |>
   model(
     RW(inflation_yoy ~ drift())

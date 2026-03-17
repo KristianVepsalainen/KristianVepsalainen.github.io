@@ -233,6 +233,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 </div>
+<p>Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.</p>
 
 
 <!-- -->
@@ -728,12 +729,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> "Hävisikö Juha Mieto Thomas Wassbergille parran takia?"</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="an">date:</span><span class="co"> 2026-03-01</span></span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="an">categories:</span><span class="co"> [R, Data Science, urheilu, simulaatio, historia]</span></span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>Facebookin "Rakastan matematiikkaa"-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>Tuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt</span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="an">slug:</span><span class="co"> juha mieto ja parta</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>Facebookin "Rakastan matematiikkaa"-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>Tuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.</span>
 <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>Oletin myös todelliset väliajat (<span class="ot">&lt;https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html&gt;</span>) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan.</span>
 <span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
@@ -819,7 +820,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb1-93"><a href="#cb1-93" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="st">"Tiheys"</span></span>
 <span id="cb1-94"><a href="#cb1-94" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
 <span id="cb1-95"><a href="#cb1-95" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span>
-<span id="cb1-96"><a href="#cb1-96" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
+<span id="cb1-96"><a href="#cb1-96" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb1-97"><a href="#cb1-97" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-98"><a href="#cb1-98" aria-hidden="true" tabindex="-1"></a>Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen\@proton.me . Olen käytettävissäsi.</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
 <footer class="footer">

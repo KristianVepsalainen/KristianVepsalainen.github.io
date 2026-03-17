@@ -25,25 +25,33 @@
 <p>Ennen monimutkaisten mallien rakentamista on hyödyllistä aloittaa yksinkertaisista vertailumalleista. Taloustieteessä nämä tunnetaan nimellä baseline models.</p>
 <p>Yllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Siksi niitä käytetään usein vertailukohtina monimutkaisemmille menetelmille.</p>
 <p>Tässä osassa tarkastellaan kahta klassista baseline-mallia:</p>
-<p>random walk</p>
-<p>ARIMA</p>
+<ul>
+<li><p>random walk</p></li>
+<li><p>ARIMA</p></li>
+</ul>
 <p>Näiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on.</p>
-<p>##Ennustamisen arviointikehikko</p>
+<section id="ennustamisen-arviointikehikko" class="level2">
+<h2 class="anchored" data-anchor-id="ennustamisen-arviointikehikko">Ennustamisen arviointikehikko</h2>
 <p>Ennustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.</p>
 <p>Aikarivianalyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.</p>
 <p>Siksi käytetään <strong>rolling-origin</strong> -arviointia.</p>
 <p>Tässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista.</p>
 <p>Tämä vastaa realistista ennustamistilannetta.</p>
-<p>Ennustehorisontti</p>
+</section>
+<section id="ennustehorisontti" class="level2">
+<h2 class="anchored" data-anchor-id="ennustehorisontti">Ennustehorisontti</h2>
 <p>Makrotaloudessa inflaatiota tarkastellaan usein vuositasolla. Tässä analyysissä käytetään 12 kuukauden ennustehorisonttia.</p>
 <p>Tämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden päähän.</p>
-<p>Random walk -malli</p>
+</section>
+<section id="random-walk--malli" class="level2">
+<h2 class="anchored" data-anchor-id="random-walk--malli">Random walk -malli</h2>
 <p>Yksinkertaisin mahdollinen ennustemalli on random walk.</p>
 <p>Random walk -mallissa oletetaan, että paras ennuste tulevalle arvolle on nykyinen arvo. Toisin sanoen muutokset ovat täysin satunnaisia.</p>
 <p>Matemaattisesti malli voidaan kirjoittaa</p>
 <p><img src="https://latex.codecogs.com/png.latex?y_%7Bt+1%7D=y_t+%5Cepsilon_t">, missä</p>
 <p><img src="https://latex.codecogs.com/png.latex?%5Cepsilon_t"> on satunnainen virhetermi.</p>
 <p>Vaikka malli on äärimmäisen yksinkertainen, se toimii monissa taloudellisissa aikasarjoissa yllättävän hyvin.</p>
+</section>
 <section id="random-walk--mallin-estimointi" class="level2">
 <h2 class="anchored" data-anchor-id="random-walk--mallin-estimointi">Random walk -mallin estimointi</h2>
 <p>Random walk voidaan estimoida helposti fable-paketin avulla.</p>
@@ -121,9 +129,36 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 </section>
 <section id="mallien-estimointi-cross-validationissa" class="level2">
 <h2 class="anchored" data-anchor-id="mallien-estimointi-cross-validationissa">Mallien estimointi cross-validationissa</h2>
+<p>Yksittäinen malli ei vielä kerro mitään ennustemenetelmän todellisesta suorituskyvystä. Mallien toimivuutta on arvioitava tilanteessa, jossa ennuste tehdään aina vain menneeseen tietoon perustuen.</p>
+<p>Tätä varten käytetään rolling-origin cross-validation -menetelmää, joka on aikarivianalyysin standardi lähestymistapa. Menetelmässä aineistoa ei jaeta satunnaisesti opetus- ja testijoukkoihin. Sen sijaan mallia estimoidaan toistuvasti kasvavalla havaintojoukolla, ja jokaisessa vaiheessa ennuste tehdään tulevaisuuteen.</p>
+<p>Prosessi etenee seuraavasti:</p>
+<ol type="1">
+<li><p>Malli estimoidaan ensimmäisestä havaintojaksosta.</p></li>
+<li><p>Ennuste tuotetaan tuleville kuukausille.</p></li>
+<li><p>Malli estimoidaan uudelleen hieman pidemmällä datalla.</p></li>
+<li><p>Ennuste tuotetaan uudelleen.</p></li>
+<li><p>Tämä toistetaan jokaisessa ajankohdassa koko aineiston läpi.</p></li>
+</ol>
+<p>Tällä tavoin syntyy suuri joukko ennusteita, jotka simuloivat realistista ennustamistilannetta. Jokainen ennuste perustuu vain siihen tietoon, joka olisi ollut saatavilla kyseisenä ajankohtana.</p>
+<p>Tässä analyysissä cross-validationissa estimoidaan kaksi mallia:</p>
+<ul>
+<li><p>random walk</p></li>
+<li><p>ARIMA</p></li>
+</ul>
+<p>Näitä käytetään baseline-malleina, joihin myöhemmät bayesilaiset mallit voidaan myöhemmin verrata.</p>
 </section>
 <section id="ennusteet" class="level2">
 <h2 class="anchored" data-anchor-id="ennusteet">Ennusteet</h2>
+<p>Kun mallit on estimoitu cross-validation -kehikossa, voidaan tuottaa ennusteet jokaiselle arviointijaksolle.</p>
+<p>Jokaisessa iteroinnissa malli tuottaa ennusteen inflaatiolle seuraaville kuukausille. Näin muodostuu suuri joukko ennusteita eri ajankohdista. Tämä mahdollistaa mallien suorituskyvyn arvioinnin historiallisessa datassa.</p>
+<p>Keskeinen etu tässä lähestymistavassa on se, että ennusteita ei arvioida vain yhdessä tilanteessa. Sen sijaan mallin suorituskykyä tarkastellaan monissa eri taloustilanteissa, kuten</p>
+<ul>
+<li><p>matalan inflaation aikana</p></li>
+<li><p>talouskriisien aikana</p></li>
+<li><p>voimakkaiden hintashokkien aikana</p></li>
+</ul>
+<p>Tämä on tärkeää erityisesti makrotaloudessa, jossa talouden dynamiikka voi muuttua nopeasti.</p>
+<p>Kun ennusteet on tuotettu, niiden tarkkuutta voidaan arvioida vertaamalla ennustettuja arvoja toteutuneeseen inflaatioon. Seuraavassa vaiheessa mallien suorituskykyä arvioidaan erilaisten ennustetarkkuusmittareiden avulla.</p>
 </section>
 <section id="ennustetarkkuus" class="level2">
 <h2 class="anchored" data-anchor-id="ennustetarkkuus">Ennustetarkkuus</h2>

@@ -88,7 +88,28 @@
     "href": "posts/2026-03-11-Osa2-inflaatio.html",
     "title": "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?",
     "section": "",
-    "text": "Edellisessä osassa tarkasteltiin Suomen inflaatiodataa ja sen keskeisiä tilastollisia piirteitä. Analyysi osoitti, että inflaatio ei ole vakaa prosessi: siihen liittyy rakenteellisia muutoksia ja merkittäviä volatiliteetin vaihteluita.\nSeuraava kysymys kuuluu:\nKuinka hyvin inflaatiota voidaan ennustaa?\nEnnen monimutkaisten mallien rakentamista on hyödyllistä aloittaa yksinkertaisista vertailumalleista. Taloustieteessä nämä tunnetaan nimellä baseline models.\nYllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Siksi niitä käytetään usein vertailukohtina monimutkaisemmille menetelmille.\nTässä osassa tarkastellaan kahta klassista baseline-mallia:\nrandom walk\nARIMA\nNäiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on.\n##Ennustamisen arviointikehikko\nEnnustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.\nAikarivianalyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.\nSiksi käytetään rolling-origin -arviointia.\nTässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista.\nTämä vastaa realistista ennustamistilannetta.\nEnnustehorisontti\nMakrotaloudessa inflaatiota tarkastellaan usein vuositasolla. Tässä analyysissä käytetään 12 kuukauden ennustehorisonttia.\nTämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden päähän.\nRandom walk -malli\nYksinkertaisin mahdollinen ennustemalli on random walk.\nRandom walk -mallissa oletetaan, että paras ennuste tulevalle arvolle on nykyinen arvo. Toisin sanoen muutokset ovat täysin satunnaisia.\nMatemaattisesti malli voidaan kirjoittaa\n\\(y_{t+1}=y_t+\\epsilon_t\\), missä\n\\(\\epsilon_t\\) on satunnainen virhetermi.\nVaikka malli on äärimmäisen yksinkertainen, se toimii monissa taloudellisissa aikasarjoissa yllättävän hyvin."
+    "text": "Edellisessä osassa tarkasteltiin Suomen inflaatiodataa ja sen keskeisiä tilastollisia piirteitä. Analyysi osoitti, että inflaatio ei ole vakaa prosessi: siihen liittyy rakenteellisia muutoksia ja merkittäviä volatiliteetin vaihteluita.\nSeuraava kysymys kuuluu:\nKuinka hyvin inflaatiota voidaan ennustaa?\nEnnen monimutkaisten mallien rakentamista on hyödyllistä aloittaa yksinkertaisista vertailumalleista. Taloustieteessä nämä tunnetaan nimellä baseline models.\nYllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Siksi niitä käytetään usein vertailukohtina monimutkaisemmille menetelmille.\nTässä osassa tarkastellaan kahta klassista baseline-mallia:\nNäiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on."
+  },
+  {
+    "objectID": "posts/2026-03-11-Osa2-inflaatio.html#ennustamisen-arviointikehikko",
+    "href": "posts/2026-03-11-Osa2-inflaatio.html#ennustamisen-arviointikehikko",
+    "title": "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?",
+    "section": "Ennustamisen arviointikehikko",
+    "text": "Ennustamisen arviointikehikko\nEnnustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.\nAikarivianalyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.\nSiksi käytetään rolling-origin -arviointia.\nTässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista.\nTämä vastaa realistista ennustamistilannetta."
+  },
+  {
+    "objectID": "posts/2026-03-11-Osa2-inflaatio.html#ennustehorisontti",
+    "href": "posts/2026-03-11-Osa2-inflaatio.html#ennustehorisontti",
+    "title": "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?",
+    "section": "Ennustehorisontti",
+    "text": "Ennustehorisontti\nMakrotaloudessa inflaatiota tarkastellaan usein vuositasolla. Tässä analyysissä käytetään 12 kuukauden ennustehorisonttia.\nTämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden päähän."
+  },
+  {
+    "objectID": "posts/2026-03-11-Osa2-inflaatio.html#random-walk--malli",
+    "href": "posts/2026-03-11-Osa2-inflaatio.html#random-walk--malli",
+    "title": "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?",
+    "section": "Random walk -malli",
+    "text": "Random walk -malli\nYksinkertaisin mahdollinen ennustemalli on random walk.\nRandom walk -mallissa oletetaan, että paras ennuste tulevalle arvolle on nykyinen arvo. Toisin sanoen muutokset ovat täysin satunnaisia.\nMatemaattisesti malli voidaan kirjoittaa\n\\(y_{t+1}=y_t+\\epsilon_t\\), missä\n\\(\\epsilon_t\\) on satunnainen virhetermi.\nVaikka malli on äärimmäisen yksinkertainen, se toimii monissa taloudellisissa aikasarjoissa yllättävän hyvin."
   },
   {
     "objectID": "posts/2026-03-11-Osa2-inflaatio.html#random-walk--mallin-estimointi",
@@ -137,14 +158,14 @@
     "href": "posts/2026-03-11-Osa2-inflaatio.html#mallien-estimointi-cross-validationissa",
     "title": "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?",
     "section": "Mallien estimointi cross-validationissa",
-    "text": "Mallien estimointi cross-validationissa"
+    "text": "Mallien estimointi cross-validationissa\nYksittäinen malli ei vielä kerro mitään ennustemenetelmän todellisesta suorituskyvystä. Mallien toimivuutta on arvioitava tilanteessa, jossa ennuste tehdään aina vain menneeseen tietoon perustuen.\nTätä varten käytetään rolling-origin cross-validation -menetelmää, joka on aikarivianalyysin standardi lähestymistapa. Menetelmässä aineistoa ei jaeta satunnaisesti opetus- ja testijoukkoihin. Sen sijaan mallia estimoidaan toistuvasti kasvavalla havaintojoukolla, ja jokaisessa vaiheessa ennuste tehdään tulevaisuuteen.\nProsessi etenee seuraavasti:\n\nMalli estimoidaan ensimmäisestä havaintojaksosta.\nEnnuste tuotetaan tuleville kuukausille.\nMalli estimoidaan uudelleen hieman pidemmällä datalla.\nEnnuste tuotetaan uudelleen.\nTämä toistetaan jokaisessa ajankohdassa koko aineiston läpi.\n\nTällä tavoin syntyy suuri joukko ennusteita, jotka simuloivat realistista ennustamistilannetta. Jokainen ennuste perustuu vain siihen tietoon, joka olisi ollut saatavilla kyseisenä ajankohtana.\nTässä analyysissä cross-validationissa estimoidaan kaksi mallia:\n\nrandom walk\nARIMA\n\nNäitä käytetään baseline-malleina, joihin myöhemmät bayesilaiset mallit voidaan myöhemmin verrata."
   },
   {
     "objectID": "posts/2026-03-11-Osa2-inflaatio.html#ennusteet",
     "href": "posts/2026-03-11-Osa2-inflaatio.html#ennusteet",
     "title": "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?",
     "section": "Ennusteet",
-    "text": "Ennusteet"
+    "text": "Ennusteet\nKun mallit on estimoitu cross-validation -kehikossa, voidaan tuottaa ennusteet jokaiselle arviointijaksolle.\nJokaisessa iteroinnissa malli tuottaa ennusteen inflaatiolle seuraaville kuukausille. Näin muodostuu suuri joukko ennusteita eri ajankohdista. Tämä mahdollistaa mallien suorituskyvyn arvioinnin historiallisessa datassa.\nKeskeinen etu tässä lähestymistavassa on se, että ennusteita ei arvioida vain yhdessä tilanteessa. Sen sijaan mallin suorituskykyä tarkastellaan monissa eri taloustilanteissa, kuten\n\nmatalan inflaation aikana\ntalouskriisien aikana\nvoimakkaiden hintashokkien aikana\n\nTämä on tärkeää erityisesti makrotaloudessa, jossa talouden dynamiikka voi muuttua nopeasti.\nKun ennusteet on tuotettu, niiden tarkkuutta voidaan arvioida vertaamalla ennustettuja arvoja toteutuneeseen inflaatioon. Seuraavassa vaiheessa mallien suorituskykyä arvioidaan erilaisten ennustetarkkuusmittareiden avulla."
   },
   {
     "objectID": "posts/2026-03-11-Osa2-inflaatio.html#ennustetarkkuus",

@@ -7,7 +7,10 @@ description: "Suomen inflaation kuvailua"
 draft: false
 toc: true
 reading-time: true
+slug: inflaation ennustemalli
 ---
+
+[Osa 1](/posts/2026-03-04-Osa1-infalaatio)
 
 Edellisessä osassa tarkasteltiin Suomen inflaatiodataa ja sen keskeisiä tilastollisia piirteitä. Analyysi osoitti, että inflaatio ei ole vakaa prosessi: siihen liittyy rakenteellisia muutoksia ja merkittäviä volatiliteetin vaihteluita.
 
@@ -266,3 +269,5 @@ Jos näin tapahtuu, se kertoo paljon itse ilmiön ennustettavuudesta.
 Baseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähimmäistason, jonka monimutkaisempien mallien tulee ylittää.
 
 Jos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.
+
+Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.

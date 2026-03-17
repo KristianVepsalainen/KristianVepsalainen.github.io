@@ -218,7 +218,10 @@ window.Quarto = {
     <h2 id="toc-title">On this page</h2>
    
   <ul>
-  <li><a href="#random-walk--mallin-estimointi" id="toc-random-walk--mallin-estimointi" class="nav-link active" data-scroll-target="#random-walk--mallin-estimointi">Random walk -mallin estimointi</a></li>
+  <li><a href="#ennustamisen-arviointikehikko" id="toc-ennustamisen-arviointikehikko" class="nav-link active" data-scroll-target="#ennustamisen-arviointikehikko">Ennustamisen arviointikehikko</a></li>
+  <li><a href="#ennustehorisontti" id="toc-ennustehorisontti" class="nav-link" data-scroll-target="#ennustehorisontti">Ennustehorisontti</a></li>
+  <li><a href="#random-walk--malli" id="toc-random-walk--malli" class="nav-link" data-scroll-target="#random-walk--malli">Random walk -malli</a></li>
+  <li><a href="#random-walk--mallin-estimointi" id="toc-random-walk--mallin-estimointi" class="nav-link" data-scroll-target="#random-walk--mallin-estimointi">Random walk -mallin estimointi</a></li>
   <li><a href="#ennusteen-visualisointi" id="toc-ennusteen-visualisointi" class="nav-link" data-scroll-target="#ennusteen-visualisointi">Ennusteen visualisointi</a></li>
   <li><a href="#arima-malli" id="toc-arima-malli" class="nav-link" data-scroll-target="#arima-malli">ARIMA-malli</a></li>
   <li><a href="#arima-mallin-estimointi" id="toc-arima-mallin-estimointi" class="nav-link" data-scroll-target="#arima-mallin-estimointi">ARIMA-mallin estimointi</a></li>
@@ -276,25 +279,33 @@ window.Quarto = {
 <p>Ennen monimutkaisten mallien rakentamista on hyödyllistä aloittaa yksinkertaisista vertailumalleista. Taloustieteessä nämä tunnetaan nimellä baseline models.</p>
 <p>Yllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Siksi niitä käytetään usein vertailukohtina monimutkaisemmille menetelmille.</p>
 <p>Tässä osassa tarkastellaan kahta klassista baseline-mallia:</p>
-<p>random walk</p>
-<p>ARIMA</p>
+<ul>
+<li><p>random walk</p></li>
+<li><p>ARIMA</p></li>
+</ul>
 <p>Näiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on.</p>
-<p>##Ennustamisen arviointikehikko</p>
+<section id="ennustamisen-arviointikehikko" class="level2">
+<h2 class="anchored" data-anchor-id="ennustamisen-arviointikehikko">Ennustamisen arviointikehikko</h2>
 <p>Ennustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.</p>
 <p>Aikarivianalyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.</p>
 <p>Siksi käytetään <strong>rolling-origin</strong> -arviointia.</p>
 <p>Tässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista.</p>
 <p>Tämä vastaa realistista ennustamistilannetta.</p>
-<p>Ennustehorisontti</p>
+</section>
+<section id="ennustehorisontti" class="level2">
+<h2 class="anchored" data-anchor-id="ennustehorisontti">Ennustehorisontti</h2>
 <p>Makrotaloudessa inflaatiota tarkastellaan usein vuositasolla. Tässä analyysissä käytetään 12 kuukauden ennustehorisonttia.</p>
 <p>Tämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden päähän.</p>
-<p>Random walk -malli</p>
+</section>
+<section id="random-walk--malli" class="level2">
+<h2 class="anchored" data-anchor-id="random-walk--malli">Random walk -malli</h2>
 <p>Yksinkertaisin mahdollinen ennustemalli on random walk.</p>
 <p>Random walk -mallissa oletetaan, että paras ennuste tulevalle arvolle on nykyinen arvo. Toisin sanoen muutokset ovat täysin satunnaisia.</p>
 <p>Matemaattisesti malli voidaan kirjoittaa</p>
 <p><span class="math inline">\(y_{t+1}=y_t+\epsilon_t\)</span>, missä</p>
 <p><span class="math inline">\(\epsilon_t\)</span> on satunnainen virhetermi.</p>
 <p>Vaikka malli on äärimmäisen yksinkertainen, se toimii monissa taloudellisissa aikasarjoissa yllättävän hyvin.</p>
+</section>
 <section id="random-walk--mallin-estimointi" class="level2">
 <h2 class="anchored" data-anchor-id="random-walk--mallin-estimointi">Random walk -mallin estimointi</h2>
 <p>Random walk voidaan estimoida helposti fable-paketin avulla.</p>
@@ -372,9 +383,36 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 </section>
 <section id="mallien-estimointi-cross-validationissa" class="level2">
 <h2 class="anchored" data-anchor-id="mallien-estimointi-cross-validationissa">Mallien estimointi cross-validationissa</h2>
+<p>Yksittäinen malli ei vielä kerro mitään ennustemenetelmän todellisesta suorituskyvystä. Mallien toimivuutta on arvioitava tilanteessa, jossa ennuste tehdään aina vain menneeseen tietoon perustuen.</p>
+<p>Tätä varten käytetään rolling-origin cross-validation -menetelmää, joka on aikarivianalyysin standardi lähestymistapa. Menetelmässä aineistoa ei jaeta satunnaisesti opetus- ja testijoukkoihin. Sen sijaan mallia estimoidaan toistuvasti kasvavalla havaintojoukolla, ja jokaisessa vaiheessa ennuste tehdään tulevaisuuteen.</p>
+<p>Prosessi etenee seuraavasti:</p>
+<ol type="1">
+<li><p>Malli estimoidaan ensimmäisestä havaintojaksosta.</p></li>
+<li><p>Ennuste tuotetaan tuleville kuukausille.</p></li>
+<li><p>Malli estimoidaan uudelleen hieman pidemmällä datalla.</p></li>
+<li><p>Ennuste tuotetaan uudelleen.</p></li>
+<li><p>Tämä toistetaan jokaisessa ajankohdassa koko aineiston läpi.</p></li>
+</ol>
+<p>Tällä tavoin syntyy suuri joukko ennusteita, jotka simuloivat realistista ennustamistilannetta. Jokainen ennuste perustuu vain siihen tietoon, joka olisi ollut saatavilla kyseisenä ajankohtana.</p>
+<p>Tässä analyysissä cross-validationissa estimoidaan kaksi mallia:</p>
+<ul>
+<li><p>random walk</p></li>
+<li><p>ARIMA</p></li>
+</ul>
+<p>Näitä käytetään baseline-malleina, joihin myöhemmät bayesilaiset mallit voidaan myöhemmin verrata.</p>
 </section>
 <section id="ennusteet" class="level2">
 <h2 class="anchored" data-anchor-id="ennusteet">Ennusteet</h2>
+<p>Kun mallit on estimoitu cross-validation -kehikossa, voidaan tuottaa ennusteet jokaiselle arviointijaksolle.</p>
+<p>Jokaisessa iteroinnissa malli tuottaa ennusteen inflaatiolle seuraaville kuukausille. Näin muodostuu suuri joukko ennusteita eri ajankohdista. Tämä mahdollistaa mallien suorituskyvyn arvioinnin historiallisessa datassa.</p>
+<p>Keskeinen etu tässä lähestymistavassa on se, että ennusteita ei arvioida vain yhdessä tilanteessa. Sen sijaan mallin suorituskykyä tarkastellaan monissa eri taloustilanteissa, kuten</p>
+<ul>
+<li><p>matalan inflaation aikana</p></li>
+<li><p>talouskriisien aikana</p></li>
+<li><p>voimakkaiden hintashokkien aikana</p></li>
+</ul>
+<p>Tämä on tärkeää erityisesti makrotaloudessa, jossa talouden dynamiikka voi muuttua nopeasti.</p>
+<p>Kun ennusteet on tuotettu, niiden tarkkuutta voidaan arvioida vertaamalla ennustettuja arvoja toteutuneeseen inflaatioon. Seuraavassa vaiheessa mallien suorituskykyä arvioidaan erilaisten ennustetarkkuusmittareiden avulla.</p>
 </section>
 <section id="ennustetarkkuus" class="level2">
 <h2 class="anchored" data-anchor-id="ennustetarkkuus">Ennustetarkkuus</h2>
@@ -912,13 +950,13 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 <span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>Tässä osassa tarkastellaan kahta klassista baseline-mallia:</span>
 <span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>random walk</span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>random walk</span>
 <span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>ARIMA</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>ARIMA</span>
 <span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>Näiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään on.</span>
 <span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>##Ennustamisen arviointikehikko</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a><span class="fu">## Ennustamisen arviointikehikko</span></span>
 <span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>Ennustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.</span>
 <span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a></span>
@@ -930,13 +968,13 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 <span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a>Tämä vastaa realistista ennustamistilannetta.</span>
 <span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a>Ennustehorisontti</span>
+<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a><span class="fu">## Ennustehorisontti</span></span>
 <span id="cb3-43"><a href="#cb3-43" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-44"><a href="#cb3-44" aria-hidden="true" tabindex="-1"></a>Makrotaloudessa inflaatiota tarkastellaan usein vuositasolla. Tässä analyysissä käytetään 12 kuukauden ennustehorisonttia.</span>
 <span id="cb3-45"><a href="#cb3-45" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-46"><a href="#cb3-46" aria-hidden="true" tabindex="-1"></a>Tämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden päähän.</span>
 <span id="cb3-47"><a href="#cb3-47" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-48"><a href="#cb3-48" aria-hidden="true" tabindex="-1"></a>Random walk -malli</span>
+<span id="cb3-48"><a href="#cb3-48" aria-hidden="true" tabindex="-1"></a><span class="fu">## Random walk -malli</span></span>
 <span id="cb3-49"><a href="#cb3-49" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-50"><a href="#cb3-50" aria-hidden="true" tabindex="-1"></a>Yksinkertaisin mahdollinen ennustemalli on random walk.</span>
 <span id="cb3-51"><a href="#cb3-51" aria-hidden="true" tabindex="-1"></a></span>
@@ -1076,45 +1114,87 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 <span id="cb3-197"><a href="#cb3-197" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-198"><a href="#cb3-198" aria-hidden="true" tabindex="-1"></a><span class="fu">## Mallien estimointi cross-validationissa</span></span>
 <span id="cb3-199"><a href="#cb3-199" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-202"><a href="#cb3-202" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
-<span id="cb3-203"><a href="#cb3-203" aria-hidden="true" tabindex="-1"></a>cv_models <span class="ot">&lt;-</span> cv_data <span class="sc">|&gt;</span></span>
-<span id="cb3-204"><a href="#cb3-204" aria-hidden="true" tabindex="-1"></a>  <span class="fu">model</span>(</span>
-<span id="cb3-205"><a href="#cb3-205" aria-hidden="true" tabindex="-1"></a>    <span class="at">RW =</span> <span class="fu">RW</span>(inflation_yoy <span class="sc">~</span> <span class="fu">drift</span>()),</span>
-<span id="cb3-206"><a href="#cb3-206" aria-hidden="true" tabindex="-1"></a>    <span class="at">ARIMA =</span> <span class="fu">ARIMA</span>(inflation_yoy)</span>
-<span id="cb3-207"><a href="#cb3-207" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb3-208"><a href="#cb3-208" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb3-209"><a href="#cb3-209" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-200"><a href="#cb3-200" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-201"><a href="#cb3-201" aria-hidden="true" tabindex="-1"></a>Yksittäinen malli ei vielä kerro mitään ennustemenetelmän todellisesta suorituskyvystä. Mallien toimivuutta on arvioitava tilanteessa, jossa ennuste tehdään aina vain menneeseen tietoon perustuen.</span>
+<span id="cb3-202"><a href="#cb3-202" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-203"><a href="#cb3-203" aria-hidden="true" tabindex="-1"></a>Tätä varten käytetään rolling-origin cross-validation -menetelmää, joka on aikarivianalyysin standardi lähestymistapa. Menetelmässä aineistoa ei jaeta satunnaisesti opetus- ja testijoukkoihin. Sen sijaan mallia estimoidaan toistuvasti kasvavalla havaintojoukolla, ja jokaisessa vaiheessa ennuste tehdään tulevaisuuteen.</span>
+<span id="cb3-204"><a href="#cb3-204" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-205"><a href="#cb3-205" aria-hidden="true" tabindex="-1"></a>Prosessi etenee seuraavasti:</span>
+<span id="cb3-206"><a href="#cb3-206" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-207"><a href="#cb3-207" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>Malli estimoidaan ensimmäisestä havaintojaksosta.</span>
+<span id="cb3-208"><a href="#cb3-208" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-209"><a href="#cb3-209" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>Ennuste tuotetaan tuleville kuukausille.</span>
 <span id="cb3-210"><a href="#cb3-210" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-211"><a href="#cb3-211" aria-hidden="true" tabindex="-1"></a><span class="fu">## Ennusteet</span></span>
+<span id="cb3-211"><a href="#cb3-211" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>Malli estimoidaan uudelleen hieman pidemmällä datalla.</span>
 <span id="cb3-212"><a href="#cb3-212" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-215"><a href="#cb3-215" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
-<span id="cb3-216"><a href="#cb3-216" aria-hidden="true" tabindex="-1"></a>cv_forecasts <span class="ot">&lt;-</span> cv_models <span class="sc">|&gt;</span></span>
-<span id="cb3-217"><a href="#cb3-217" aria-hidden="true" tabindex="-1"></a>  <span class="fu">forecast</span>(<span class="at">h =</span> <span class="dv">12</span>)</span>
-<span id="cb3-218"><a href="#cb3-218" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb3-219"><a href="#cb3-219" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-213"><a href="#cb3-213" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>Ennuste tuotetaan uudelleen.</span>
+<span id="cb3-214"><a href="#cb3-214" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-215"><a href="#cb3-215" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>Tämä toistetaan jokaisessa ajankohdassa koko aineiston läpi.</span>
+<span id="cb3-216"><a href="#cb3-216" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-217"><a href="#cb3-217" aria-hidden="true" tabindex="-1"></a>Tällä tavoin syntyy suuri joukko ennusteita, jotka simuloivat realistista ennustamistilannetta. Jokainen ennuste perustuu vain siihen tietoon, joka olisi ollut saatavilla kyseisenä ajankohtana.</span>
+<span id="cb3-218"><a href="#cb3-218" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-219"><a href="#cb3-219" aria-hidden="true" tabindex="-1"></a>Tässä analyysissä cross-validationissa estimoidaan kaksi mallia:</span>
 <span id="cb3-220"><a href="#cb3-220" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-221"><a href="#cb3-221" aria-hidden="true" tabindex="-1"></a><span class="fu">## Ennustetarkkuus</span></span>
+<span id="cb3-221"><a href="#cb3-221" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>random walk</span>
 <span id="cb3-222"><a href="#cb3-222" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-223"><a href="#cb3-223" aria-hidden="true" tabindex="-1"></a>Ennustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:</span>
+<span id="cb3-223"><a href="#cb3-223" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>ARIMA</span>
 <span id="cb3-224"><a href="#cb3-224" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-225"><a href="#cb3-225" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>RMSE (Root Mean Squared Error)</span>
-<span id="cb3-226"><a href="#cb3-226" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-227"><a href="#cb3-227" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>MAE (Mean Absolute Error)</span>
-<span id="cb3-230"><a href="#cb3-230" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
-<span id="cb3-231"><a href="#cb3-231" aria-hidden="true" tabindex="-1"></a><span class="fu">accuracy</span>(cv_forecasts, hicp_yoy)</span>
-<span id="cb3-232"><a href="#cb3-232" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb3-233"><a href="#cb3-233" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-234"><a href="#cb3-234" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-225"><a href="#cb3-225" aria-hidden="true" tabindex="-1"></a>Näitä käytetään baseline-malleina, joihin myöhemmät bayesilaiset mallit voidaan myöhemmin verrata.</span>
+<span id="cb3-228"><a href="#cb3-228" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb3-229"><a href="#cb3-229" aria-hidden="true" tabindex="-1"></a>cv_models <span class="ot">&lt;-</span> cv_data <span class="sc">|&gt;</span></span>
+<span id="cb3-230"><a href="#cb3-230" aria-hidden="true" tabindex="-1"></a>  <span class="fu">model</span>(</span>
+<span id="cb3-231"><a href="#cb3-231" aria-hidden="true" tabindex="-1"></a>    <span class="at">RW =</span> <span class="fu">RW</span>(inflation_yoy <span class="sc">~</span> <span class="fu">drift</span>()),</span>
+<span id="cb3-232"><a href="#cb3-232" aria-hidden="true" tabindex="-1"></a>    <span class="at">ARIMA =</span> <span class="fu">ARIMA</span>(inflation_yoy)</span>
+<span id="cb3-233"><a href="#cb3-233" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb3-234"><a href="#cb3-234" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
 <span id="cb3-235"><a href="#cb3-235" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-236"><a href="#cb3-236" aria-hidden="true" tabindex="-1"></a>Tulokset kertovat, kumpi baseline-malli tuottaa tarkempia ennusteita historiallisessa datassa.</span>
-<span id="cb3-237"><a href="#cb3-237" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-238"><a href="#cb3-238" aria-hidden="true" tabindex="-1"></a>Makrotaloudessa ei ole harvinaista, että random walk toimii lähes yhtä hyvin kuin monimutkaisemmat mallit.</span>
-<span id="cb3-239"><a href="#cb3-239" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-240"><a href="#cb3-240" aria-hidden="true" tabindex="-1"></a>Jos näin tapahtuu, se kertoo paljon itse ilmiön ennustettavuudesta.</span>
-<span id="cb3-241"><a href="#cb3-241" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-242"><a href="#cb3-242" aria-hidden="true" tabindex="-1"></a>Baseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähimmäistason, jonka monimutkaisempien mallien tulee ylittää.</span>
-<span id="cb3-243"><a href="#cb3-243" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-244"><a href="#cb3-244" aria-hidden="true" tabindex="-1"></a>Jos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.</span>
+<span id="cb3-236"><a href="#cb3-236" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-237"><a href="#cb3-237" aria-hidden="true" tabindex="-1"></a><span class="fu">## Ennusteet</span></span>
+<span id="cb3-238"><a href="#cb3-238" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-239"><a href="#cb3-239" aria-hidden="true" tabindex="-1"></a>Kun mallit on estimoitu cross-validation -kehikossa, voidaan tuottaa ennusteet jokaiselle arviointijaksolle.</span>
+<span id="cb3-240"><a href="#cb3-240" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-241"><a href="#cb3-241" aria-hidden="true" tabindex="-1"></a>Jokaisessa iteroinnissa malli tuottaa ennusteen inflaatiolle seuraaville kuukausille. Näin muodostuu suuri joukko ennusteita eri ajankohdista. Tämä mahdollistaa mallien suorituskyvyn arvioinnin historiallisessa datassa.</span>
+<span id="cb3-242"><a href="#cb3-242" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-243"><a href="#cb3-243" aria-hidden="true" tabindex="-1"></a>Keskeinen etu tässä lähestymistavassa on se, että ennusteita ei arvioida vain yhdessä tilanteessa. Sen sijaan mallin suorituskykyä tarkastellaan monissa eri taloustilanteissa, kuten</span>
+<span id="cb3-244"><a href="#cb3-244" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-245"><a href="#cb3-245" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>matalan inflaation aikana</span>
+<span id="cb3-246"><a href="#cb3-246" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-247"><a href="#cb3-247" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>talouskriisien aikana</span>
+<span id="cb3-248"><a href="#cb3-248" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-249"><a href="#cb3-249" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>voimakkaiden hintashokkien aikana</span>
+<span id="cb3-250"><a href="#cb3-250" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-251"><a href="#cb3-251" aria-hidden="true" tabindex="-1"></a>Tämä on tärkeää erityisesti makrotaloudessa, jossa talouden dynamiikka voi muuttua nopeasti.</span>
+<span id="cb3-252"><a href="#cb3-252" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-253"><a href="#cb3-253" aria-hidden="true" tabindex="-1"></a>Kun ennusteet on tuotettu, niiden tarkkuutta voidaan arvioida vertaamalla ennustettuja arvoja toteutuneeseen inflaatioon. Seuraavassa vaiheessa mallien suorituskykyä arvioidaan erilaisten ennustetarkkuusmittareiden avulla.</span>
+<span id="cb3-254"><a href="#cb3-254" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-257"><a href="#cb3-257" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb3-258"><a href="#cb3-258" aria-hidden="true" tabindex="-1"></a>cv_forecasts <span class="ot">&lt;-</span> cv_models <span class="sc">|&gt;</span></span>
+<span id="cb3-259"><a href="#cb3-259" aria-hidden="true" tabindex="-1"></a>  <span class="fu">forecast</span>(<span class="at">h =</span> <span class="dv">12</span>)</span>
+<span id="cb3-260"><a href="#cb3-260" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb3-261"><a href="#cb3-261" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-262"><a href="#cb3-262" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-263"><a href="#cb3-263" aria-hidden="true" tabindex="-1"></a><span class="fu">## Ennustetarkkuus</span></span>
+<span id="cb3-264"><a href="#cb3-264" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-265"><a href="#cb3-265" aria-hidden="true" tabindex="-1"></a>Ennustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:</span>
+<span id="cb3-266"><a href="#cb3-266" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-267"><a href="#cb3-267" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>RMSE (Root Mean Squared Error)</span>
+<span id="cb3-268"><a href="#cb3-268" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-269"><a href="#cb3-269" aria-hidden="true" tabindex="-1"></a><span class="ss">* </span>MAE (Mean Absolute Error)</span>
+<span id="cb3-272"><a href="#cb3-272" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb3-273"><a href="#cb3-273" aria-hidden="true" tabindex="-1"></a><span class="fu">accuracy</span>(cv_forecasts, hicp_yoy)</span>
+<span id="cb3-274"><a href="#cb3-274" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb3-275"><a href="#cb3-275" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-276"><a href="#cb3-276" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-277"><a href="#cb3-277" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-278"><a href="#cb3-278" aria-hidden="true" tabindex="-1"></a>Tulokset kertovat, kumpi baseline-malli tuottaa tarkempia ennusteita historiallisessa datassa.</span>
+<span id="cb3-279"><a href="#cb3-279" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-280"><a href="#cb3-280" aria-hidden="true" tabindex="-1"></a>Makrotaloudessa ei ole harvinaista, että random walk toimii lähes yhtä hyvin kuin monimutkaisemmat mallit.</span>
+<span id="cb3-281"><a href="#cb3-281" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-282"><a href="#cb3-282" aria-hidden="true" tabindex="-1"></a>Jos näin tapahtuu, se kertoo paljon itse ilmiön ennustettavuudesta.</span>
+<span id="cb3-283"><a href="#cb3-283" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-284"><a href="#cb3-284" aria-hidden="true" tabindex="-1"></a>Baseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähimmäistason, jonka monimutkaisempien mallien tulee ylittää.</span>
+<span id="cb3-285"><a href="#cb3-285" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-286"><a href="#cb3-286" aria-hidden="true" tabindex="-1"></a>Jos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.</span>
 </code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal=""><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->

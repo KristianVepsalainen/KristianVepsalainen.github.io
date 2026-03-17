@@ -7,6 +7,7 @@ description: "Suomen inflaation kuvailua"
 draft: false
 toc: true
 reading-time: true
+slug: inflaation data
 ---
 
 
@@ -259,3 +260,8 @@ Keskeinen kysymys pysyy samana:
 Kuinka hyvin inflaatiota on ylipäätään mahdollista ennustaa?
 
 Se selviää sarjan seuraavissa osissa.
+
+[Osa2: mallit](/posts/2026-03-11-Osa2-inflaatio)
+
+
+Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.

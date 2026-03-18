@@ -4,7 +4,7 @@ project:
 
 website:
   title: "Kristian Vepsäläinen – Maailma on jakauma"
-  site-url: https://kristianvepsalainen.github.io
+  site-url: https://kristianvepsalainen.com
   repo-url: https://github.com/KristianVepsalainen/KristianVepsalainen.github.io
 
   navbar:

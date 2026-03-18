@@ -49,7 +49,7 @@ Tämä on erityisen tärkeää makrotaloudessa, jossa:
 Mallinnus toteutetaan paketilla :contentReference[oaicite:0]{index=0}, joka perustuu Stanin MCMC-estimointiin.
 
   
-  ## Mallin rakenne
+## Mallin rakenne
   
   Inflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:
   

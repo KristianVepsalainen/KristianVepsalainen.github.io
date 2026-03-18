@@ -6,14 +6,14 @@
       version="2.0">
 <channel>
 <title>Kristian Vepsäläinen – Maailma on jakauma</title>
-<link>https://kristianvepsalainen.github.io/blog.html</link>
-<atom:link href="https://kristianvepsalainen.github.io/blog.xml" rel="self" type="application/rss+xml"/>
+<link>https://kristianvepsalainen.com/blog.html</link>
+<atom:link href="https://kristianvepsalainen.com/blog.xml" rel="self" type="application/rss+xml"/>
 <description></description>
 <generator>quarto-1.8.27</generator>
 <lastBuildDate>Tue, 10 Mar 2026 22:00:00 GMT</lastBuildDate>
 <item>
   <title>Osa 2: Kuinka vaikeaa inflaation ennustaminen on?</title>
-  <link>https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio.html</link>
+  <link>https://kristianvepsalainen.com/posts/2026-03-11-Osa2-inflaatio.html</link>
   <description><![CDATA[ 
 
 
@@ -64,7 +64,7 @@
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio_files/figure-html/unnamed-chunk-2-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="https://kristianvepsalainen.com/posts/2026-03-11-Osa2-inflaatio_files/figure-html/unnamed-chunk-2-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -110,7 +110,7 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="https://kristianvepsalainen.com/posts/2026-03-11-Osa2-inflaatio_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -195,12 +195,12 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
   <category>talous</category>
   <category>inflaatio</category>
   <category>ennustaminen</category>
-  <guid>https://kristianvepsalainen.github.io/posts/2026-03-11-Osa2-inflaatio.html</guid>
+  <guid>https://kristianvepsalainen.com/posts/2026-03-11-Osa2-inflaatio.html</guid>
   <pubDate>Tue, 10 Mar 2026 22:00:00 GMT</pubDate>
 </item>
 <item>
   <title>Osa 1 — Inflaatio ei ole luku vaan se on prosessi</title>
-  <link>https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio.html</link>
+  <link>https://kristianvepsalainen.com/posts/2026-03-04-Osa1-inflaatio.html</link>
   <description><![CDATA[ 
 
 
@@ -242,7 +242,7 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-2-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="https://kristianvepsalainen.com/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-2-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -277,7 +277,7 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-4-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="https://kristianvepsalainen.com/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-4-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -289,7 +289,7 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="https://kristianvepsalainen.com/posts/2026-03-04-Osa1-inflaatio_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -331,12 +331,12 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
   <category>talous</category>
   <category>inflaatio</category>
   <category>ennustaminen</category>
-  <guid>https://kristianvepsalainen.github.io/posts/2026-03-04-Osa1-inflaatio.html</guid>
+  <guid>https://kristianvepsalainen.com/posts/2026-03-04-Osa1-inflaatio.html</guid>
   <pubDate>Tue, 03 Mar 2026 22:00:00 GMT</pubDate>
 </item>
 <item>
   <title>Hävisikö Juha Mieto Thomas Wassbergille parran takia?</title>
-  <link>https://kristianvepsalainen.github.io/posts/Mieto-ja-parta.html</link>
+  <link>https://kristianvepsalainen.com/posts/Mieto-ja-parta.html</link>
   <description><![CDATA[ 
 
 
@@ -349,7 +349,7 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="https://kristianvepsalainen.github.io/posts/Mieto-ja-parta_files/figure-html/unnamed-chunk-1-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="https://kristianvepsalainen.com/posts/Mieto-ja-parta_files/figure-html/unnamed-chunk-1-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -366,7 +366,7 @@ AIC=180.48   AICc=180.9   BIC=211.29</code></pre>
   <category>urheilu</category>
   <category>simulaatio</category>
   <category>historia</category>
-  <guid>https://kristianvepsalainen.github.io/posts/Mieto-ja-parta.html</guid>
+  <guid>https://kristianvepsalainen.com/posts/Mieto-ja-parta.html</guid>
   <pubDate>Sat, 28 Feb 2026 22:00:00 GMT</pubDate>
 </item>
 </channel>

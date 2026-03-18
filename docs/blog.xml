@@ -10,7 +10,148 @@
 <atom:link href="https://kristianvepsalainen.com/blog.xml" rel="self" type="application/rss+xml"/>
 <description></description>
 <generator>quarto-1.8.27</generator>
-<lastBuildDate>Tue, 10 Mar 2026 22:00:00 GMT</lastBuildDate>
+<lastBuildDate>Mon, 16 Mar 2026 22:00:00 GMT</lastBuildDate>
+<item>
+  <title>Inflaatio ei ole luku – se on prosessi</title>
+  <link>https://kristianvepsalainen.com/posts/2026-03-18-Osa3-inflaatio.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<section id="inflaatio-ei-ole-piste-ennuste" class="level2">
+<h2 class="anchored" data-anchor-id="inflaatio-ei-ole-piste-ennuste">Inflaatio ei ole piste-ennuste</h2>
+<p>Edellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.</p>
+<p>Tämä johtaa keskeiseen ongelmaan:</p>
+<p>Piste-ennuste ei kerro riittävästi.</p>
+<p>Kun inflaatiosta esitetään arvio kuten</p>
+<p>“Inflaatio on ensi vuonna 2,1 %”</p>
+<p>jätetään kertomatta olennaisin osa:</p>
+<ul>
+<li>Kuinka epävarma ennuste on?<br>
+</li>
+<li>Kuinka leveä jakauma on?<br>
+</li>
+<li>Kuinka todennäköisiä äärimmäiset skenaariot ovat?</li>
+</ul>
+<p>Makrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.</p>
+<p>Tässä osassa inflaatiota mallinnetaan <strong>todennäköisyysjakaumana</strong>, ei yksittäisenä lukuna.</p>
+</section>
+<section id="miksi-bayesilainen-malli" class="level2">
+<h2 class="anchored" data-anchor-id="miksi-bayesilainen-malli">Miksi bayesilainen malli?</h2>
+<p>Bayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.</p>
+<p>Sen sijaan, että estimoitaisiin yksi “paras” parametriarvo, estimoidaan <strong>parametrien jakauma</strong>. Tämä johtaa luonnollisesti ennustejakaumaan.</p>
+<p>Tämä on erityisen tärkeää makrotaloudessa, jossa:</p>
+<ul>
+<li>prosessit eivät ole stabiileja<br>
+</li>
+<li>shokit ovat yleisiä<br>
+</li>
+<li>epävarmuus muuttuu ajan myötä</li>
+</ul>
+<p>Mallinnus toteutetaan paketilla :contentReference<span data-index="0">oaicite:0</span>, joka perustuu Stanin MCMC-estimointiin.</p>
+<p>## Mallin rakenne</p>
+<p>Inflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:</p>
+<ul>
+<li>trendi<br>
+</li>
+<li>autoregressiivinen rakenne<br>
+</li>
+<li>epävarmuus</li>
+</ul>
+<p>Mallin perusmuoto on:</p>
+<p><img src="https://latex.codecogs.com/png.latex?y_t%20=%20%5Calpha%20+%20%5Cbeta_t%20+%20%5Cphi%20y_%7Bt-1%7D%20+%20%5Cepsilon_t"></p>
+<p>missä virhetermi mallinnetaan normaalijakaumana.</p>
+<p>Bayesilaisessa kehyksessä kaikille parametreille määritellään priorijakaumat.</p>
+<p>## Datan valmistelu</p>
+<p>Aikamuuttuja <img src="https://latex.codecogs.com/png.latex?t"> mahdollistaa trendin mallintamisen. Lag-muuttuja mahdollistaa autoregressiivisen rakenteen.</p>
+</section>
+<section id="mallin-estimointi" class="level2">
+<h2 class="anchored" data-anchor-id="mallin-estimointi">Mallin estimointi</h2>
+<p>Mallin estimointi</p>
+<p>Mallissa:</p>
+<p>trendi <img src="https://latex.codecogs.com/png.latex?(t)"> captureoi pitkän aikavälin kehitystä</p>
+<p>lag-term <img src="https://latex.codecogs.com/png.latex?(lag1)"> captureoi inertiaa</p>
+<p><img src="https://latex.codecogs.com/png.latex?%5Csigma"> kuvaa epävarmuutta</p>
+</section>
+<section id="posteriorijakauma" class="level2">
+<h2 class="anchored" data-anchor-id="posteriorijakauma">Posteriorijakauma</h2>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code> Family: gaussian 
+  Links: mu = identity 
+Formula: inflation_yoy ~ t + lag1 
+   Data: df (Number of observations: 347) 
+  Draws: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;
+         total post-warmup draws = 4000
+
+Regression Coefficients:
+          Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+Intercept     0.05      0.10    -0.15     0.25 1.00     3864     3009
+t             0.00      0.00    -0.00     0.00 1.00     3898     3088
+lag1          0.97      0.01     0.95     1.00 1.00     2496     2177
+
+Further Distributional Parameters:
+      Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS
+sigma     0.38      0.01     0.35     0.41 1.00     2465     2144
+
+Draws were sampled using sampling(NUTS). For each parameter, Bulk_ESS
+and Tail_ESS are effective sample size measures, and Rhat is the potential
+scale reduction factor on split chains (at convergence, Rhat = 1).</code></pre>
+</div>
+</div>
+<p>Bayesilaisen mallin tuloksena ei saada yksittäisiä parametreja, vaan <em>posteriorijakauma</em> jokaiselle parametrille.</p>
+<p>Tämä tarkoittaa, että mallin epävarmuus on eksplisiittisesti mukana analyysissä.</p>
+</section>
+<section id="ennustejakauma" class="level2">
+<h2 class="anchored" data-anchor-id="ennustejakauma">Ennustejakauma</h2>
+<p>Bayesilainen malli tuottaa jokaiselle ajankohdalle <em>ennustejakauman</em>, ei pelkkää pistettä.</p>
+</section>
+<section id="ennusteen-visualisointi" class="level2">
+<h2 class="anchored" data-anchor-id="ennusteen-visualisointi">Ennusteen visualisointi</h2>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.com/posts/2026-03-18-Osa3-inflaatio_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>Kuvassa:</p>
+<ul>
+<li><p>musta viiva = toteutunut inflaatio</p></li>
+<li><p>sininen viiva = odotusarvo</p></li>
+<li><p>varjostus = epävarmuus</p></li>
+</ul>
+<p>Tämä on keskeinen ero perinteisiin malleihin.</p>
+<p>Inflaatio esitetään nyt jakaumana.</p>
+</section>
+<section id="seuraavaksi" class="level2">
+<h2 class="anchored" data-anchor-id="seuraavaksi">Seuraavaksi</h2>
+<p>Seuraavassa osassa siirrytään arviointiin.</p>
+<p>Bayesilaisen mallin ennusteita verrataan baseline-malleihin käyttäen: * CRPS</p>
+<ul>
+<li><p>log score</p></li>
+<li><p>kalibraatiokäyriä</p></li>
+<li><p>Keskeinen kysymys on edelleen sama:</p></li>
+</ul>
+<p>Onko bayesilainen malli oikeasti parempi – vai vain monimutkaisempi?</p>
+<p>Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.</p>
+
+
+<!-- -->
+
+</section>
+
+ ]]></description>
+  <category>R</category>
+  <category>bayes</category>
+  <category>makrotalous</category>
+  <category>inflaatio</category>
+  <guid>https://kristianvepsalainen.com/posts/2026-03-18-Osa3-inflaatio.html</guid>
+  <pubDate>Mon, 16 Mar 2026 22:00:00 GMT</pubDate>
+</item>
 <item>
   <title>Osa 2: Kuinka vaikeaa inflaation ennustaminen on?</title>
   <link>https://kristianvepsalainen.com/posts/2026-03-11-Osa2-inflaatio.html</link>

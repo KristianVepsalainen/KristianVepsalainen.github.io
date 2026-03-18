@@ -1,0 +1,194 @@
+---
+title: "Inflaatio ei ole luku – se on prosessi"
+subtitle: "Osa 3: Bayesilainen malli ja epävarmuus"
+date: 2026-03-17
+categories: [R, bayes, makrotalous, inflaatio]
+description: "Suomen inflaation ennustaminen bayeslaisella mallilla"
+
+draft: false
+toc: true
+reading-time: true
+slug: inflaation ennustaminen bayeslaisella mallilla
+---
+  
+## Inflaatio ei ole piste-ennuste
+  
+  Edellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.
+
+Tämä johtaa keskeiseen ongelmaan:
+  
+  Piste-ennuste ei kerro riittävästi.
+
+Kun inflaatiosta esitetään arvio kuten
+
+ “Inflaatio on ensi vuonna 2,1 %”
+
+jätetään kertomatta olennaisin osa:
+  
+  - Kuinka epävarma ennuste on?  
+  - Kuinka leveä jakauma on?  
+  - Kuinka todennäköisiä äärimmäiset skenaariot ovat?  
+  
+  Makrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.
+
+Tässä osassa inflaatiota mallinnetaan **todennäköisyysjakaumana**, ei yksittäisenä lukuna.
+
+  
+## Miksi bayesilainen malli?
+  
+  Bayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.
+
+Sen sijaan, että estimoitaisiin yksi “paras” parametriarvo, estimoidaan **parametrien jakauma**. Tämä johtaa luonnollisesti ennustejakaumaan.
+
+Tämä on erityisen tärkeää makrotaloudessa, jossa:
+  
+  - prosessit eivät ole stabiileja  
+  - shokit ovat yleisiä  
+  - epävarmuus muuttuu ajan myötä  
+
+Mallinnus toteutetaan paketilla :contentReference[oaicite:0]{index=0}, joka perustuu Stanin MCMC-estimointiin.
+
+  
+  ## Mallin rakenne
+  
+  Inflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:
+  
+  - trendi  
+  - autoregressiivinen rakenne  
+  - epävarmuus  
+
+Mallin perusmuoto on:
+  
+  $y_t = \alpha + \beta_t + \phi y_{t-1} + \epsilon_t$
+
+missä virhetermi mallinnetaan normaalijakaumana.
+
+Bayesilaisessa kehyksessä kaikille parametreille määritellään priorijakaumat.
+
+  
+  ## Datan valmistelu
+  
+```{r}
+library(brms)
+library(dplyr)
+library(tsibble)
+
+
+hicp_yoy <- readRDS(here::here("data/hicp_yoy.rds"))
+
+# Muutetaan data data.frame-muotoon
+df <- hicp_yoy |>
+  as_tibble() |>
+  mutate(
+    t = as.numeric(time),
+    lag1 = lag(inflation_yoy, 1)
+  ) |>
+  filter(!is.na(lag1))
+
+```
+
+Aikamuuttuja $t$ mahdollistaa trendin mallintamisen.
+Lag-muuttuja mahdollistaa autoregressiivisen rakenteen.
+
+## Mallin estimointi
+
+Mallin estimointi
+
+```{r}
+model_brms <- brm(
+  inflation_yoy ~ t + lag1,
+  data = df,
+  family = gaussian(),
+  prior = c(
+    prior(normal(0, 5), class = "b"),
+    prior(normal(0, 10), class = "Intercept"),
+    prior(exponential(1), class = "sigma")
+  ),
+  chains = 4,
+  iter = 2000,
+  cores = 4,
+  seed = 123
+)
+```
+
+
+
+Mallissa:
+
+trendi $(t)$ captureoi pitkän aikavälin kehitystä
+
+lag-term $(lag1)$ captureoi inertiaa
+
+$\sigma$ kuvaa epävarmuutta
+
+## Posteriorijakauma
+```{r}
+summary(model_brms)
+```
+Bayesilaisen mallin tuloksena ei saada yksittäisiä parametreja, vaan *posteriorijakauma* jokaiselle parametrille.
+
+Tämä tarkoittaa, että mallin epävarmuus on eksplisiittisesti mukana analyysissä.
+
+## Ennustejakauma
+
+```{r}
+pred <- posterior_predict(model_brms, newdata = df)
+
+pred_mean <- apply(pred, 2, mean)
+pred_lower <- apply(pred, 2, quantile, 0.1)
+pred_upper <- apply(pred, 2, quantile, 0.9)
+
+df <- df |>
+  mutate(
+    pred_mean = pred_mean,
+    lower = pred_lower,
+    upper = pred_upper
+  )
+```
+
+Bayesilainen malli tuottaa jokaiselle ajankohdalle *ennustejakauman*, ei pelkkää pistettä.
+
+## Ennusteen visualisointi
+
+```{r}
+library(ggplot2)
+
+ggplot(df, aes(x = time)) +
+  geom_line(aes(y = inflation_yoy), colour = "black") +
+  geom_line(aes(y = pred_mean), colour = "blue") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.2) +
+  labs(
+    title = "Bayesilainen inflaatioennuste",
+    y = "Inflaatio (%)",
+    x = NULL
+  ) +
+  theme_minimal()
+```
+Kuvassa:
+
+  * musta viiva = toteutunut inflaatio
+
+  * sininen viiva = odotusarvo
+
+  * varjostus = epävarmuus
+
+Tämä on keskeinen ero perinteisiin malleihin.
+
+Inflaatio esitetään nyt jakaumana.
+
+## Seuraavaksi
+
+Seuraavassa osassa siirrytään arviointiin.
+
+Bayesilaisen mallin ennusteita verrataan baseline-malleihin käyttäen:
+  * CRPS
+
+  * log score
+
+  * kalibraatiokäyriä
+
+  * Keskeinen kysymys on edelleen sama:
+
+Onko bayesilainen malli oikeasti parempi – vai vain monimutkaisempi?
+
+Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.

@@ -242,6 +242,62 @@
     "href": "blog.html",
     "title": "Blogi",
     "section": "",
-    "text": "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?\n\n\nSuomen inflaation kuvailua\n\n\n\n\n\nMar 11, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nOsa 1 — Inflaatio ei ole luku vaan se on prosessi\n\n\nSuomen inflaation kuvailua\n\n\n\n\n\nMar 4, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nHävisikö Juha Mieto Thomas Wassbergille parran takia?\n\n\n\n\n\n\n\n\nMar 1, 2026\n\n\n\n\n\nNo matching items"
+    "text": "Inflaatio ei ole luku – se on prosessi\n\n\nOsa 3: Bayesilainen malli ja epävarmuus\n\n\nSuomen inflaation ennustaminen bayeslaisella mallilla\n\n\n\n\n\nMar 17, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nOsa 2: Kuinka vaikeaa inflaation ennustaminen on?\n\n\n\n\n\nSuomen inflaation kuvailua\n\n\n\n\n\nMar 11, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nOsa 1 — Inflaatio ei ole luku vaan se on prosessi\n\n\n\n\n\nSuomen inflaation kuvailua\n\n\n\n\n\nMar 4, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nHävisikö Juha Mieto Thomas Wassbergille parran takia?\n\n\n\n\n\n\n\n\n\n\n\nMar 1, 2026\n\n\n\n\n\nNo matching items"
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "",
+    "text": "Edellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.\nTämä johtaa keskeiseen ongelmaan:\nPiste-ennuste ei kerro riittävästi.\nKun inflaatiosta esitetään arvio kuten\n“Inflaatio on ensi vuonna 2,1 %”\njätetään kertomatta olennaisin osa:\n\nKuinka epävarma ennuste on?\n\nKuinka leveä jakauma on?\n\nKuinka todennäköisiä äärimmäiset skenaariot ovat?\n\nMakrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.\nTässä osassa inflaatiota mallinnetaan todennäköisyysjakaumana, ei yksittäisenä lukuna."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#inflaatio-ei-ole-piste-ennuste",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#inflaatio-ei-ole-piste-ennuste",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "",
+    "text": "Edellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.\nTämä johtaa keskeiseen ongelmaan:\nPiste-ennuste ei kerro riittävästi.\nKun inflaatiosta esitetään arvio kuten\n“Inflaatio on ensi vuonna 2,1 %”\njätetään kertomatta olennaisin osa:\n\nKuinka epävarma ennuste on?\n\nKuinka leveä jakauma on?\n\nKuinka todennäköisiä äärimmäiset skenaariot ovat?\n\nMakrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.\nTässä osassa inflaatiota mallinnetaan todennäköisyysjakaumana, ei yksittäisenä lukuna."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#miksi-bayesilainen-malli",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#miksi-bayesilainen-malli",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Miksi bayesilainen malli?",
+    "text": "Miksi bayesilainen malli?\nBayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.\nSen sijaan, että estimoitaisiin yksi “paras” parametriarvo, estimoidaan parametrien jakauma. Tämä johtaa luonnollisesti ennustejakaumaan.\nTämä on erityisen tärkeää makrotaloudessa, jossa:\n\nprosessit eivät ole stabiileja\n\nshokit ovat yleisiä\n\nepävarmuus muuttuu ajan myötä\n\nMallinnus toteutetaan paketilla :contentReferenceoaicite:0, joka perustuu Stanin MCMC-estimointiin.\n## Mallin rakenne\nInflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:\n\ntrendi\n\nautoregressiivinen rakenne\n\nepävarmuus\n\nMallin perusmuoto on:\n\\(y_t = \\alpha + \\beta_t + \\phi y_{t-1} + \\epsilon_t\\)\nmissä virhetermi mallinnetaan normaalijakaumana.\nBayesilaisessa kehyksessä kaikille parametreille määritellään priorijakaumat.\n## Datan valmistelu\nAikamuuttuja \\(t\\) mahdollistaa trendin mallintamisen. Lag-muuttuja mahdollistaa autoregressiivisen rakenteen."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#mallin-estimointi",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#mallin-estimointi",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Mallin estimointi",
+    "text": "Mallin estimointi\nMallin estimointi\nMallissa:\ntrendi \\((t)\\) captureoi pitkän aikavälin kehitystä\nlag-term \\((lag1)\\) captureoi inertiaa\n\\(\\sigma\\) kuvaa epävarmuutta"
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#posteriorijakauma",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#posteriorijakauma",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Posteriorijakauma",
+    "text": "Posteriorijakauma\n\n\n Family: gaussian \n  Links: mu = identity \nFormula: inflation_yoy ~ t + lag1 \n   Data: df (Number of observations: 347) \n  Draws: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;\n         total post-warmup draws = 4000\n\nRegression Coefficients:\n          Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS\nIntercept     0.05      0.10    -0.15     0.25 1.00     3864     3009\nt             0.00      0.00    -0.00     0.00 1.00     3898     3088\nlag1          0.97      0.01     0.95     1.00 1.00     2496     2177\n\nFurther Distributional Parameters:\n      Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS\nsigma     0.38      0.01     0.35     0.41 1.00     2465     2144\n\nDraws were sampled using sampling(NUTS). For each parameter, Bulk_ESS\nand Tail_ESS are effective sample size measures, and Rhat is the potential\nscale reduction factor on split chains (at convergence, Rhat = 1).\n\n\nBayesilaisen mallin tuloksena ei saada yksittäisiä parametreja, vaan posteriorijakauma jokaiselle parametrille.\nTämä tarkoittaa, että mallin epävarmuus on eksplisiittisesti mukana analyysissä."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#ennustejakauma",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#ennustejakauma",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Ennustejakauma",
+    "text": "Ennustejakauma\nBayesilainen malli tuottaa jokaiselle ajankohdalle ennustejakauman, ei pelkkää pistettä."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#ennusteen-visualisointi",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#ennusteen-visualisointi",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Ennusteen visualisointi",
+    "text": "Ennusteen visualisointi\n\n\n\n\n\n\n\n\n\nKuvassa:\n\nmusta viiva = toteutunut inflaatio\nsininen viiva = odotusarvo\nvarjostus = epävarmuus\n\nTämä on keskeinen ero perinteisiin malleihin.\nInflaatio esitetään nyt jakaumana."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#seuraavaksi",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#seuraavaksi",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Seuraavaksi",
+    "text": "Seuraavaksi\nSeuraavassa osassa siirrytään arviointiin.\nBayesilaisen mallin ennusteita verrataan baseline-malleihin käyttäen: * CRPS\n\nlog score\nkalibraatiokäyriä\nKeskeinen kysymys on edelleen sama:\n\nOnko bayesilainen malli oikeasti parempi – vai vain monimutkaisempi?\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
   }
 ]

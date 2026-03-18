@@ -88,21 +88,28 @@
     "href": "posts/2026-03-18-Osa3-inflaatio.html",
     "title": "Inflaatio ei ole luku – se on prosessi",
     "section": "",
-    "text": "Edellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.\nTämä johtaa keskeiseen ongelmaan:\nPiste-ennuste ei kerro riittävästi.\nKun inflaatiosta esitetään arvio kuten\n“Inflaatio on ensi vuonna 2,1 %”\njätetään kertomatta olennaisin osa:\n\nKuinka epävarma ennuste on?\n\nKuinka leveä jakauma on?\n\nKuinka todennäköisiä äärimmäiset skenaariot ovat?\n\nMakrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.\nTässä osassa inflaatiota mallinnetaan todennäköisyysjakaumana, ei yksittäisenä lukuna."
+    "text": "Osa2: mallit"
   },
   {
     "objectID": "posts/2026-03-18-Osa3-inflaatio.html#inflaatio-ei-ole-piste-ennuste",
     "href": "posts/2026-03-18-Osa3-inflaatio.html#inflaatio-ei-ole-piste-ennuste",
     "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "",
-    "text": "Edellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.\nTämä johtaa keskeiseen ongelmaan:\nPiste-ennuste ei kerro riittävästi.\nKun inflaatiosta esitetään arvio kuten\n“Inflaatio on ensi vuonna 2,1 %”\njätetään kertomatta olennaisin osa:\n\nKuinka epävarma ennuste on?\n\nKuinka leveä jakauma on?\n\nKuinka todennäköisiä äärimmäiset skenaariot ovat?\n\nMakrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.\nTässä osassa inflaatiota mallinnetaan todennäköisyysjakaumana, ei yksittäisenä lukuna."
+    "section": "Inflaatio ei ole piste-ennuste",
+    "text": "Inflaatio ei ole piste-ennuste\nEdellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.\nTämä johtaa keskeiseen ongelmaan:\nPiste-ennuste ei kerro riittävästi.\nKun inflaatiosta esitetään arvio kuten\n“Inflaatio on ensi vuonna 2,1 %”\njätetään kertomatta olennaisin osa:\n\nKuinka epävarma ennuste on?\n\nKuinka leveä jakauma on?\n\nKuinka todennäköisiä äärimmäiset skenaariot ovat?\n\nMakrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.\nTässä osassa inflaatiota mallinnetaan todennäköisyysjakaumana, ei yksittäisenä lukuna."
   },
   {
     "objectID": "posts/2026-03-18-Osa3-inflaatio.html#miksi-bayesilainen-malli",
     "href": "posts/2026-03-18-Osa3-inflaatio.html#miksi-bayesilainen-malli",
     "title": "Inflaatio ei ole luku – se on prosessi",
     "section": "Miksi bayesilainen malli?",
-    "text": "Miksi bayesilainen malli?\nBayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.\nSen sijaan, että estimoitaisiin yksi “paras” parametriarvo, estimoidaan parametrien jakauma. Tämä johtaa luonnollisesti ennustejakaumaan.\nTämä on erityisen tärkeää makrotaloudessa, jossa:\n\nprosessit eivät ole stabiileja\n\nshokit ovat yleisiä\n\nepävarmuus muuttuu ajan myötä\n\nMallinnus toteutetaan paketilla :contentReferenceoaicite:0, joka perustuu Stanin MCMC-estimointiin.\n## Mallin rakenne\nInflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:\n\ntrendi\n\nautoregressiivinen rakenne\n\nepävarmuus\n\nMallin perusmuoto on:\n\\(y_t = \\alpha + \\beta_t + \\phi y_{t-1} + \\epsilon_t\\)\nmissä virhetermi mallinnetaan normaalijakaumana.\nBayesilaisessa kehyksessä kaikille parametreille määritellään priorijakaumat.\n## Datan valmistelu\nAikamuuttuja \\(t\\) mahdollistaa trendin mallintamisen. Lag-muuttuja mahdollistaa autoregressiivisen rakenteen."
+    "text": "Miksi bayesilainen malli?\nBayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.\nSen sijaan, että estimoitaisiin yksi “paras” parametriarvo, estimoidaan parametrien jakauma. Tämä johtaa luonnollisesti ennustejakaumaan.\nTämä on erityisen tärkeää makrotaloudessa, jossa:\n\nprosessit eivät ole stabiileja\n\nshokit ovat yleisiä\n\nepävarmuus muuttuu ajan myötä\n\nMallinnus toteutetaan paketilla :contentReferenceoaicite:0, joka perustuu Stanin MCMC-estimointiin."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#mallin-rakenne",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#mallin-rakenne",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Mallin rakenne",
+    "text": "Mallin rakenne\nInflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:\n\ntrendi\n\nautoregressiivinen rakenne\n\nepävarmuus\n\nMallin perusmuoto on:\n\\(y_t = \\alpha + \\beta_t + \\phi y_{t-1} + \\epsilon_t\\)\nmissä virhetermi mallinnetaan normaalijakaumana.\nBayesilaisessa kehyksessä kaikille parametreille määritellään priorijakaumat.\n## Datan valmistelu\nAikamuuttuja \\(t\\) mahdollistaa trendin mallintamisen. Lag-muuttuja mahdollistaa autoregressiivisen rakenteen."
   },
   {
     "objectID": "posts/2026-03-18-Osa3-inflaatio.html#mallin-estimointi",
@@ -291,7 +298,7 @@
     "href": "posts/2026-03-11-Osa2-inflaatio.html#ennustetarkkuus",
     "title": "Osa 2: Kuinka vaikeaa inflaation ennustaminen on?",
     "section": "Ennustetarkkuus",
-    "text": "Ennustetarkkuus\nEnnustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:\n\nRMSE (Root Mean Squared Error)\nMAE (Mean Absolute Error)\n\n\n\n# A tibble: 2 × 10\n  .model .type      ME  RMSE   MAE    MPE  MAPE  MASE RMSSE  ACF1\n  &lt;chr&gt;  &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1 ARIMA  Test   0.254   1.42 0.912   7.72  174. 0.694 0.729 0.888\n2 RW     Test  -0.0232  1.57 1.00  -11.5   121. 0.761 0.809 0.888\n\n\nTulokset kertovat, kumpi baseline-malli tuottaa tarkempia ennusteita historiallisessa datassa.\nMakrotaloudessa ei ole harvinaista, että random walk toimii lähes yhtä hyvin kuin monimutkaisemmat mallit.\nJos näin tapahtuu, se kertoo paljon itse ilmiön ennustettavuudesta.\nBaseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähimmäistason, jonka monimutkaisempien mallien tulee ylittää.\nJos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
+    "text": "Ennustetarkkuus\nEnnustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:\n\nRMSE (Root Mean Squared Error)\nMAE (Mean Absolute Error)\n\n\n\n# A tibble: 2 × 10\n  .model .type      ME  RMSE   MAE    MPE  MAPE  MASE RMSSE  ACF1\n  &lt;chr&gt;  &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1 ARIMA  Test   0.254   1.42 0.912   7.72  174. 0.694 0.729 0.888\n2 RW     Test  -0.0232  1.57 1.00  -11.5   121. 0.761 0.809 0.888\n\n\nTulokset kertovat, kumpi baseline-malli tuottaa tarkempia ennusteita historiallisessa datassa.\nMakrotaloudessa ei ole harvinaista, että random walk toimii lähes yhtä hyvin kuin monimutkaisemmat mallit.\nJos näin tapahtuu, se kertoo paljon itse ilmiön ennustettavuudesta.\nBaseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähimmäistason, jonka monimutkaisempien mallien tulee ylittää.\nJos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.\nOsa3: Bayeslainen malli\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
   },
   {
     "objectID": "blog.html",

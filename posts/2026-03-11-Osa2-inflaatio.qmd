@@ -270,4 +270,6 @@ Baseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähi
 
 Jos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.
 
+[Osa3: Bayeslainen malli](/posts/2026-03-18-Osa3-inflaatio)
+
 Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.

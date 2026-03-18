@@ -10,6 +10,8 @@ toc: true
 reading-time: true
 slug: inflaation ennustaminen bayeslaisella mallilla
 ---
+
+[Osa2: mallit](/posts/2026-03-11-Osa2-inflaatio)
   
 ## Inflaatio ei ole piste-ennuste
   

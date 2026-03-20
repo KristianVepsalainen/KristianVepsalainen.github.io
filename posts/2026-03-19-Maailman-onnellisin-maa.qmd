@@ -163,7 +163,28 @@ summary(prob)
 ## Jakauma
 
 ```{r}
-hist(prob, breaks = 50)
+library(tidyverse)
+
+df <- data.frame(
+  age = ages,
+  prob = prob
+)
+
+df %>%
+ # mutate(age_group = cut(age, breaks = seq(15, 90, by = 5))) %>%
+  group_by(age) %>%
+  summarise(prob = mean(prob)) %>%
+  ggplot(aes(x = age, y = prob, group = 1)) +
+  geom_line(color = "#E74C3C", linewidth = 1.2) +
+  geom_point(color = "#2C3E50") +
+  labs(
+    title = "Todennäköisyys päätyä kyselyyn elämän aikana",
+    subtitle = "Todennäköisyys pienenee systemaattisesti iän myötä",
+    x = "Ikä",
+    y = "Todennäköisyys"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ## Mitä tulos kertoo Suomesta?

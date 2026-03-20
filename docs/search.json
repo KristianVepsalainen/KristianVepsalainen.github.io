@@ -84,130 +84,109 @@
     "text": "Luottamuksellisuus\nKaikki asiakkaalta saatu tieto käsitellään luottamuksellisesti."
   },
   {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html",
-    "title": "Inflaatio ei ole luku – se on prosessi",
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
     "section": "",
-    "text": "Osa2: mallit"
+    "text": "World Happiness Report nostaa Suomen toistuvasti maailman kärkeen.\nKeskustelu kääntyy nopeasti siihen, miksi tulos ei voi pitää paikkaansa.\nYleisimmät perustelut ovat:\n\n“Ei minulta kysytty”\n“Tunnen monia, jotka eivät ole onnellisia”\n“Suomessa on paljon ongelmia”\n\nNämä argumentit eivät ole tilastollisesti relevantteja.\nTässä kirjoituksessa puretaan, mitä tutkimus mittaa, miten se tehdään ja miksi otanta riittää."
   },
   {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#inflaatio-ei-ole-piste-ennuste",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html#inflaatio-ei-ole-piste-ennuste",
-    "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "Inflaatio ei ole piste-ennuste",
-    "text": "Inflaatio ei ole piste-ennuste\nEdellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.\nTämä johtaa keskeiseen ongelmaan:\nPiste-ennuste ei kerro riittävästi.\nKun inflaatiosta esitetään arvio kuten\n“Inflaatio on ensi vuonna 2,1 %”\njätetään kertomatta olennaisin osa:\n\nKuinka epävarma ennuste on?\n\nKuinka leveä jakauma on?\n\nKuinka todennäköisiä äärimmäiset skenaariot ovat?\n\nMakrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.\nTässä osassa inflaatiota mallinnetaan todennäköisyysjakaumana, ei yksittäisenä lukuna."
-  },
-  {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#miksi-bayesilainen-malli",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html#miksi-bayesilainen-malli",
-    "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "Miksi bayesilainen malli?",
-    "text": "Miksi bayesilainen malli?\nBayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.\nSen sijaan, että estimoitaisiin yksi “paras” parametriarvo, estimoidaan parametrien jakauma. Tämä johtaa luonnollisesti ennustejakaumaan.\nTämä on erityisen tärkeää makrotaloudessa, jossa:\n\nprosessit eivät ole stabiileja\n\nshokit ovat yleisiä\n\nepävarmuus muuttuu ajan myötä\n\nMallinnus toteutetaan paketilla :contentReferenceoaicite:0, joka perustuu Stanin MCMC-estimointiin."
-  },
-  {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#mallin-rakenne",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html#mallin-rakenne",
-    "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "Mallin rakenne",
-    "text": "Mallin rakenne\nInflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:\n\ntrendi\n\nautoregressiivinen rakenne\n\nepävarmuus\n\nMallin perusmuoto on:\n\\(y_t = \\alpha + \\beta_t + \\phi y_{t-1} + \\epsilon_t\\)\nmissä virhetermi mallinnetaan normaalijakaumana.\nBayesilaisessa kehyksessä kaikille parametreille määritellään priorijakaumat.\n## Datan valmistelu\nAikamuuttuja \\(t\\) mahdollistaa trendin mallintamisen. Lag-muuttuja mahdollistaa autoregressiivisen rakenteen."
-  },
-  {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#mallin-estimointi",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html#mallin-estimointi",
-    "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "Mallin estimointi",
-    "text": "Mallin estimointi\nMallin estimointi\nMallissa:\ntrendi \\((t)\\) captureoi pitkän aikavälin kehitystä\nlag-term \\((lag1)\\) captureoi inertiaa\n\\(\\sigma\\) kuvaa epävarmuutta"
-  },
-  {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#posteriorijakauma",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html#posteriorijakauma",
-    "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "Posteriorijakauma",
-    "text": "Posteriorijakauma\n\n\n Family: gaussian \n  Links: mu = identity \nFormula: inflation_yoy ~ t + lag1 \n   Data: df (Number of observations: 347) \n  Draws: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;\n         total post-warmup draws = 4000\n\nRegression Coefficients:\n          Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS\nIntercept     0.05      0.10    -0.15     0.25 1.00     3864     3009\nt             0.00      0.00    -0.00     0.00 1.00     3898     3088\nlag1          0.97      0.01     0.95     1.00 1.00     2496     2177\n\nFurther Distributional Parameters:\n      Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS\nsigma     0.38      0.01     0.35     0.41 1.00     2465     2144\n\nDraws were sampled using sampling(NUTS). For each parameter, Bulk_ESS\nand Tail_ESS are effective sample size measures, and Rhat is the potential\nscale reduction factor on split chains (at convergence, Rhat = 1).\n\n\nBayesilaisen mallin tuloksena ei saada yksittäisiä parametreja, vaan posteriorijakauma jokaiselle parametrille.\nTämä tarkoittaa, että mallin epävarmuus on eksplisiittisesti mukana analyysissä."
-  },
-  {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#ennustejakauma",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html#ennustejakauma",
-    "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "Ennustejakauma",
-    "text": "Ennustejakauma\nBayesilainen malli tuottaa jokaiselle ajankohdalle ennustejakauman, ei pelkkää pistettä."
-  },
-  {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#ennusteen-visualisointi",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html#ennusteen-visualisointi",
-    "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "Ennusteen visualisointi",
-    "text": "Ennusteen visualisointi\n\n\n\n\n\n\n\n\n\nKuvassa:\n\nmusta viiva = toteutunut inflaatio\nsininen viiva = odotusarvo\nvarjostus = epävarmuus\n\nTämä on keskeinen ero perinteisiin malleihin.\nInflaatio esitetään nyt jakaumana."
-  },
-  {
-    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#seuraavaksi",
-    "href": "posts/2026-03-18-Osa3-inflaatio.html#seuraavaksi",
-    "title": "Inflaatio ei ole luku – se on prosessi",
-    "section": "Seuraavaksi",
-    "text": "Seuraavaksi\nSeuraavassa osassa siirrytään arviointiin.\nBayesilaisen mallin ennusteita verrataan baseline-malleihin käyttäen: * CRPS\n\nlog score\nkalibraatiokäyriä\nKeskeinen kysymys on edelleen sama:\n\nOnko bayesilainen malli oikeasti parempi – vai vain monimutkaisempi?\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
-  },
-  {
-    "objectID": "posts/2026-03-04-Osa1-inflaatio.html",
-    "href": "posts/2026-03-04-Osa1-inflaatio.html",
-    "title": "Osa 1 — Inflaatio ei ole luku vaan se on prosessi",
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#johdanto",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#johdanto",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
     "section": "",
-    "text": "Inflaatio on yksi seuratuimmista talousmittareista maailmassa.\nKeskuspankit tekevät siitä ennusteita. Media raportoi siitä kuukausittain. Poliitikot käyttävät sitä argumenttina lähes kaikessa talouspolitiikassa.\nSilti yksi asia jää lähes aina keskustelun ulkopuolelle:\nKuinka hyvin inflaatiota oikeasti pystytään ennustamaan?\nMakrotaloudessa ennusteet esitetään lähes aina yksittäisinä lukuina:\n“Inflaatio on ensi vuonna 2,1 %.”\nMutta todellisuudessa inflaatio ei ole deterministinen luku. Se on stokastinen prosessi, johon vaikuttavat esimerkiksi:\n\nenergiamarkkinat\ngeopoliittiset shokit\nrahapolitiikka\nodotukset\ntalouden rakenteelliset muutokset\n\nSiksi tässä sarjassa lähestyn inflaatiota todennäköisyysjakaumana, en yksittäisenä lukuna.\nAian ennen kuin aloitetaan rakentamaan malleja, tulee ymmärtää data. Tämä ensimmäinen osa keskittyy siihen. Toisessa osassa mennään varsinaisiin malleihin.\nData: Eurostatin HICP-indeksi\nInflaatiota mitataan monella tavalla. Tässä sarjassa käytän HICP-indeksiä (Harmonised Index of Consumer Prices), joka on EU:n harmonisoitu kuluttajahintaindeksi.Datan lähde on Eurostat, jonka datat ovat saatavissa avoimen rajapinnan kautta. Tämä mahdollistaa toistettavan analyysin ja sen päivittämisen myös tulevalla datalla.\nEurostatin taulukoissa on useita indeksiperustoja (esimerkiksi 2005=100 ja 2015=100). Valitsen 2015=100 -indeksin, joka on nykyinen standardi. Samalla rajaan analyysin Suomeen ja kokonaisinflaatioon (COICOP-luokka CP0).\nAikarakenne: kuukausisarja\nMakrodata on lähes aina aikarivimuotoista, joten rakennan analyysin tsibble-rakenteen päälle.\nTässä vaiheessa on tärkeää huomioida yksi yksityiskohta: vaikka päivämäärä näyttää Date-muotoiselta, data on todellisuudessa kuukausisarja. Siksi muutan indeksin eksplisiittisesti kuukausitasolle.\nMuunnos inflaatioksi\nHICP on indeksisarja. Inflaatio lasketaan yleensä vuosimuutoksena, eli kuinka paljon hinnat ovat muuttuneet verrattuna samaan kuukauteen vuotta aiemmin.\nTässä vaiheessa meillä on analyysiin valmis aikarivi:\n\nkuukausidata\nvuosimuutos prosentteina\nyli 25 vuoden historia\n\nSuomen inflaatio 1997–2025\nEnsimmäinen askel on katsoa, miltä inflaatio näyttää pitkällä aikavälillä.\n\n\n\n\n\n\n\n\n\nPitkä aikahistoria paljastaa useita selkeitä jaksoja:\n2000–2007: suhteellisen vakaa inflaatio\n2008–2009: finanssikriisin vaikutus\n2010-luku: matala inflaatio Euroopassa\n2020: pandemian aiheuttama talousshokki\n2022: energiakriisi ja inflaatiopiikki\nErityisesti vuoden 2022 inflaatiohuippu on makrotaloudessa poikkeuksellinen tapahtuma. Tällaiset shokit tekevät ennustamisesta vaikeaa.\nInflaation kausivaihtelu\nVaikka käytän vuosimuutosta, inflaatiossa voi silti esiintyä kausivaihtelua.\nTätä voidaan tarkastella season plot -kuvaajalla.\n\n\n# A tibble: 1 × 2\n  kpss_stat kpss_pvalue\n      &lt;dbl&gt;       &lt;dbl&gt;\n1     0.246         0.1\n\n\nSeason plot näyttää, miten inflaatio käyttäytyy eri kuukausina eri vuosina.\nMakrotaloudessa tämä voi paljastaa esimerkiksi:\n\nenergiahintojen talvikausivaihtelun\nveromuutosten vaikutukset\nkulutuskausien vaikutuksen hintatasoon\n\nSamalla voidaan nähdä, kuinka poikkeuksellinen vuosi 2022 oli suhteessa aikaisempaan historiaan.\n\n\n\n\n\n\n\n\n\nInflaation volatiliteetti\nInflaation keskiarvo kertoo vain osan tarinaa. Yhtä tärkeää on ymmärtää volatiliteetti, eli kuinka paljon inflaatio vaihtelee.\nTarkastellaan 12 kuukauden liukuvaa keskihajontaa.\n\n\n\n\n\n\n\n\n\nTuloksesta näkyy selvästi, että inflaation volatiliteetti ei ole vakio.\nErityisesti vuoden 2022 jälkeen volatiliteetti kasvaa selvästi.\nTämä on tärkeä havainto mallinnuksen kannalta.\nMonet perinteiset aikarivimallit olettavat vakion volatiliteetin, mikä voi johtaa liian optimistisiin ennusteisiin kriisiaikoina.\nBayesilainen lähestymistapa mahdollistaa epävarmuuden eksplisiittisen mallintamisen.\nMitä “hyvä ennuste” tarkoittaa?\nEnnen kuin rakennan yhtään mallia, täytyy määritellä arviointikriteerit.\nHyvä ennuste ei ole vain tarkka piste-ennuste.\nHyvä ennuste on myös:\n\nkalibroitu (todennäköisyydet vastaavat toteumaa)\nrealistinen epävarmuuden suhteen\nrobusti talousshokeille\n\nSiksi tässä sarjassa käytetään arviointiin proper scoring ruleja, kuten CRPS- ja log score -mittareita.\nNe arvioivat koko ennustejakaumaa, eivät vain yhtä pistettä.\nSeuraavassa osassa rakennetaan ensimmäiset ennustemallit. Analyysi aloitetaan tarkoituksella yksinkertaisista baseline-malleista:\nrandom walk\nARIMA\nMakrotaloudessa nämä mallit toimivat usein yllättävän vahvoina vertailukohtina.\nVasta tämän jälkeen rakennetaan bayesilainen aikarivimalli brms-paketilla, jonka avulla inflaation ennusteet voidaan esittää täysinä todennäköisyysjakaumina.\nKeskeinen kysymys pysyy samana:\nKuinka hyvin inflaatiota on ylipäätään mahdollista ennustaa?\nSe selviää sarjan seuraavissa osissa.\nOsa2: mallit\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
+    "text": "World Happiness Report nostaa Suomen toistuvasti maailman kärkeen.\nKeskustelu kääntyy nopeasti siihen, miksi tulos ei voi pitää paikkaansa.\nYleisimmät perustelut ovat:\n\n“Ei minulta kysytty”\n“Tunnen monia, jotka eivät ole onnellisia”\n“Suomessa on paljon ongelmia”\n\nNämä argumentit eivät ole tilastollisesti relevantteja.\nTässä kirjoituksessa puretaan, mitä tutkimus mittaa, miten se tehdään ja miksi otanta riittää."
   },
   {
-    "objectID": "about.html",
-    "href": "about.html",
-    "title": "Minusta",
-    "section": "",
-    "text": "Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella.\nJos ihmettelet sloganiani, “Maailma on jakauma”, se kuvastaa filosofiaani, jonka mukaan mikä tahansa asia maailmassa on kuvattavissa jollain jakaumalla. Yleensä kuitenkin ihmiset näkevät ilmöistä lähinnä keskiarvoja ja ehkä mediaaneja, mutta vasta jakauma antaa todenmukaisen kuvan siitä, mistä asiassa on oikeasti kyse (ja mistä ei ole). Juuri nämä jakaumat ovat olennaisia todellisuuden ymmärtämisessä. Valitettavasti niitä raportoidaan julkisesti harvoin. Suurin osa maailman avoimesta datasta on piste-estimaatteja, eivät jakaumia. Yksi elämäni missioista on saada tähän muutos ja avoimesta datasta hyödyllisempää jokaiselle.\nOlen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta. Graudni tein liittyen kansantalouden tilinpitoon ja julkaisin siitä artikkelin.\nTyöurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finassialalla.\nAloitin työurani jo opiskeluaikana tekemällä matematiikan, fysiikan ja kemian opettajan sijaisuuksia ympäri Itä-Suomea. Tämän jälkeen siirryin Uudellemaalle työskentelemään Sosiaalitaito Oy:llä, jossa tein monipuolista analytiikkaa liittyen Länsi- ja Keski-Uudenmaan sosiaalihuoltoon. Julkaisin tänä aikana myös toisen tieteellisen artikkelini.\nSeuraavaksi siirryin Terveyden ja hyvinvoinnin laitokselle eli THL:lle töihin. THL:llä toimin lukuisissa eri projekteissa datatieteilijänä. Projekteista osa oli talon sisäisiä ja osa oli ulkoisten toimijoiden (sekä yksityisiä yrityksiä että muita valtionhallinnon toimoijta) kanssa yhteistyöprojekteja. Näistä projekteista syntyi myös seuraavat tieteelliset artikkelit\n\nPredicting utilization of healthcare services from individual disease trajectories using RNNs with multi-headed attention\nAssessing health gradient with different equivalence scales for household income – A sensitivity analysis\nImpact of a Conformité Européenne (CE) Certification–Marked Medical Software Sensor on COVID-19 Pandemic Progression Prediction: Register-Based Study Using Machine Learning Methods\n\nsekä konferenssiesitys Assessing the Quality of Finnish Primary Health Care Registers, jonka pidin konferenssissa 9th Nordic Conference of Epidemiology and Register-Based Health Research Tampereen yliopistolla vuonna 2019.\nTHL:tä siirryin finanssialalle data-analyytikoksi. Finanssialan kokemukseni liittyy pääasiassa erilaisten compliance-kysymysten analytiikkaan. Samaan aikaan perustin toiminimen, jolla olen tehnyt erilaisia sivuprojekteja.Näistä sivuprojekteista pitkäkestoisin on ollut Tampereen yliopistosairaalan Silmätautikeskuksen kanssa tehdyt projektit, joissa on tehty benchmarking-menetelmä glaukooman hoitoon. Tässä on syntynyt myös kaksi tieteellistä artikkelia: - Users of reimbursed glaucoma medications in Finland in 1986–2023: A nationwide study - Prototype master protocol for benchmarking of real-world follow-up data in glaucoma\nOlen antanyt myös yksityisopetusta matematiikan ja tilastotieteen aloilla ammattikorkeakoulu- ja yliopisto-opiskeljoille.\nSuoritin tänä aikana myös mainitsemani kyberturvallisuusinsinöörin tutkinnon johon liittyen tein opinnäytetyön, joka liittyi avoimien lähteiden tiedusteluun (OSINT).\nTulevaisuuden tavoitteni on siirtyä täyspäiväiseksi yrittäjäksi data-analytiikan alalla.\nJos sinulla on kiinnostusta projektiin, älä epäröi ottaa yhteyttä kristian.vepsalainen@proton.me"
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#mitä-tutkimus-mittaa",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#mitä-tutkimus-mittaa",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Mitä tutkimus mittaa",
+    "text": "Mitä tutkimus mittaa\nTutkimus ei mittaa hetkellistä tunnetta.\nSe mittaa elämäntyytyväisyyttä asteikolla 0–10.\nKyse on kokonaisarviosta:\n\nelinolosuhteista\n\nturvallisuudesta\n\nterveydestä\n\nmahdollisuuksista\n\nTämä tekee mittarista ajassa melko vakaan.\nSe ei reagoi yhtä herkästi yksittäisiin tapahtumiin kuin mielialamittarit."
   },
   {
-    "objectID": "index.html",
-    "href": "index.html",
-    "title": "Kristian Vepsäläinen - Maailma on jakauma",
-    "section": "",
-    "text": "Datatiede ja tilastollinen mallinnus\nRakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi.\n\n\nSuurin osa organisaatioista käyttää dataa raportointiin.\nMinä rakennan malleja, joilla tehdään päätöksiä.\nErikoistun ennustemallinnukseen, kausaalianalyysiin ja päätöksenteon kvantifiointiin.\n\n\n\nAutan organisaatioita:\n\nEnnustamaan kysyntää, myyntiä ja käyttäytymistä\nMittaamaan interventioiden todellisia kausaalivaikutuksia\nKvantifioimaan epävarmuutta päätöksenteossa\nRakentamaan toistettavia ja läpinäkyviä analyysiprosesseja\n\nTyöskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia.\n\n\n\n\nDatatiede ei ole algoritmien valintaa.\nSe on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.\nTilastollinen mallinnus on väline – ei itseisarvo.\n\n\n\n\n\n\n\nLienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\n\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\n\n\nSuuret kielimallit\nChatGPT\nClaude\nTekoälyagentit\nn8n automaatiot\n\n\n\n\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\n\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus\n\n\n\n\n\n\nBlogissani käsittelen:\n\nAjankohtaisia ja minua kiinnostavia aiheita eri sektoreilta data-analyysin keinoin\nMallinnuksen käytännön ongelmia\nKausaalipäättelyn sudenkuoppia\nEnnustamisen rajoja\nData-analytiikan roolia strategiassa\n\n→ Siirry blogiin\n\n\n\n\nYhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#mistä-data-tulee",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#mistä-data-tulee",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Mistä data tulee",
+    "text": "Mistä data tulee\nAineisto perustuu kansainväliseen kyselyyn, jossa:\n\notos on noin 1000 henkilöä per maa\n\notanta on satunnainen\n\nkohdejoukko on yli 15-vuotiaat\n\nSuomen väestö (15+) on noin 4,7 miljoonaa.\nTästä poimitaan edustava otos.\nKeskeinen kysymys kuuluu:\n\nRiittääkö tämä?"
   },
   {
-    "objectID": "index.html#mitä-tämä-tarkoittaa-käytännössä",
-    "href": "index.html#mitä-tämä-tarkoittaa-käytännössä",
-    "title": "Kristian Vepsäläinen - Maailma on jakauma",
-    "section": "",
-    "text": "Autan organisaatioita:\n\nEnnustamaan kysyntää, myyntiä ja käyttäytymistä\nMittaamaan interventioiden todellisia kausaalivaikutuksia\nKvantifioimaan epävarmuutta päätöksenteossa\nRakentamaan toistettavia ja läpinäkyviä analyysiprosesseja\n\nTyöskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia."
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#miksi-otanta-riittää",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#miksi-otanta-riittää",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Miksi otanta riittää",
+    "text": "Miksi otanta riittää\nTilastollinen päättely perustuu siihen, että satunnainen otos edustaa populaatiota.\nVirhemarginaali voidaan approksimoida:\n\\(\\pm 1.96 \\cdot \\sqrt{\\frac{p(1-p)}{n}}\\)\nKun \\(n = 1000\\), virhe on tyypillisesti noin ±3 prosenttiyksikköä.\nPopulaation koko ei juuri vaikuta tähän.\nRatkaisevaa on otoksen koko."
   },
   {
-    "objectID": "index.html#ajatteluni-ydin",
-    "href": "index.html#ajatteluni-ydin",
-    "title": "Kristian Vepsäläinen - Maailma on jakauma",
-    "section": "",
-    "text": "Datatiede ei ole algoritmien valintaa.\nSe on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.\nTilastollinen mallinnus on väline – ei itseisarvo."
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#simulaatio-kuinka-hyvin-otos-toimii",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#simulaatio-kuinka-hyvin-otos-toimii",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Simulaatio: kuinka hyvin otos toimii",
+    "text": "Simulaatio: kuinka hyvin otos toimii\nSimuloidaan tilanne, jossa:\n\npopulaation koko: 4 700 000 (Suomen yli 15-vuotiaat)\n\ntodellinen keskiarvo: 7.5\n\nhajonta: 1.2\n\nPoimitaan toistuvasti 1000 hengen otoksia ja tarkastellaan, miten hyvin ne osuvat oikeaan keskiarvoon."
   },
   {
-    "objectID": "index.html#ydinkyvykkyydet",
-    "href": "index.html#ydinkyvykkyydet",
-    "title": "Kristian Vepsäläinen - Maailma on jakauma",
-    "section": "",
-    "text": "Lienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\n\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\n\n\nSuuret kielimallit\nChatGPT\nClaude\nTekoälyagentit\nn8n automaatiot\n\n\n\n\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\n\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus"
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#tulkinta",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#tulkinta",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Tulkinta",
+    "text": "Tulkinta\nKeskiarvoksi saadaan 7.500014 ja keskiharjonnaksi 0.0375414. Otosten keskiarvot keskittyvät tiukasti todellisen arvon ympärille. Vaihtelu on pientä.\nTämä on keskeinen syy siihen, miksi 1000 havaintoa riittää.\nKyse on todennäköisyyslaskennasta."
   },
   {
-    "objectID": "index.html#kirjoitan-ja-analysoin",
-    "href": "index.html#kirjoitan-ja-analysoin",
-    "title": "Kristian Vepsäläinen - Maailma on jakauma",
-    "section": "",
-    "text": "Blogissani käsittelen:\n\nAjankohtaisia ja minua kiinnostavia aiheita eri sektoreilta data-analyysin keinoin\nMallinnuksen käytännön ongelmia\nKausaalipäättelyn sudenkuoppia\nEnnustamisen rajoja\nData-analytiikan roolia strategiassa\n\n→ Siirry blogiin"
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#todennäköisyys-päästä-mukaan-tutkimukseen-ei-ole-yksi-luku",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#todennäköisyys-päästä-mukaan-tutkimukseen-ei-ole-yksi-luku",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Todennäköisyys päästä mukaan tutkimukseen ei ole yksi luku",
+    "text": "Todennäköisyys päästä mukaan tutkimukseen ei ole yksi luku\nTodennäköisyys riippuu siitä, kuinka monta vuotta henkilöllä on jäljellä.\nSiksi kyse ei ole yhdestä luvusta, vaan jakaumasta. Tehdään siis asiasta mallinnus."
   },
   {
-    "objectID": "index.html#yhteystiedot",
-    "href": "index.html#yhteystiedot",
-    "title": "Kristian Vepsäläinen - Maailma on jakauma",
-    "section": "",
-    "text": "Yhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#mallinnus-eri-ikäiset-suomalaiset",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#mallinnus-eri-ikäiset-suomalaiset",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Mallinnus: eri-ikäiset suomalaiset",
+    "text": "Mallinnus: eri-ikäiset suomalaiset\nOletetaan:\n\nkohdejoukko: yli 15-vuotiaat suomalaiset\n\nväestö: 4 700 000\n\notos: 1000 henkilöä vuodessa\n\nYhden vuoden valintatodennäköisyys:\n\\(p = \\frac{1000}{4\\,700\\,000}\\)\nTodennäköisyys tulla valituksi ainakin kerran riippuu jäljellä olevista vuosista \\(T\\):\n\\(1 - (1 - p)^T\\)"
   },
   {
-    "objectID": "posts/Mieto-ja-parta.html",
-    "href": "posts/Mieto-ja-parta.html",
-    "title": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?",
-    "section": "",
-    "text": "Facebookin “Rakastan matematiikkaa”-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.\nTuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.\nOletin myös todelliset väliajat (https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan.\n\n\n\n\n\n\n\n\n\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#simulaatio-jakauma-eri-ikäisille",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#simulaatio-jakauma-eri-ikäisille",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Simulaatio: jakauma eri ikäisille",
+    "text": "Simulaatio: jakauma eri ikäisille\nSimuloidaan yksinkertainen väestö:\n\nikä välillä 15–90\n\njokaiselle lasketaan jäljellä olevat vuodet (oletetaan maksimi-ikä 90)\n\n\n\n    Min.  1st Qu.   Median     Mean  3rd Qu.     Max. \n0.000000 0.004035 0.007842 0.007947 0.012056 0.015832"
+  },
+  {
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#jakauma",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#jakauma",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Jakauma",
+    "text": "Jakauma"
+  },
+  {
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#mitä-tulos-kertoo-suomesta",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#mitä-tulos-kertoo-suomesta",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Mitä tulos kertoo Suomesta?",
+    "text": "Mitä tulos kertoo Suomesta?\nSuomen korkea sijoitus liittyy rakenteellisiin tekijöihin:\n*korkea luottamus yhteiskuntaan\n*toimivat instituutiot\n*sosiaalinen turva\n*suhteellisen tasainen tulonjako\nKeskeinen havainto:\nSuomi ei ole äärimmäisen onnellinen yksilötasolla, vaan tasaisen hyvinvoiva populaatiotasolla.\nToisin sanoen jakauma on kapea."
+  },
+  {
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#mitä-tulos-ei-kerro",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#mitä-tulos-ei-kerro",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Mitä tulos ei kerro",
+    "text": "Mitä tulos ei kerro\nTutkimus ei implikoi, että:\n*kaikki suomalaiset ovat onnellisia\n*ongelmia ei ole\n*yksilön kokemus olisi väärä\nPopulaatiotason keskiarvo ja yksilön kokemus voivat poiketa toisistaan ilman ristiriitaa."
+  },
+  {
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#menetelmän-rajoitteet",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#menetelmän-rajoitteet",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Menetelmän rajoitteet",
+    "text": "Menetelmän rajoitteet\nAnalyysi perustuu regressiomalleihin, joissa selittäjinä ovat mm.:\n*tulotaso\n*terveys\n*sosiaalinen tuki\nRajoitteet:\n*Lineaarisuus on yksinkertaistus\n*Kulttuurierot vastaustavoissa voivat vaikuttaa\n*Subjektiivinen mittari ei ole objektiivinen hyvinvointi\nTästä huolimatta malli selittää suuren osan vaihtelusta maiden välillä."
+  },
+  {
+    "objectID": "posts/2026-03-19-Maailman-onnellisin-maa.html#yhteenveto",
+    "href": "posts/2026-03-19-Maailman-onnellisin-maa.html#yhteenveto",
+    "title": "Miksi Suomi on maailman onnellisin – tilastollinen selitys",
+    "section": "Yhteenveto",
+    "text": "Yhteenveto\nKeskeiset johtopäätökset:\n*Otanta ei vaadi kaikkien vastaamista\n*1000 havaintoa riittää populaatiotason arvioon\n*Yksittäinen kokemus ei kumoa keskiarvoa\n*Suomi sijoittuu kärkeen rakenteellisten tekijöiden vuoksi\nTilastotiede ei kuvaa yksilöä. Se kuvaa jakaumaa.\nJuuri siksi se toimii. Tätä on tilastotiede.\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
   },
   {
     "objectID": "posts/2026-03-11-Osa2-inflaatio.html",
@@ -301,10 +280,136 @@
     "text": "Ennustetarkkuus\nEnnustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:\n\nRMSE (Root Mean Squared Error)\nMAE (Mean Absolute Error)\n\n\n\n# A tibble: 2 × 10\n  .model .type      ME  RMSE   MAE    MPE  MAPE  MASE RMSSE  ACF1\n  &lt;chr&gt;  &lt;chr&gt;   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;\n1 ARIMA  Test   0.254   1.42 0.912   7.72  174. 0.694 0.729 0.888\n2 RW     Test  -0.0232  1.57 1.00  -11.5   121. 0.761 0.809 0.888\n\n\nTulokset kertovat, kumpi baseline-malli tuottaa tarkempia ennusteita historiallisessa datassa.\nMakrotaloudessa ei ole harvinaista, että random walk toimii lähes yhtä hyvin kuin monimutkaisemmat mallit.\nJos näin tapahtuu, se kertoo paljon itse ilmiön ennustettavuudesta.\nBaseline-mallit ovat tärkeä askel analyysissä, koska ne määrittävät vähimmäistason, jonka monimutkaisempien mallien tulee ylittää.\nJos kehittyneempi malli ei paranna ennustetarkkuutta, sen lisäämä monimutkaisuus ei ole perusteltua.\nOsa3: Bayeslainen malli\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
   },
   {
+    "objectID": "posts/Mieto-ja-parta.html",
+    "href": "posts/Mieto-ja-parta.html",
+    "title": "Hävisikö Juha Mieto Thomas Wassbergille parran takia?",
+    "section": "",
+    "text": "Facebookin “Rakastan matematiikkaa”-ryhmässä esitettiin kysymys, joka sai minut kiinnostumaan. Siinä pohdittiin vuoden 1980 Lake Placidin talviolympialaisten miesten 15 kilometrin hiihtoa ja sitä, aiheuttiko Miedon parta niin paljon ilmanvastusta, että se aiheutti häviön. Koska tämä kysymys yhdistää kaksi mielenkiinnon kohdettani eli datatieteen ja urheilun, päätin ottaa asiasta selvää.\nTuo kilpailu pidettiin Mt Van Hoevenberg-nimisessä maastossa. Siellä hiihdetään yhä ja alueella on kymmeniä kilometrejä latuja. Mistään julkisesta lähteestä en löytänyt tarkkaa olympialaisten rataprofiilia, joten heitin nykylatujen perusteella hatusta, että silloin oli 40 %:a nousua, 30 %:a tasamaata ja 30 %:a laskua. Myöskään tarkkaa säätilaa ei selvinnyt lähteistä, joten oletin alueen nykyisen ilmanpaineen sekä tyynen sään.\nOletin myös todelliset väliajat (https://web.archive.org/web/20200417181613/https://www.sports-reference.com/olympics/winter/1980/CCS/mens-15-kilometres.html) ja jaoin tarkastelun niiden mukaan. Oletin myös, että ilmanvastus ei ole vakio kokoajan vaan vaihtelee satunnaisesti eri osissa kilpailua. Simuloimalla 100 000 hiihtosuoritusta, sain aikaiseksi oheisen kuvaajan, josta näkee, että lähes varmasti siloposkinen Mieto olisi voittanut olympiakullan.\n\n\n\n\n\n\n\n\n\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Kristian Vepsäläinen - Maailma on jakauma",
+    "section": "",
+    "text": "Datatiede ja tilastollinen mallinnus\nRakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi.\n\n\nSuurin osa organisaatioista käyttää dataa raportointiin.\nMinä rakennan malleja, joilla tehdään päätöksiä.\nErikoistun ennustemallinnukseen, kausaalianalyysiin ja päätöksenteon kvantifiointiin.\n\n\n\nAutan organisaatioita:\n\nEnnustamaan kysyntää, myyntiä ja käyttäytymistä\nMittaamaan interventioiden todellisia kausaalivaikutuksia\nKvantifioimaan epävarmuutta päätöksenteossa\nRakentamaan toistettavia ja läpinäkyviä analyysiprosesseja\n\nTyöskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia.\n\n\n\n\nDatatiede ei ole algoritmien valintaa.\nSe on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.\nTilastollinen mallinnus on väline – ei itseisarvo.\n\n\n\n\n\n\n\nLienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\n\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\n\n\nSuuret kielimallit\nChatGPT\nClaude\nTekoälyagentit\nn8n automaatiot\n\n\n\n\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\n\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus\n\n\n\n\n\n\nBlogissani käsittelen:\n\nAjankohtaisia ja minua kiinnostavia aiheita eri sektoreilta data-analyysin keinoin\nMallinnuksen käytännön ongelmia\nKausaalipäättelyn sudenkuoppia\nEnnustamisen rajoja\nData-analytiikan roolia strategiassa\n\n→ Siirry blogiin\n\n\n\n\nYhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
+  },
+  {
+    "objectID": "index.html#mitä-tämä-tarkoittaa-käytännössä",
+    "href": "index.html#mitä-tämä-tarkoittaa-käytännössä",
+    "title": "Kristian Vepsäläinen - Maailma on jakauma",
+    "section": "",
+    "text": "Autan organisaatioita:\n\nEnnustamaan kysyntää, myyntiä ja käyttäytymistä\nMittaamaan interventioiden todellisia kausaalivaikutuksia\nKvantifioimaan epävarmuutta päätöksenteossa\nRakentamaan toistettavia ja läpinäkyviä analyysiprosesseja\n\nTyöskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia."
+  },
+  {
+    "objectID": "index.html#ajatteluni-ydin",
+    "href": "index.html#ajatteluni-ydin",
+    "title": "Kristian Vepsäläinen - Maailma on jakauma",
+    "section": "",
+    "text": "Datatiede ei ole algoritmien valintaa.\nSe on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.\nTilastollinen mallinnus on väline – ei itseisarvo."
+  },
+  {
+    "objectID": "index.html#ydinkyvykkyydet",
+    "href": "index.html#ydinkyvykkyydet",
+    "title": "Kristian Vepsäläinen - Maailma on jakauma",
+    "section": "",
+    "text": "Lienaariset ja yleiset lienaariset mallit\nHierarkiset mallit\nBayeslainen tilastotiede\n\n\n\n\n\nOhjattu ja ohjaamton oppminen\n\nNeuroverkot\nGradient boosting\nPäätöspuuut\n\nFeature engineering\n\nCross-validation frameworks\nMallien diagnostiikka ja validointi\n\n\n\n\n\nSuuret kielimallit\nChatGPT\nClaude\nTekoälyagentit\nn8n automaatiot\n\n\n\n\n\nSQL\n\nAutomated data pipelines\n\nVersionhallinta (Git)\n\nQuarto-Pohjainen raportointi\nPython\nR\nPowerBI\n\n\n\n\n\nVaativa raportointi\nDatan visualisointi\nTulosten viestintä työntekijöille, asiakkaille ja muille tahoille\nKaikkien edellä mainittujen asioiden koulutus"
+  },
+  {
+    "objectID": "index.html#kirjoitan-ja-analysoin",
+    "href": "index.html#kirjoitan-ja-analysoin",
+    "title": "Kristian Vepsäläinen - Maailma on jakauma",
+    "section": "",
+    "text": "Blogissani käsittelen:\n\nAjankohtaisia ja minua kiinnostavia aiheita eri sektoreilta data-analyysin keinoin\nMallinnuksen käytännön ongelmia\nKausaalipäättelyn sudenkuoppia\nEnnustamisen rajoja\nData-analytiikan roolia strategiassa\n\n→ Siirry blogiin"
+  },
+  {
+    "objectID": "index.html#yhteystiedot",
+    "href": "index.html#yhteystiedot",
+    "title": "Kristian Vepsäläinen - Maailma on jakauma",
+    "section": "",
+    "text": "Yhteydenotot: kristian.vepsalainen@proton.me\nAvoin keskusteluille, projekteille ja yhteistyölle."
+  },
+  {
+    "objectID": "about.html",
+    "href": "about.html",
+    "title": "Minusta",
+    "section": "",
+    "text": "Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella.\nJos ihmettelet sloganiani, “Maailma on jakauma”, se kuvastaa filosofiaani, jonka mukaan mikä tahansa asia maailmassa on kuvattavissa jollain jakaumalla. Yleensä kuitenkin ihmiset näkevät ilmöistä lähinnä keskiarvoja ja ehkä mediaaneja, mutta vasta jakauma antaa todenmukaisen kuvan siitä, mistä asiassa on oikeasti kyse (ja mistä ei ole). Juuri nämä jakaumat ovat olennaisia todellisuuden ymmärtämisessä. Valitettavasti niitä raportoidaan julkisesti harvoin. Suurin osa maailman avoimesta datasta on piste-estimaatteja, eivät jakaumia. Yksi elämäni missioista on saada tähän muutos ja avoimesta datasta hyödyllisempää jokaiselle.\nOlen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta. Graudni tein liittyen kansantalouden tilinpitoon ja julkaisin siitä artikkelin.\nTyöurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finassialalla.\nAloitin työurani jo opiskeluaikana tekemällä matematiikan, fysiikan ja kemian opettajan sijaisuuksia ympäri Itä-Suomea. Tämän jälkeen siirryin Uudellemaalle työskentelemään Sosiaalitaito Oy:llä, jossa tein monipuolista analytiikkaa liittyen Länsi- ja Keski-Uudenmaan sosiaalihuoltoon. Julkaisin tänä aikana myös toisen tieteellisen artikkelini.\nSeuraavaksi siirryin Terveyden ja hyvinvoinnin laitokselle eli THL:lle töihin. THL:llä toimin lukuisissa eri projekteissa datatieteilijänä. Projekteista osa oli talon sisäisiä ja osa oli ulkoisten toimijoiden (sekä yksityisiä yrityksiä että muita valtionhallinnon toimoijta) kanssa yhteistyöprojekteja. Näistä projekteista syntyi myös seuraavat tieteelliset artikkelit\n\nPredicting utilization of healthcare services from individual disease trajectories using RNNs with multi-headed attention\nAssessing health gradient with different equivalence scales for household income – A sensitivity analysis\nImpact of a Conformité Européenne (CE) Certification–Marked Medical Software Sensor on COVID-19 Pandemic Progression Prediction: Register-Based Study Using Machine Learning Methods\n\nsekä konferenssiesitys Assessing the Quality of Finnish Primary Health Care Registers, jonka pidin konferenssissa 9th Nordic Conference of Epidemiology and Register-Based Health Research Tampereen yliopistolla vuonna 2019.\nTHL:tä siirryin finanssialalle data-analyytikoksi. Finanssialan kokemukseni liittyy pääasiassa erilaisten compliance-kysymysten analytiikkaan. Samaan aikaan perustin toiminimen, jolla olen tehnyt erilaisia sivuprojekteja.Näistä sivuprojekteista pitkäkestoisin on ollut Tampereen yliopistosairaalan Silmätautikeskuksen kanssa tehdyt projektit, joissa on tehty benchmarking-menetelmä glaukooman hoitoon. Tässä on syntynyt myös kaksi tieteellistä artikkelia: - Users of reimbursed glaucoma medications in Finland in 1986–2023: A nationwide study - Prototype master protocol for benchmarking of real-world follow-up data in glaucoma\nOlen antanyt myös yksityisopetusta matematiikan ja tilastotieteen aloilla ammattikorkeakoulu- ja yliopisto-opiskeljoille.\nSuoritin tänä aikana myös mainitsemani kyberturvallisuusinsinöörin tutkinnon johon liittyen tein opinnäytetyön, joka liittyi avoimien lähteiden tiedusteluun (OSINT).\nTulevaisuuden tavoitteni on siirtyä täyspäiväiseksi yrittäjäksi data-analytiikan alalla.\nJos sinulla on kiinnostusta projektiin, älä epäröi ottaa yhteyttä kristian.vepsalainen@proton.me"
+  },
+  {
+    "objectID": "posts/2026-03-04-Osa1-inflaatio.html",
+    "href": "posts/2026-03-04-Osa1-inflaatio.html",
+    "title": "Osa 1 — Inflaatio ei ole luku vaan se on prosessi",
+    "section": "",
+    "text": "Inflaatio on yksi seuratuimmista talousmittareista maailmassa.\nKeskuspankit tekevät siitä ennusteita. Media raportoi siitä kuukausittain. Poliitikot käyttävät sitä argumenttina lähes kaikessa talouspolitiikassa.\nSilti yksi asia jää lähes aina keskustelun ulkopuolelle:\nKuinka hyvin inflaatiota oikeasti pystytään ennustamaan?\nMakrotaloudessa ennusteet esitetään lähes aina yksittäisinä lukuina:\n“Inflaatio on ensi vuonna 2,1 %.”\nMutta todellisuudessa inflaatio ei ole deterministinen luku. Se on stokastinen prosessi, johon vaikuttavat esimerkiksi:\n\nenergiamarkkinat\ngeopoliittiset shokit\nrahapolitiikka\nodotukset\ntalouden rakenteelliset muutokset\n\nSiksi tässä sarjassa lähestyn inflaatiota todennäköisyysjakaumana, en yksittäisenä lukuna.\nAian ennen kuin aloitetaan rakentamaan malleja, tulee ymmärtää data. Tämä ensimmäinen osa keskittyy siihen. Toisessa osassa mennään varsinaisiin malleihin.\nData: Eurostatin HICP-indeksi\nInflaatiota mitataan monella tavalla. Tässä sarjassa käytän HICP-indeksiä (Harmonised Index of Consumer Prices), joka on EU:n harmonisoitu kuluttajahintaindeksi.Datan lähde on Eurostat, jonka datat ovat saatavissa avoimen rajapinnan kautta. Tämä mahdollistaa toistettavan analyysin ja sen päivittämisen myös tulevalla datalla.\nEurostatin taulukoissa on useita indeksiperustoja (esimerkiksi 2005=100 ja 2015=100). Valitsen 2015=100 -indeksin, joka on nykyinen standardi. Samalla rajaan analyysin Suomeen ja kokonaisinflaatioon (COICOP-luokka CP0).\nAikarakenne: kuukausisarja\nMakrodata on lähes aina aikarivimuotoista, joten rakennan analyysin tsibble-rakenteen päälle.\nTässä vaiheessa on tärkeää huomioida yksi yksityiskohta: vaikka päivämäärä näyttää Date-muotoiselta, data on todellisuudessa kuukausisarja. Siksi muutan indeksin eksplisiittisesti kuukausitasolle.\nMuunnos inflaatioksi\nHICP on indeksisarja. Inflaatio lasketaan yleensä vuosimuutoksena, eli kuinka paljon hinnat ovat muuttuneet verrattuna samaan kuukauteen vuotta aiemmin.\nTässä vaiheessa meillä on analyysiin valmis aikarivi:\n\nkuukausidata\nvuosimuutos prosentteina\nyli 25 vuoden historia\n\nSuomen inflaatio 1997–2025\nEnsimmäinen askel on katsoa, miltä inflaatio näyttää pitkällä aikavälillä.\n\n\n\n\n\n\n\n\n\nPitkä aikahistoria paljastaa useita selkeitä jaksoja:\n2000–2007: suhteellisen vakaa inflaatio\n2008–2009: finanssikriisin vaikutus\n2010-luku: matala inflaatio Euroopassa\n2020: pandemian aiheuttama talousshokki\n2022: energiakriisi ja inflaatiopiikki\nErityisesti vuoden 2022 inflaatiohuippu on makrotaloudessa poikkeuksellinen tapahtuma. Tällaiset shokit tekevät ennustamisesta vaikeaa.\nInflaation kausivaihtelu\nVaikka käytän vuosimuutosta, inflaatiossa voi silti esiintyä kausivaihtelua.\nTätä voidaan tarkastella season plot -kuvaajalla.\n\n\n# A tibble: 1 × 2\n  kpss_stat kpss_pvalue\n      &lt;dbl&gt;       &lt;dbl&gt;\n1     0.246         0.1\n\n\nSeason plot näyttää, miten inflaatio käyttäytyy eri kuukausina eri vuosina.\nMakrotaloudessa tämä voi paljastaa esimerkiksi:\n\nenergiahintojen talvikausivaihtelun\nveromuutosten vaikutukset\nkulutuskausien vaikutuksen hintatasoon\n\nSamalla voidaan nähdä, kuinka poikkeuksellinen vuosi 2022 oli suhteessa aikaisempaan historiaan.\n\n\n\n\n\n\n\n\n\nInflaation volatiliteetti\nInflaation keskiarvo kertoo vain osan tarinaa. Yhtä tärkeää on ymmärtää volatiliteetti, eli kuinka paljon inflaatio vaihtelee.\nTarkastellaan 12 kuukauden liukuvaa keskihajontaa.\n\n\n\n\n\n\n\n\n\nTuloksesta näkyy selvästi, että inflaation volatiliteetti ei ole vakio.\nErityisesti vuoden 2022 jälkeen volatiliteetti kasvaa selvästi.\nTämä on tärkeä havainto mallinnuksen kannalta.\nMonet perinteiset aikarivimallit olettavat vakion volatiliteetin, mikä voi johtaa liian optimistisiin ennusteisiin kriisiaikoina.\nBayesilainen lähestymistapa mahdollistaa epävarmuuden eksplisiittisen mallintamisen.\nMitä “hyvä ennuste” tarkoittaa?\nEnnen kuin rakennan yhtään mallia, täytyy määritellä arviointikriteerit.\nHyvä ennuste ei ole vain tarkka piste-ennuste.\nHyvä ennuste on myös:\n\nkalibroitu (todennäköisyydet vastaavat toteumaa)\nrealistinen epävarmuuden suhteen\nrobusti talousshokeille\n\nSiksi tässä sarjassa käytetään arviointiin proper scoring ruleja, kuten CRPS- ja log score -mittareita.\nNe arvioivat koko ennustejakaumaa, eivät vain yhtä pistettä.\nSeuraavassa osassa rakennetaan ensimmäiset ennustemallit. Analyysi aloitetaan tarkoituksella yksinkertaisista baseline-malleista:\nrandom walk\nARIMA\nMakrotaloudessa nämä mallit toimivat usein yllättävän vahvoina vertailukohtina.\nVasta tämän jälkeen rakennetaan bayesilainen aikarivimalli brms-paketilla, jonka avulla inflaation ennusteet voidaan esittää täysinä todennäköisyysjakaumina.\nKeskeinen kysymys pysyy samana:\nKuinka hyvin inflaatiota on ylipäätään mahdollista ennustaa?\nSe selviää sarjan seuraavissa osissa.\nOsa2: mallit\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "",
+    "text": "Osa2: mallit"
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#inflaatio-ei-ole-piste-ennuste",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#inflaatio-ei-ole-piste-ennuste",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Inflaatio ei ole piste-ennuste",
+    "text": "Inflaatio ei ole piste-ennuste\nEdellisessä osassa rakennettiin kaksi baseline-mallia: random walk ja ARIMA. Näiden avulla osoitettiin, että inflaation ennustaminen on yllättävän vaikeaa.\nTämä johtaa keskeiseen ongelmaan:\nPiste-ennuste ei kerro riittävästi.\nKun inflaatiosta esitetään arvio kuten\n“Inflaatio on ensi vuonna 2,1 %”\njätetään kertomatta olennaisin osa:\n\nKuinka epävarma ennuste on?\n\nKuinka leveä jakauma on?\n\nKuinka todennäköisiä äärimmäiset skenaariot ovat?\n\nMakrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.\nTässä osassa inflaatiota mallinnetaan todennäköisyysjakaumana, ei yksittäisenä lukuna."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#miksi-bayesilainen-malli",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#miksi-bayesilainen-malli",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Miksi bayesilainen malli?",
+    "text": "Miksi bayesilainen malli?\nBayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.\nSen sijaan, että estimoitaisiin yksi “paras” parametriarvo, estimoidaan parametrien jakauma. Tämä johtaa luonnollisesti ennustejakaumaan.\nTämä on erityisen tärkeää makrotaloudessa, jossa:\n\nprosessit eivät ole stabiileja\n\nshokit ovat yleisiä\n\nepävarmuus muuttuu ajan myötä\n\nMallinnus toteutetaan paketilla :contentReferenceoaicite:0, joka perustuu Stanin MCMC-estimointiin."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#mallin-rakenne",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#mallin-rakenne",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Mallin rakenne",
+    "text": "Mallin rakenne\nInflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:\n\ntrendi\n\nautoregressiivinen rakenne\n\nepävarmuus\n\nMallin perusmuoto on:\n\\(y_t = \\alpha + \\beta_t + \\phi y_{t-1} + \\epsilon_t\\)\nmissä virhetermi mallinnetaan normaalijakaumana.\nBayesilaisessa kehyksessä kaikille parametreille määritellään priorijakaumat.\n## Datan valmistelu\nAikamuuttuja \\(t\\) mahdollistaa trendin mallintamisen. Lag-muuttuja mahdollistaa autoregressiivisen rakenteen."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#mallin-estimointi",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#mallin-estimointi",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Mallin estimointi",
+    "text": "Mallin estimointi\nMallin estimointi\nMallissa:\ntrendi \\((t)\\) captureoi pitkän aikavälin kehitystä\nlag-term \\((lag1)\\) captureoi inertiaa\n\\(\\sigma\\) kuvaa epävarmuutta"
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#posteriorijakauma",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#posteriorijakauma",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Posteriorijakauma",
+    "text": "Posteriorijakauma\n\n\n Family: gaussian \n  Links: mu = identity \nFormula: inflation_yoy ~ t + lag1 \n   Data: df (Number of observations: 347) \n  Draws: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;\n         total post-warmup draws = 4000\n\nRegression Coefficients:\n          Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS\nIntercept     0.05      0.10    -0.15     0.25 1.00     3864     3009\nt             0.00      0.00    -0.00     0.00 1.00     3898     3088\nlag1          0.97      0.01     0.95     1.00 1.00     2496     2177\n\nFurther Distributional Parameters:\n      Estimate Est.Error l-95% CI u-95% CI Rhat Bulk_ESS Tail_ESS\nsigma     0.38      0.01     0.35     0.41 1.00     2465     2144\n\nDraws were sampled using sampling(NUTS). For each parameter, Bulk_ESS\nand Tail_ESS are effective sample size measures, and Rhat is the potential\nscale reduction factor on split chains (at convergence, Rhat = 1).\n\n\nBayesilaisen mallin tuloksena ei saada yksittäisiä parametreja, vaan posteriorijakauma jokaiselle parametrille.\nTämä tarkoittaa, että mallin epävarmuus on eksplisiittisesti mukana analyysissä."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#ennustejakauma",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#ennustejakauma",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Ennustejakauma",
+    "text": "Ennustejakauma\nBayesilainen malli tuottaa jokaiselle ajankohdalle ennustejakauman, ei pelkkää pistettä."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#ennusteen-visualisointi",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#ennusteen-visualisointi",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Ennusteen visualisointi",
+    "text": "Ennusteen visualisointi\n\n\n\n\n\n\n\n\n\nKuvassa:\n\nmusta viiva = toteutunut inflaatio\nsininen viiva = odotusarvo\nvarjostus = epävarmuus\n\nTämä on keskeinen ero perinteisiin malleihin.\nInflaatio esitetään nyt jakaumana."
+  },
+  {
+    "objectID": "posts/2026-03-18-Osa3-inflaatio.html#seuraavaksi",
+    "href": "posts/2026-03-18-Osa3-inflaatio.html#seuraavaksi",
+    "title": "Inflaatio ei ole luku – se on prosessi",
+    "section": "Seuraavaksi",
+    "text": "Seuraavaksi\nSeuraavassa osassa siirrytään arviointiin.\nBayesilaisen mallin ennusteita verrataan baseline-malleihin käyttäen: * CRPS\n\nlog score\nkalibraatiokäyriä\nKeskeinen kysymys on edelleen sama:\n\nOnko bayesilainen malli oikeasti parempi – vai vain monimutkaisempi?\nKaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi."
+  },
+  {
     "objectID": "blog.html",
     "href": "blog.html",
     "title": "Blogi",
     "section": "",
-    "text": "Inflaatio ei ole luku – se on prosessi\n\n\nOsa 3: Bayesilainen malli ja epävarmuus\n\n\nSuomen inflaation ennustaminen bayeslaisella mallilla\n\n\n\n\n\nMar 17, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nOsa 2: Kuinka vaikeaa inflaation ennustaminen on?\n\n\n\n\n\nSuomen inflaation kuvailua\n\n\n\n\n\nMar 11, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nOsa 1 — Inflaatio ei ole luku vaan se on prosessi\n\n\n\n\n\nSuomen inflaation kuvailua\n\n\n\n\n\nMar 4, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nHävisikö Juha Mieto Thomas Wassbergille parran takia?\n\n\n\n\n\n\n\n\n\n\n\nMar 1, 2026\n\n\n\n\n\nNo matching items"
+    "text": "Miksi Suomi on maailman onnellisin – tilastollinen selitys\n\n\n\n\n\nMaailman onnellisin valtio-tutkimuksen läpikäyntiä\n\n\n\n\n\nMar 19, 2026\n\n\nKristian Vepsäläinen\n\n\n\n\n\n\n\n\n\n\n\n\nInflaatio ei ole luku – se on prosessi\n\n\nOsa 3: Bayesilainen malli ja epävarmuus\n\n\nSuomen inflaation ennustaminen bayeslaisella mallilla\n\n\n\n\n\nMar 17, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nOsa 2: Kuinka vaikeaa inflaation ennustaminen on?\n\n\n\n\n\nSuomen inflaation kuvailua\n\n\n\n\n\nMar 11, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nOsa 1 — Inflaatio ei ole luku vaan se on prosessi\n\n\n\n\n\nSuomen inflaation kuvailua\n\n\n\n\n\nMar 4, 2026\n\n\n\n\n\n\n\n\n\n\n\n\nHävisikö Juha Mieto Thomas Wassbergille parran takia?\n\n\n\n\n\n\n\n\n\n\n\nMar 1, 2026\n\n\n\n\n\nNo matching items"
   }
 ]

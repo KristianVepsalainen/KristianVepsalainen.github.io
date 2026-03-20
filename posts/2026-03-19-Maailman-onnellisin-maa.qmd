@@ -1,5 +1,5 @@
 ---
-title: "Miksi Suomi on maailman onnellisin – tilastollinen selitys ilman väärinkäsityksiä"
+title: "Miksi Suomi on maailman onnellisin – tilastollinen selitys"
 author: "Kristian Vepsäläinen"
 date: 2026-03-19
 description: "Maailman onnellisin valtio-tutkimuksen läpikäyntiä"
@@ -101,15 +101,12 @@ population <- rnorm(N, mean = true_mean, sd = true_sd)
 sample_means <- replicate(1000, {
   mean(sample(population, 1000))
 })
-
-# tarkastellaan tuloksia
-mean(sample_means)
-sd(sample_means)
-
 ```
+
 
 ## Tulkinta
 
+Keskiarvoksi saadaan `r mean(sample_means)` ja keskiharjonnaksi `r sd(sample_means)`.
 Otosten keskiarvot keskittyvät tiukasti todellisen arvon ympärille.
 Vaihtelu on pientä.
 
@@ -119,17 +116,9 @@ Kyse on todennäköisyyslaskennasta.
 
 ## Todennäköisyys päästä mukaan tutkimukseen ei ole yksi luku
 
-Aiempi laskelma antoi arvion noin 1–1.3 %.  
-Se pätee tilanteeseen, jossa henkilöllä on pitkä aikahorisontti edessä.
-
-Tämä ei kuitenkaan ole koko totuus.
-
 Todennäköisyys riippuu siitä, kuinka monta vuotta henkilöllä on jäljellä.  
-Siksi kyse ei ole yhdestä luvusta, vaan jakaumasta.
+Siksi kyse ei ole yhdestä luvusta, vaan jakaumasta. Tehdään siis asiasta mallinnus.
 
-> Maailma on jakauma.
-
----
 
 ## Mallinnus: eri-ikäiset suomalaiset
 
@@ -171,7 +160,7 @@ prob <- 1 - (1 - p)^remaining_years
 summary(prob)
 ```
 
-#Jakauma
+## Jakauma
 
 ```{r}
 hist(prob, breaks = 50)

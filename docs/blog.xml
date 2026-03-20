@@ -10,7 +10,193 @@
 <atom:link href="https://kristianvepsalainen.com/blog.xml" rel="self" type="application/rss+xml"/>
 <description></description>
 <generator>quarto-1.8.27</generator>
-<lastBuildDate>Mon, 16 Mar 2026 22:00:00 GMT</lastBuildDate>
+<lastBuildDate>Wed, 18 Mar 2026 22:00:00 GMT</lastBuildDate>
+<item>
+  <title>Miksi Suomi on maailman onnellisin – tilastollinen selitys</title>
+  <dc:creator>Kristian Vepsäläinen</dc:creator>
+  <link>https://kristianvepsalainen.com/posts/2026-03-19-Maailman-onnellisin-maa.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<section id="johdanto" class="level2">
+<h2 class="anchored" data-anchor-id="johdanto">Johdanto</h2>
+<p>World Happiness Report nostaa Suomen toistuvasti maailman kärkeen.<br>
+Keskustelu kääntyy nopeasti siihen, miksi tulos ei voi pitää paikkaansa.</p>
+<p>Yleisimmät perustelut ovat:</p>
+<ul>
+<li>“Ei minulta kysytty”</li>
+<li>“Tunnen monia, jotka eivät ole onnellisia”</li>
+<li>“Suomessa on paljon ongelmia”</li>
+</ul>
+<p>Nämä argumentit eivät ole tilastollisesti relevantteja.<br>
+Tässä kirjoituksessa puretaan, mitä tutkimus mittaa, miten se tehdään ja miksi otanta riittää.</p>
+<hr>
+</section>
+<section id="mitä-tutkimus-mittaa" class="level2">
+<h2 class="anchored" data-anchor-id="mitä-tutkimus-mittaa">Mitä tutkimus mittaa</h2>
+<p>Tutkimus ei mittaa hetkellistä tunnetta.<br>
+Se mittaa elämäntyytyväisyyttä asteikolla 0–10.</p>
+<p>Kyse on kokonaisarviosta:</p>
+<ul>
+<li>elinolosuhteista<br>
+</li>
+<li>turvallisuudesta<br>
+</li>
+<li>terveydestä<br>
+</li>
+<li>mahdollisuuksista</li>
+</ul>
+<p>Tämä tekee mittarista ajassa melko vakaan.<br>
+Se ei reagoi yhtä herkästi yksittäisiin tapahtumiin kuin mielialamittarit.</p>
+<hr>
+</section>
+<section id="mistä-data-tulee" class="level2">
+<h2 class="anchored" data-anchor-id="mistä-data-tulee">Mistä data tulee</h2>
+<p>Aineisto perustuu kansainväliseen kyselyyn, jossa:</p>
+<ul>
+<li>otos on noin 1000 henkilöä per maa<br>
+</li>
+<li>otanta on satunnainen<br>
+</li>
+<li>kohdejoukko on yli 15-vuotiaat</li>
+</ul>
+<p>Suomen väestö (15+) on noin 4,7 miljoonaa.<br>
+Tästä poimitaan edustava otos.</p>
+<p>Keskeinen kysymys kuuluu:</p>
+<blockquote class="blockquote">
+<p>Riittääkö tämä?</p>
+</blockquote>
+<hr>
+</section>
+<section id="miksi-otanta-riittää" class="level2">
+<h2 class="anchored" data-anchor-id="miksi-otanta-riittää">Miksi otanta riittää</h2>
+<p>Tilastollinen päättely perustuu siihen, että satunnainen otos edustaa populaatiota.</p>
+<p>Virhemarginaali voidaan approksimoida:</p>
+<p><img src="https://latex.codecogs.com/png.latex?%5Cpm%201.96%20%5Ccdot%20%5Csqrt%7B%5Cfrac%7Bp(1-p)%7D%7Bn%7D%7D"></p>
+<p>Kun <img src="https://latex.codecogs.com/png.latex?n%20=%201000">, virhe on tyypillisesti noin ±3 prosenttiyksikköä.</p>
+<p>Populaation koko ei juuri vaikuta tähän.<br>
+Ratkaisevaa on otoksen koko.</p>
+<hr>
+</section>
+<section id="simulaatio-kuinka-hyvin-otos-toimii" class="level2">
+<h2 class="anchored" data-anchor-id="simulaatio-kuinka-hyvin-otos-toimii">Simulaatio: kuinka hyvin otos toimii</h2>
+<p>Simuloidaan tilanne, jossa:</p>
+<ul>
+<li>populaation koko: 4 700 000 (Suomen yli 15-vuotiaat)<br>
+</li>
+<li>todellinen keskiarvo: 7.5<br>
+</li>
+<li>hajonta: 1.2</li>
+</ul>
+<p>Poimitaan toistuvasti 1000 hengen otoksia ja tarkastellaan, miten hyvin ne osuvat oikeaan keskiarvoon.</p>
+</section>
+<section id="tulkinta" class="level2">
+<h2 class="anchored" data-anchor-id="tulkinta">Tulkinta</h2>
+<p>Keskiarvoksi saadaan 7.500014 ja keskiharjonnaksi 0.0375414. Otosten keskiarvot keskittyvät tiukasti todellisen arvon ympärille. Vaihtelu on pientä.</p>
+<p>Tämä on keskeinen syy siihen, miksi 1000 havaintoa riittää.</p>
+<p>Kyse on todennäköisyyslaskennasta.</p>
+</section>
+<section id="todennäköisyys-päästä-mukaan-tutkimukseen-ei-ole-yksi-luku" class="level2">
+<h2 class="anchored" data-anchor-id="todennäköisyys-päästä-mukaan-tutkimukseen-ei-ole-yksi-luku">Todennäköisyys päästä mukaan tutkimukseen ei ole yksi luku</h2>
+<p>Todennäköisyys riippuu siitä, kuinka monta vuotta henkilöllä on jäljellä.<br>
+Siksi kyse ei ole yhdestä luvusta, vaan jakaumasta. Tehdään siis asiasta mallinnus.</p>
+</section>
+<section id="mallinnus-eri-ikäiset-suomalaiset" class="level2">
+<h2 class="anchored" data-anchor-id="mallinnus-eri-ikäiset-suomalaiset">Mallinnus: eri-ikäiset suomalaiset</h2>
+<p>Oletetaan:</p>
+<ul>
+<li>kohdejoukko: yli 15-vuotiaat suomalaiset<br>
+</li>
+<li>väestö: 4 700 000<br>
+</li>
+<li>otos: 1000 henkilöä vuodessa</li>
+</ul>
+<p>Yhden vuoden valintatodennäköisyys:</p>
+<p><img src="https://latex.codecogs.com/png.latex?p%20=%20%5Cfrac%7B1000%7D%7B4%5C,700%5C,000%7D"></p>
+<p>Todennäköisyys tulla valituksi ainakin kerran riippuu jäljellä olevista vuosista <img src="https://latex.codecogs.com/png.latex?T">:</p>
+<p><img src="https://latex.codecogs.com/png.latex?1%20-%20(1%20-%20p)%5ET"></p>
+<hr>
+</section>
+<section id="simulaatio-jakauma-eri-ikäisille" class="level2">
+<h2 class="anchored" data-anchor-id="simulaatio-jakauma-eri-ikäisille">Simulaatio: jakauma eri ikäisille</h2>
+<p>Simuloidaan yksinkertainen väestö:</p>
+<ul>
+<li>ikä välillä 15–90<br>
+</li>
+<li>jokaiselle lasketaan jäljellä olevat vuodet (oletetaan maksimi-ikä 90)</li>
+</ul>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>    Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+0.000000 0.004035 0.007842 0.007947 0.012056 0.015832 </code></pre>
+</div>
+</div>
+</section>
+<section id="jakauma" class="level2">
+<h2 class="anchored" data-anchor-id="jakauma">Jakauma</h2>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="https://kristianvepsalainen.com/posts/2026-03-19-Maailman-onnellisin-maa_files/figure-html/unnamed-chunk-3-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="mitä-tulos-kertoo-suomesta" class="level2">
+<h2 class="anchored" data-anchor-id="mitä-tulos-kertoo-suomesta">Mitä tulos kertoo Suomesta?</h2>
+<p>Suomen korkea sijoitus liittyy rakenteellisiin tekijöihin:</p>
+<p>*korkea luottamus yhteiskuntaan</p>
+<p>*toimivat instituutiot</p>
+<p>*sosiaalinen turva</p>
+<p>*suhteellisen tasainen tulonjako</p>
+<p>Keskeinen havainto:</p>
+<p>Suomi ei ole äärimmäisen onnellinen yksilötasolla, vaan tasaisen hyvinvoiva populaatiotasolla.</p>
+<p>Toisin sanoen jakauma on kapea.</p>
+</section>
+<section id="mitä-tulos-ei-kerro" class="level2">
+<h2 class="anchored" data-anchor-id="mitä-tulos-ei-kerro">Mitä tulos ei kerro</h2>
+<p>Tutkimus ei implikoi, että:</p>
+<p>*kaikki suomalaiset ovat onnellisia</p>
+<p>*ongelmia ei ole</p>
+<p>*yksilön kokemus olisi väärä</p>
+<p>Populaatiotason keskiarvo ja yksilön kokemus voivat poiketa toisistaan ilman ristiriitaa.</p>
+</section>
+<section id="menetelmän-rajoitteet" class="level2">
+<h2 class="anchored" data-anchor-id="menetelmän-rajoitteet">Menetelmän rajoitteet</h2>
+<p>Analyysi perustuu <em>regressiomalleihin</em>, joissa selittäjinä ovat mm.:</p>
+<p>*tulotaso</p>
+<p>*terveys</p>
+<p>*sosiaalinen tuki</p>
+<p>Rajoitteet:</p>
+<p>*Lineaarisuus on yksinkertaistus</p>
+<p>*Kulttuurierot vastaustavoissa voivat vaikuttaa</p>
+<p>*Subjektiivinen mittari ei ole objektiivinen hyvinvointi</p>
+<p>Tästä huolimatta malli selittää suuren osan vaihtelusta maiden välillä.</p>
+</section>
+<section id="yhteenveto" class="level2">
+<h2 class="anchored" data-anchor-id="yhteenveto">Yhteenveto</h2>
+<p>Keskeiset johtopäätökset:</p>
+<p>*Otanta ei vaadi kaikkien vastaamista</p>
+<p>*1000 havaintoa riittää populaatiotason arvioon</p>
+<p>*Yksittäinen kokemus ei kumoa keskiarvoa</p>
+<p>*Suomi sijoittuu kärkeen rakenteellisten tekijöiden vuoksi</p>
+<p>Tilastotiede ei kuvaa yksilöä. Se kuvaa jakaumaa.</p>
+<p>Juuri siksi se toimii. Tätä on tilastotiede.</p>
+<p>Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.</p>
+
+
+<!-- -->
+
+</section>
+
+ ]]></description>
+  <guid>https://kristianvepsalainen.com/posts/2026-03-19-Maailman-onnellisin-maa.html</guid>
+  <pubDate>Wed, 18 Mar 2026 22:00:00 GMT</pubDate>
+</item>
 <item>
   <title>Inflaatio ei ole luku – se on prosessi</title>
   <link>https://kristianvepsalainen.com/posts/2026-03-18-Osa3-inflaatio.html</link>

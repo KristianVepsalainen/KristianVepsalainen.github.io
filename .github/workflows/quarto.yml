@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write
+      contents: read
       pages: write
       id-token: write
 
@@ -23,23 +23,19 @@ jobs:
       - name: Setup Quarto
         uses: quarto-dev/quarto-actions/setup@v2
 
-      - name: Install R packages
-        run: |
-          Rscript -e 'install.packages(c(
-          "rmarkdown",
-          "tidyverse",
-            "ggplot2",
-            "dplyr",
-            "eurostat",
-            "tsibble",
-            "lubridate",
-            "feasts",
-            "fable",
-            "slider",
-            "brms"))'
+      - name: Install renv
+        run: Rscript -e 'install.packages("renv")'
+
+      - name: Restore packages
+        run: Rscript -e 'renv::restore()'
 
       - name: Render site
         run: quarto render
 
-      - name: Publish to GitHub Pages
-        uses: quarto-dev/quarto-actions/publish@v2
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

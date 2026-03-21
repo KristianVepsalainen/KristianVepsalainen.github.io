@@ -20,7 +20,7 @@ Kuinka hyvin inflaatiota voidaan ennustaa?
 
 Ennen monimutkaisten mallien rakentamista on hyödyllistä aloittaa yksinkertaisista vertailumalleista. Taloustieteessä nämä tunnetaan nimellä baseline models.
 
-Yllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Siksi niitä käytetään usein vertailukohtina monimutkaisemmille menetelmille.
+Yllättävää kyllä, monet hyvin yksinkertaiset mallit toimivat makrotaloudessa varsin kilpailukykyisesti. Tämä johtuu siitä, että useinkaan inflaation ennustaminen ei ole malliongelma, vaan informaatio-ongelma. Kaikkea tarvittavaa informaatiota ei välttämättä ole käytössä. Siksi yksinkertaisia malleja käytetään usein vertailukohtina monimutkaisemmille menetelmille.
 
 Tässä osassa tarkastellaan kahta klassista baseline-mallia:
 
@@ -34,13 +34,15 @@ Näiden avulla voidaan arvioida, kuinka ennustettavaa inflaatio ylipäätään o
 
 Ennustemallien arvioinnissa yksi keskeinen ongelma liittyy siihen, miten data jaetaan mallin estimointiin ja testaamiseen.
 
-Aikarivianalyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.
+Aikasarja-analyysissä tavallinen satunnainen train–test-jako ei ole mahdollinen, koska havaintojen järjestys ajassa on merkityksellinen.
 
 Siksi käytetään **rolling-origin** -arviointia.
 
-Tässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista.
+Tässä lähestymistavassa malli estimoidaan aina menneellä datalla ja ennuste tehdään tulevaisuuteen. Prosessi toistetaan useita kertoja eri ajankohdista. Tämä vastaa realistista ennustamistilannetta.
 
-Tämä vastaa realistista ennustamistilannetta.
+Rolling-origin -menetelmä ei ole vain tekninen yksityiskohta. Se on keskeinen osa uskottavaa ennustearviointia.
+
+Ilman sitä ennustemallien suorituskykyä yliarvioidaan systemaattisesti.
 
 ## Ennustehorisontti
 
@@ -50,7 +52,7 @@ Tämä tarkoittaa, että jokaisessa iteroinnissa ennustetaan inflaatiota vuoden 
 
 ## Random walk -malli
 
-Yksinkertaisin mahdollinen ennustemalli on random walk.
+Yksinkertaisin mahdollinen ennustemalli on random walk. 
 
 Random walk -mallissa oletetaan, että paras ennuste tulevalle arvolle on nykyinen arvo. Toisin sanoen muutokset ovat täysin satunnaisia.
 
@@ -61,6 +63,12 @@ $y_{t+1}=y_t+\epsilon_t$, missä
 $\epsilon_t$ on satunnainen virhetermi.
 
 Vaikka malli on äärimmäisen yksinkertainen, se toimii monissa taloudellisissa aikasarjoissa yllättävän hyvin.
+
+Makrotaloudessa random walk ei ole naiivi malli. Se on vahva baseline.
+
+Jos monimutkaisempi malli ei kykene päihittämään random walkia, se viittaa siihen, että sarjan lyhyen aikavälin dynamiikka on pitkälti satunnainen.
+
+Tämä on yksi keskeisistä syistä, miksi makrotalousennusteet epäonnistuvat.
 
 ## Random walk -mallin estimointi
 
@@ -105,6 +113,11 @@ Random walk -malli tuottaa ennusteen, joka seuraa viimeisintä havaintoa. Ennust
 
 Tämä on tyypillistä stokastisille prosesseille.
 
+Ennusteita tarkasteltaessa huomataan, että mallien erot ovat usein pieniä normaalina aikana.
+
+Erot kasvavat vasta silloin, kun taloudessa tapahtuu poikkeuksellisia muutoksia.
+
+Juuri näissä tilanteissa ennusteilla olisi eniten merkitystä – ja juuri silloin ne ovat epäluotettavimmillaan.
 
 ## ARIMA-malli
 
@@ -135,7 +148,8 @@ Mallin rakennetta voidaan tarkastella seuraavasti.
 
 
 ```{r}
-report(arima_model)
+library(knitr)
+report(arima_model) 
 ```
 
 Automaattinen mallinvalinta valitsee parametrien yhdistelmän, joka minimoi informaatiokriteerin (yleensä AICc).
@@ -158,6 +172,12 @@ arima_forecast |>
 ```
 
 ARIMA-malli reagoi inflaation historialliseen dynamiikkaan. Tämä voi tuottaa realistisempia ennusteita kuin random walk, jos sarjassa on systemaattisia riippuvuuksia.
+
+ARIMA-mallit hyödyntävät sarjan historiallista rakennetta. Tämä toimii hyvin, jos menneisyys on hyvä ennustaja tulevaisuudelle.
+
+Makrotaloudessa tämä oletus rikkoutuu usein.
+
+Rakenteelliset muutokset, kuten finanssikriisi tai energiashokki, muuttavat dynamiikkaa tavalla, jota pelkkä historiallinen data ei pysty ennakoimaan.
 
 ## Rolling-origin -arviointi
 
@@ -255,10 +275,18 @@ Ennustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:
 
 * MAE (Mean Absolute Error)
 ```{r}
-accuracy(cv_forecasts, hicp_yoy)
+accuracy(cv_forecasts, hicp_yoy) 
 ```
 
+Tulokset osoittavat, että yksinkertainen random walk -malli saavuttaa ennustetarkkuuden, joka on lähellä ARIMA-mallia.
 
+Tämä ei ole sattumaa.
+
+Makrotaloudessa suuri osa lyhyen aikavälin vaihtelusta on vaikeasti ennustettavaa. Monimutkaisempi malli ei välttämättä lisää informaatiota, jos data ei sisällä ennustettavaa rakennetta.
+
+Tämä johtaa keskeiseen kysymykseen:
+
+Kuinka suuri osa inflaatiosta on ylipäätään ennustettavissa?
 
 Tulokset kertovat, kumpi baseline-malli tuottaa tarkempia ennusteita historiallisessa datassa.
 

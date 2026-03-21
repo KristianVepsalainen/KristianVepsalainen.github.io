@@ -125,7 +125,12 @@ $\sigma$ kuvaa epävarmuutta
 
 ## Posteriorijakauma
 ```{r}
-summary(model_brms)
+library(modelsummary)
+modelsummary(
+  model_brms,
+  statistic = "conf.int",
+  fmt = 2
+)
 ```
 Bayesilaisen mallin tuloksena ei saada yksittäisiä parametreja, vaan *posteriorijakauma* jokaiselle parametrille.
 

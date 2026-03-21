@@ -3,3 +3,4 @@ brms
 dplyr
 tsibble
 ggplot2
+modelsummary

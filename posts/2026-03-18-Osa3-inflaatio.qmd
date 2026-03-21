@@ -8,7 +8,7 @@ description: "Suomen inflaation ennustaminen bayeslaisella mallilla"
 draft: false
 toc: true
 reading-time: true
-slug: inflaation ennustaminen bayeslaisella mallilla
+slug: inflaation-ennustaminen-bayeslaisella-mallilla
 ---
 
 [Osa2: mallit](/posts/2026-03-11-Osa2-inflaatio)

@@ -191,13 +191,13 @@ df %>%
 
 Suomen korkea sijoitus liittyy rakenteellisiin tekijöihin:
 
-*korkea luottamus yhteiskuntaan
+* korkea luottamus yhteiskuntaan
 
-*toimivat instituutiot
+* toimivat instituutiot
 
-*sosiaalinen turva
+* sosiaalinen turva
 
-*suhteellisen tasainen tulonjako
+* suhteellisen tasainen tulonjako
 
 Keskeinen havainto:
 
@@ -209,11 +209,11 @@ Toisin sanoen jakauma on kapea.
 
 Tutkimus ei implikoi, että:
 
-*kaikki suomalaiset ovat onnellisia
+* kaikki suomalaiset ovat onnellisia
 
-*ongelmia ei ole
+* ongelmia ei ole
 
-*yksilön kokemus olisi väärä
+* yksilön kokemus olisi väärä
 
 Populaatiotason keskiarvo ja yksilön kokemus voivat poiketa toisistaan ilman ristiriitaa.
 
@@ -221,19 +221,19 @@ Populaatiotason keskiarvo ja yksilön kokemus voivat poiketa toisistaan ilman ri
 
 Analyysi perustuu *regressiomalleihin*, joissa selittäjinä ovat mm.:
 
-*tulotaso
+* tulotaso
 
-*terveys
+* terveys
 
-*sosiaalinen tuki
+* sosiaalinen tuki
 
 Rajoitteet:
 
-*Lineaarisuus on yksinkertaistus
+* Lineaarisuus on yksinkertaistus
 
-*Kulttuurierot vastaustavoissa voivat vaikuttaa
+* Kulttuurierot vastaustavoissa voivat vaikuttaa
 
-*Subjektiivinen mittari ei ole objektiivinen hyvinvointi
+* Subjektiivinen mittari ei ole objektiivinen hyvinvointi
 
 Tästä huolimatta malli selittää suuren osan vaihtelusta maiden välillä.
 
@@ -241,13 +241,13 @@ Tästä huolimatta malli selittää suuren osan vaihtelusta maiden välillä.
 
 Keskeiset johtopäätökset:
 
-*Otanta ei vaadi kaikkien vastaamista
+* Otanta ei vaadi kaikkien vastaamista
 
-*1000 havaintoa riittää populaatiotason arvioon
+* 1000 havaintoa riittää populaatiotason arvioon
 
-*Yksittäinen kokemus ei kumoa keskiarvoa
+* Yksittäinen kokemus ei kumoa keskiarvoa
 
-*Suomi sijoittuu kärkeen rakenteellisten tekijöiden vuoksi
+* Suomi sijoittuu kärkeen rakenteellisten tekijöiden vuoksi
 
 Tilastotiede ei kuvaa yksilöä.
 Se kuvaa jakaumaa.

@@ -7,7 +7,7 @@ description: "Suomen inflaation kuvailua"
 draft: false
 toc: true
 reading-time: true
-slug: inflaation data
+slug: inflaation-data
 ---
 
 

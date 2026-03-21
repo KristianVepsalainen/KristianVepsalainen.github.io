@@ -148,8 +148,8 @@ Mallin rakennetta voidaan tarkastella seuraavasti.
 
 
 ```{r}
-library(knitr)
-report(arima_model) 
+library(flextable)
+report(arima_model) %>% flextable()
 ```
 
 Automaattinen mallinvalinta valitsee parametrien yhdistelmän, joka minimoi informaatiokriteerin (yleensä AICc).
@@ -275,7 +275,7 @@ Ennustemallien tarkkuutta voidaan arvioida esimerkiksi seuraavilla mittareilla:
 
 * MAE (Mean Absolute Error)
 ```{r}
-accuracy(cv_forecasts, hicp_yoy) 
+accuracy(cv_forecasts, hicp_yoy) %>% flextable()
 ```
 
 Tulokset osoittavat, että yksinkertainen random walk -malli saavuttaa ennustetarkkuuden, joka on lähellä ARIMA-mallia.

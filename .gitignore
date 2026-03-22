@@ -1,15 +1,42 @@
-.Rproj.user
+# -----------------
+# Quarto
+# -----------------
+.quarto/
+_site/
+docs/
+
+# Jupyter via Quarto
+**/*.quarto_ipynb
+
+# -----------------
+# knitr / Quarto cache
+# -----------------
+*_cache/
+*_files/
+
+# varmuuden vuoksi myös alihakemistoihin
+**/*_cache/
+**/*_files/
+
+# -----------------
+# R
+# -----------------
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
 
-/.quarto/
-**/*.quarto_ipynb
+# -----------------
+# cmdstan / C++
+# -----------------
+*.hpp
+*.o
+*.so
+*.dll
+*.dylib
 
-_site/
-docs/
-
-/*_cache/
-/posts/*_cache/
-
-*_files/
+# -----------------
+# OS / editor
+# -----------------
+.DS_Store
+Thumbs.db

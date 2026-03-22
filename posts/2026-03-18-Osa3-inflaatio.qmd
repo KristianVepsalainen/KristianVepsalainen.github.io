@@ -4,7 +4,7 @@ subtitle: "Osa 3: Bayesilainen malli ja epävarmuus"
 date: 2026-03-17
 categories: [R, bayes, makrotalous, inflaatio]
 description: "Suomen inflaation ennustaminen bayeslaisella mallilla"
-
+updated: 2026-03-22
 draft: false
 toc: true
 reading-time: true
@@ -21,9 +21,9 @@ Tämä johtaa keskeiseen ongelmaan:
   
   Piste-ennuste ei kerro riittävästi.
 
-Kun inflaatiosta esitetään arvio kuten
+Kun inflaatiosta esitetään arvio kuten,
 
- “Inflaatio on ensi vuonna 2,1 %”
+ “Inflaatio on ensi vuonna 2,1 %”,
 
 jätetään kertomatta olennaisin osa:
   
@@ -31,14 +31,21 @@ jätetään kertomatta olennaisin osa:
   - Kuinka leveä jakauma on?  
   - Kuinka todennäköisiä äärimmäiset skenaariot ovat?  
   
-  Makrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.
+Makrotaloudessa nämä kysymykset ovat usein tärkeämpiä kuin itse piste-ennuste.
 
 Tässä osassa inflaatiota mallinnetaan **todennäköisyysjakaumana**, ei yksittäisenä lukuna.
 
+Makrotaloudessa ennusteita ei käytetä vain akateemiseen tarkasteluun. Niitä käytetään päätöksenteossa, jossa virheillä on kustannuksia.
+
+Rahapolitiikassa liian matala inflaatioennuste voi johtaa liian kevyeseen politiikkaan. Liian korkea ennuste voi johtaa tarpeettoman kiristävään politiikkaan.
+
+Tällaisessa tilanteessa ei riitä tietää, mikä on ennusteen odotusarvo. Tarvitaan arvio siitä, kuinka todennäköisiä erilaiset skenaariot ovat.
+
+Bayesilainen ennustejakauma mahdollistaa riskien eksplisiittisen arvioinnin.
   
 ## Miksi bayesilainen malli?
   
-  Bayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.
+Bayesilainen lähestymistapa mahdollistaa suoraan epävarmuuden mallintamisen.
 
 Sen sijaan, että estimoitaisiin yksi “paras” parametriarvo, estimoidaan **parametrien jakauma**. Tämä johtaa luonnollisesti ennustejakaumaan.
 
@@ -53,22 +60,26 @@ Mallinnus toteutetaan paketilla :contentReference[oaicite:0]{index=0}, joka peru
   
 ## Mallin rakenne
   
-  Inflaatiolle rakennetaan bayesilainen aikarivimalli, jossa huomioidaan:
-  
-  - trendi  
-  - autoregressiivinen rakenne  
-  - epävarmuus  
+Mallissa inflaation oletetaan riippuvan sen aikaisemmasta arvosta sekä hitaasti muuttuvasta trendikomponentista.
 
 Mallin perusmuoto on:
   
-  $y_t = \alpha + \beta_t + \phi y_{t-1} + \epsilon_t$
+  $y_t = \alpha + \beta t + \phi y_{t-1} + \epsilon_t$
 
-missä virhetermi mallinnetaan normaalijakaumana.
+missä
 
-Bayesilaisessa kehyksessä kaikille parametreille määritellään priorijakaumat.
+* $y_t $ on inflaatio ajanhetkellä t
+* $t$ kuvaa pitkän aikavälin kehitystä
+* $y_{t-1}$ vastaa inflaation inertiaa
+* $\epsilon_t$ on satunnainen häiriötermi
 
+Makrotaloudessa inflaatiolla on usein voimakas persistenssi. Tämä tarkoittaa, että korkea inflaatio seuraa usein korkeaa inflaatiota.
+
+Autoregressiivinen komponentti mahdollistaa tämän dynamiikan mallintamisen.
+
+Bayesilaisessa kehyksessä mallin parametreille määritellään priorijakaumat, jotka regularisoivat estimaatteja ja estävät epästabiileja ratkaisuja pienissä otoksissa.
   
-  ## Datan valmistelu
+## Datan valmistelu
   
 ```{r}
 library(brms)
@@ -137,6 +148,18 @@ Bayesilaisen mallin tuloksena ei saada yksittäisiä parametreja, vaan *posterio
 
 Tämä tarkoittaa, että mallin epävarmuus on eksplisiittisesti mukana analyysissä.
 
+Erityisen kiinnostava parametri on autoregressiivinen kerroin.
+
+Estimaatti on lähellä arvoa yksi, mikä viittaa vahvaan persistenssiin inflaatiossa. Tämä tarkoittaa, että inflaatio käyttäytyy osittain kuin random walk -prosessi.
+
+Tämä havainto on linjassa makrotaloustieteen kirjallisuuden kanssa, jossa inflaation on usein havaittu sisältävän voimakkaan hitaasti muuttuvan komponentin.
+
+Toisin sanoen:
+
+inflaatio ei palaudu nopeasti pitkän aikavälin keskiarvoon.
+
+Tämä tekee ennustamisesta haastavaa.
+
 ## Ennustejakauma
 
 ```{r}
@@ -152,9 +175,22 @@ df <- df |>
     lower = pred_lower,
     upper = pred_upper
   )
+
+saveRDS(df, here::here("data/hicp_yoy_modeldata.rds"))
+saveRDS(pred, here::here("data/posterior_predict_draws.rds"))
 ```
 
 Bayesilainen malli tuottaa jokaiselle ajankohdalle *ennustejakauman*, ei pelkkää pistettä.
+
+Ennustejakauma sisältää informaatiota, jota piste-ennuste ei tarjoa.
+
+Esimerkiksi voidaan arvioida:
+
+* todennäköisyys, että inflaatio ylittää 3 %
+* todennäköisyys, että inflaatio laskee alle 1 %
+* kuinka nopeasti epävarmuus kasvaa ennustehorisontin kasvaessa
+
+Tämä on keskeistä päätöksenteossa, jossa riskit ovat usein epäsymmetrisiä.
 
 ## Ennusteen visualisointi
 

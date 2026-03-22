@@ -55,6 +55,7 @@ format:
     code-tools: true
     fig-responsive: true
     image-lazy-loading: true
+    permalink: /posts/{slug}.html
 
 execute:
   freeze: auto

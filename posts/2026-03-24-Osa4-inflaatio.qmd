@@ -1,0 +1,237 @@
+---
+title: "Inflaatio ei ole luku – se on prosessi"
+subtitle: "Osa 4: Ovatko ennusteet oikeasti hyviä?"
+date: 2026-03-24
+categories: [R, bayes, ennustaminen, inflaatio]
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+slug: inflaatio-ennusteiden-vertailu
+---
+  
+## Ennuste voi olla väärä – vaikka se näyttää oikealta
+  
+  Edellisessä osassa rakennettiin bayesilainen malli, joka tuottaa inflaatiolle kokonaisen jakauman.
+
+Tämä on tärkeä askel eteenpäin.
+
+Mutta se ei vielä riitä.
+
+Ennuste voi näyttää hyvältä kuvassa ja silti olla systemaattisesti väärässä.
+
+Keskeinen kysymys ei ole:
+  
+  > Kuinka lähellä ennuste on toteutunutta arvoa?
+  
+  Vaan:
+  
+  > Oliko ennuste rehellinen epävarmuudestaan?
+  
+  ---
+  
+  ## Mikä on hyvä ennuste?
+  
+  Hyvä ennuste täyttää kaksi ehtoa:
+  
+  1. Se osuu usein lähelle toteutunutta arvoa  
+  2. Se kuvaa epävarmuuden oikein  
+
+Ensimmäinen on helppo ymmärtää.  
+
+Toinen on se, missä lähes kaikki epäonnistuvat.
+
+---
+  
+  ## Intuitio: sääennuste
+  
+  Ajatellaan sääennustetta.
+
+Jos sanotaan:
+  
+  > “Huomenna sataa 30 % todennäköisyydellä”
+
+niin pitkällä aikavälillä sateen pitäisi toteutua noin 30 %:ssa näistä päivistä.
+
+Jos näin ei tapahdu, ennuste ei ole kalibroitu.
+
+Sama pätee inflaatioon.
+
+---
+  
+  ## Kalibraatio
+  
+  Kalibraatio tarkoittaa sitä, että ennustettu todennäköisyys vastaa toteutunutta frekvenssiä.
+
+Jos malli sanoo:
+  
+  - 80 % todennäköisyys, että inflaatio on välillä 1–3 %  
+  
+  niin toteutuneen arvon pitäisi olla tuolla välillä noin 80 % ajasta.
+
+Jos näin ei ole, malli:
+  
+  - aliarvioi epävarmuutta (liian itsevarma)  
+  - tai yliarvioi sitä (liian varovainen)
+
+---
+  
+  ## Miksi tämä on tärkeää?
+  
+  Makrotaloudessa väärin kalibroitu ennuste voi olla vaarallinen.
+
+- Liian kapea jakauma → riskit aliarvioidaan  
+- Liian leveä jakauma → ennuste ei ole käyttökelpoinen  
+
+Hyvä ennuste on tasapainossa näiden välillä.
+
+---
+  
+  ## Proper scoring rules
+  
+  Ennusteita arvioidaan **proper scoring ruleilla**, jotka ottavat huomioon koko jakauman.
+
+Tässä käytetään kahta mittaria:
+  
+  - CRPS  
+  - log score  
+
+Näitä voi ajatella näin:
+  
+  - CRPS mittaa “kuinka lähellä jakauma on toteumaa”  
+  - log score rankaisee erityisesti yllättävistä virheistä  
+
+---
+  
+## CRPS: intuitio
+  
+  CRPS voidaan ajatella laajennuksena absoluuttiselle virheelle.
+
+Piste-ennusteessa mitataan:
+  
+  > Kuinka kaukana ennuste on toteumasta?
+  
+  CRPS:ssä mitataan:
+  
+  > Kuinka hyvin koko jakauma sijoittuu toteuman ympärille?
+  
+  Pienempi arvo tarkoittaa parempaa ennustetta.
+
+---
+  
+## Ennusteiden arviointi
+  
+```{r}
+library(scoringRules)
+library(here)
+library(tidyverse)
+
+df <- readRDS(here("data/hicp_yoy_modeldata.rds"))
+
+pred <- readRDS(here("data/posterior_predict_draws.rds"))
+
+
+# Oletetaan, että meillä on posteriorinäytteet
+y_true <- df$inflation_yoy
+
+crps_values <- crps_sample(
+  y = y_true,
+  dat = t(pred)
+)
+
+```
+
+CRPS lasketaan jokaiselle ennusteelle erikseen ja lopuksi otetaan keskiarvo. Tämä keskiarvo on `r round(mean(crps_values),2)`.
+
+## Log score
+
+Log score keskittyy siihen, kuinka paljon todennäköisyysmassaa annetaan toteutuneelle arvolle.
+
+Intuitiivisesti:
+
+* jos malli antaa korkean todennäköisyyden toteutuneelle arvolle → hyvä
+* jos malli “yllättyy” → huono
+
+```{r}
+log_scores <- logs_sample(
+  y = y_true,
+  dat = t(pred)
+)
+
+mean(log_scores)
+```
+
+## Kalibraation visualisointi
+
+Yksi tehokkaimmista tavoista tarkastella kalibraatiota on **PIT-histogrammi**.
+
+```{r}
+pit_vals <- sapply(
+  1:length(y_true),
+  function(i) mean(pred[i, ] <= y_true[i])
+)
+
+library(ggplot2)
+tibble(pit = pit_vals) |>
+  ggplot(aes(pit)) +
+  geom_histogram(bins = 20) +
+  labs(
+    title = "PIT-histogrammi",
+    subtitle = "Tasainen jakauma = hyvä kalibraatio",
+    x = "PIT",
+    y = "Havaintojen määrä"
+  ) +
+  theme_minimal()
+```
+
+## Miltä hyvä malli näyttää?
+
+Hyvin kalibroitu malli tuottaa:
+
+* tasaisen histogrammin
+
+Jos histogrammi on:
+
+* U-muotoinen → epävarmuus liian pieni
+* kumpuileva keskeltä → epävarmuus liian suuri
+
+## Mitä tulokset kertovat?
+
+Tässä analyysissä keskeinen havainto on seuraava:
+
+Piste-ennuste voi näyttää hyvältä, vaikka jakauma olisi väärin kalibroitu.
+
+Toisin sanoen:
+
+* malli voi “osua oikeaan” keskimäärin
+* mutta olla silti epäluotettava
+
+Tämä on syy siihen, miksi pelkkä RMSE ei riitä ennustemallien arviointiin.
+
+## Mitä opittiin?
+
+Tässä osassa osoitettiin kolme keskeistä asiaa:
+
+1. Ennusteen laatu ei ole sama asia kuin piste-ennusteen tarkkuus
+2. Epävarmuuden mallintaminen on kriittistä
+3. Kalibraatio erottaa hyvät mallit huonoista
+
+## Sarjan ydinajatus
+
+Tämä sarja voidaan tiivistää yhteen ajatukseen:
+
+Inflaatio ei ole yksittäinen luku.
+> Se on jakauma.
+
+## Mitä seuraavaksi?
+
+Sarjan viimeisessä osassa siirrytään käytännön sovellukseen.
+
+Bayesilaista mallia verrataan:
+
+* baseline-malleihin
+* ja mahdollisuuksien mukaan institutionaalisiin ennusteisiin
+
+Tavoitteena on vastata alkuperäiseen kysymykseen:
+
+> Voittaako algoritmi keskuspankin?

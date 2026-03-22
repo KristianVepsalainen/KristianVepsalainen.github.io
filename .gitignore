@@ -8,3 +8,8 @@
 
 _site/
 docs/
+
+/*_cache/
+/posts/*_cache/
+
+*_files/

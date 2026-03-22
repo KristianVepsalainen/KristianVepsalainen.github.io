@@ -1,0 +1,782 @@
+---
+title: "Vartija ei ymmärrä jakaumia – siksi Suomeen syntyy kohuja"
+description: "Simuloimme realistisen maailman ja näytämme, miksi kaksi viimeaikaista vartijatapausta syntyi. Data science olisi voinut estää kohut."
+author: "Kristian Vepsäläinen"
+date: 2026-03-22
+categories:
+  - data science
+  - bayes
+  - yhteiskunta
+  - koneoppiminen
+format:
+  html:
+    toc: true
+    code-fold: true
+    code-summary: "Näytä koodi"
+slug: "Vartija-ei-ymmärrä-jakaumia"    
+---
+
+# Vartija ei ymmärrä jakaumia
+
+Suomessa vartija on kaksi kertaa tehnyt ratkaisun, joka on koetellut ihmisten oikeustajua.
+
+Ensimmäisessä tapauksessa lapsi jäi kiinni maksamattomasta muovipussista.
+
+Toisessa tapauksessa huippuravintolan kokki pysäytettiin kassavirheen vuoksi.
+
+Monen intuitio sanoo:
+
+tämä tuntuu väärältä.
+
+Miksi?
+
+Koska vartija käsitteli tapausta yksittäisenä tapahtumana.
+
+Hän sovelsi samaa sääntöä joka tilanteessa.
+
+Hän unohti, että maailma on jakauma.
+
+Data scientist ei kysy:
+
+rikos vai ei rikos.
+
+Data scientist kysyy:
+
+kuinka todennäköistä on, että kyseessä on vahinko?
+
+Näytän nyt konkreettisesti, miten data science olisi voinut estää nämä kohut.
+
+---
+
+# Todellinen päätösongelma
+
+Vartijan todellinen kysymys ei ole juridinen.
+
+Se on tilastollinen.
+
+Kun tuote jää maksamatta, vaihtoehtoja on kaksi:
+
+1. henkilö teki virheen
+2. henkilö yritti varastaa
+
+Ongelma:
+
+molemmat näyttävät usein samalta.
+
+Yksi maksamaton tuote ei kerro motiivista.
+
+Tarvitsemme kontekstia.
+
+---
+
+# Mitkä asiat vaikuttavat riskiin?
+
+Tarkastellaan realismia.
+
+## Paikkakunta vaikuttaa
+
+Suomessa rikollisuus ei jakaudu tasaisesti.
+
+Suuressa kaupungissa satunnaisia näpistyksiä tapahtuu enemmän.
+
+Pienellä paikkakunnalla lähes kaikki tuntevat toisensa.
+
+Todennäköisyys on erilainen jo lähtökohtaisesti.
+
+## Vuodenaika vaikuttaa
+
+Suomi ei ole Kalifornia.
+
+-20°C vähentää spontaania rikollisuutta.
+
+Joulusesonki lisää virheitä kassalla.
+
+Pimeys vaikuttaa käyttäytymiseen.
+
+## Kauppaympäristö vaikuttaa
+
+Itsepalvelukassat lisäävät virheitä.
+
+Suuret ostoskorit lisäävät virheitä.
+
+Kiire lisää virheitä.
+
+## Ihminen tekee virheitä
+
+Ihmiset eivät ole täydellisiä.
+
+Kassalla tapahtuu virheitä jatkuvasti.
+
+Joskus unohdamme maksaa tuotteen.
+
+Useimmiten kyse ei ole rikoksesta.
+
+---
+
+# Rakennetaan realistinen maailma
+
+Simuloin ympäristön.
+
+Mukana:
+
+- eri paikkakunnat
+- eri kauppatyypit
+- vuodenajat
+- vartijoiden oppiminen
+- asiakkaiden käyttäytyminen
+
+```{r}
+library(tidyverse)
+library(brms)
+library(dcurves)
+
+set.seed(123)
+
+
+#paikkakunnat eivät ole samanlaisia
+locations <-
+
+ tibble(
+
+  location =
+   c(
+    "metro",
+    "city",
+    "small",
+    "remote"
+   ),
+
+  baseline_risk =
+   c(
+    0.25,
+    0.16,
+    0.07,
+    0.03
+   )
+
+ )
+
+#simluoidaan asiakaspopulaatio, joista osa asioi usein. Asiakkaita 4000, kauppareissuja 20 000
+
+n <- 20000
+n_customers <- 4000
+
+customers <-
+
+ tibble(
+
+  customer_id =
+
+   1:n_customers,
+
+  latent_type =
+
+   sample(
+
+    c(
+     "normal",
+     "risk"
+    ),
+
+    n_customers,
+
+    replace = TRUE,
+
+    prob =
+     c(
+      0.94,
+      0.06
+     )
+
+   )
+
+ )
+
+
+data <-
+
+ tibble(
+
+  customer_id =
+   sample(
+    customers$customer_id,
+    n,
+    replace = TRUE
+   ),
+
+  location =
+   sample(
+    locations$location,
+    n,
+    TRUE
+   ),
+
+  month =
+   sample(
+    1:12,
+    n,
+    TRUE
+   )
+
+ ) |>
+
+ left_join(locations) |>
+
+ left_join(customers)
+
+#suomi on kylmä maa
+
+
+data <-
+
+ data |>
+
+ mutate(
+
+  temperature =
+
+   rnorm(
+
+    n(),
+
+    case_when(
+
+     month %in%
+     c(1,2) ~ -12,
+
+     month %in%
+     c(6,7,8) ~ 18,
+
+     TRUE ~ 4
+
+    ),
+
+    6
+
+   )
+
+ )
+
+#Todellinen aikomus on piilossa
+
+
+data <-
+
+ data |>
+
+ mutate(
+
+  latent_risk =
+
+   qlogis(
+    baseline_risk
+   ) -
+
+   0.02*
+   temperature +
+
+   rnorm(
+    n(),
+    0,
+    0.4
+   ),
+
+  intention =
+
+   rbinom(n(), 1,
+    plogis(
+     latent_risk
+    )
+   )
+ )
+
+#riskialttiilla asiakkailla on korkea perusriski
+
+
+data <-
+
+ data |>
+
+ mutate(
+
+  recidivism_effect =
+
+   ifelse(
+
+    latent_type=="risk",
+
+    0.9,
+
+    0
+
+   )
+
+ )
+
+#lisätään tämä latenttiin riskiin
+
+
+data <-
+
+ data |>
+
+ mutate(
+
+  latent_risk =
+
+   latent_risk +
+
+   recidivism_effect
+
+ )
+
+#käyttäytyminen näyttää erilaiselta
+
+
+data <-
+
+ data |>
+
+ mutate(
+
+  items =
+   rpois(
+
+    n(),
+
+    ifelse(
+     intention==1,
+     2.5,
+     0.6
+    )
+
+   ),
+
+  value =
+
+   rgamma(
+
+    n(),
+
+    ifelse(
+     intention==1,
+     2.3,
+     1.5
+    ),
+
+    0.07
+
+   ),
+
+  confusion =
+
+   rbeta(
+
+    n(),
+
+    ifelse(
+     intention==1,
+     1.5,
+     4
+    ),
+
+    ifelse(
+     intention==1,
+     5,
+     2
+    )
+
+   )
+
+ )
+#Rakennetaan malli:
+
+
+
+fit <-
+
+ brm(
+
+ intention ~
+
+  value +
+  items +
+  confusion +
+  temperature +
+
+  (1|location) +
+  (1|customer_id),
+
+ data = data,
+
+ family =
+  bernoulli()
+
+ )
+```
+
+## Miltä maailma näyttää jakaumana? 
+
+```{r}
+
+data |>
+
+ mutate(
+
+  prob =
+   fitted(
+    fit
+   )[,1]
+
+ ) |>
+
+ ggplot(
+
+  aes(
+   prob,
+   fill =
+    factor(
+     intention
+    )
+  )
+
+ ) +
+
+ geom_density(
+  alpha = 0.5
+ )
+
+```
+
+Jakaumat menevät päällekkäin.
+
+Täydellistä rajaa ei ole. Tämä ei silti tarkoita, etteikö jotain sääntöjä ja päättelyä voitaisi tehdä. 
+
+## Lisätään oikeat tapaukset simulaatioon
+
+Rakennetaan realistiset profiilit tapauksista.
+
+*Tapaus 1* Lapsi ja muovipussi. Maksamattomia tuotteita oli 1 kappale ja sen arvo oli pieni, muutamia kymmeniä senttejä. Lisäksi tilanteessa oli lapsella jutun mukaan suuri hämmennys. Asetetaan siksi tuotteen arvoksi 30 snt ja hämmenyksen määräksi 0,9 (1 on maksimi). Tapahtumapaikaksi laitetaan "city" eli isohko kaupunki.
+
+```{r}
+
+case_bag <-
+
+ tibble(
+
+  value = 0.3,
+
+  items = 1,
+
+  confusion = 0.9,
+
+  temperature = 5,
+
+  location = "city"
+
+ )
+```
+
+*Tapaus 2* eli kokki ja kalat. Tarkka tuotteiden määrä ei selviä uutisesta, mutta koska jutussa puhutaan yksiköstä eli "kalafile", oletetaan sen tarkoittavan yhtä kappaletta. Tuoteen hinta selviää jutusta eli 112,67 e. Koska kyseessä on ulkomaalainen ja liike oli shop-in-shop, laitetaan hämmenykseksi 0,7 ja tapahtumapaikaksi "metro", koska se on mallini kaupunkiluokituksen isoin kokovaihtoehto.
+
+```{r}
+
+case_chef <-
+
+ tibble(
+
+  value = 112.67,
+
+  items = 1,
+
+  confusion = 0.7,
+
+  temperature = 2,
+
+  location = "metro"
+
+ )
+```
+
+## Mallin arvio tapauksille
+
+```{r}
+
+cases <-
+
+ bind_rows(
+  case_bag,
+  case_chef
+ )
+
+cases$prob <-
+
+ predict(
+  fit,
+  newdata = cases,
+    allow_new_levels = TRUE
+ )[,1]
+```
+
+## Visualisoidaan tapaukset jakaumaan
+
+```{r}
+
+cases <-
+
+ bind_rows(
+
+  case_bag,
+  case_chef
+
+ ) |>
+
+ mutate(
+
+  customer_id =
+   "new_customer"
+
+ ) |>
+
+ mutate(
+
+  prob =
+
+   predict(
+
+    fit,
+
+    newdata = cur_data(),
+
+    allow_new_levels = TRUE
+
+   )[,1]
+
+ )
+
+plot_data <-
+
+ data |>
+
+ mutate(
+
+  prob =
+   fitted(fit)[,1]
+
+ )
+
+ggplot(plot_data) +
+
+ geom_histogram(
+
+  aes(prob),
+
+  bins = 40,
+
+  fill = "grey80"
+
+ ) +
+
+ geom_vline(
+
+  data = cases,
+
+  aes(xintercept = prob),
+
+  linewidth = 1.2
+
+ ) +
+
+ scale_x_continuous(
+
+  labels =
+   scales::percent
+
+ ) +
+
+ labs(
+
+  x =
+   "riski, että teko on tahallinen",
+
+  y =
+   "havaintojen määrä"
+
+ )
+
+```
+
+Nyt näemme:
+
+tapaukset sijoittuvat jakaumaan.
+
+Ne eivät ole selkeitä rikoksia.
+
+
+## Decision curve analysis
+
+```{r}
+
+dca(
+
+ intention ~
+
+  fitted(fit)[,1],
+
+ data = data
+
+ )
+```
+
+Tämä kertoo:
+
+milloin puuttuminen on järkevää.
+
+### Miten Decision Curve Analysis -kuvaa luetaan?
+
+Decision curve analysis kuulostaa monimutkaiselta.
+
+Idea on kuitenkin yksinkertainen:
+
+kuva kertoo, milloin vartijan kannattaa puuttua tilanteeseen.
+
+Mallin tarkoitus ei ole maksimoida kiinniottojen määrää.
+
+Tarkoitus on vähentää virheitä.
+
+Virheitä on kahdenlaisia:
+
+1. syytön ihminen pysäytetään
+2. varas pääsee lähtemään
+
+Näillä on erilaiset kustannukset.
+
+#### Mitä akselit tarkoittavat?
+*x-akseli: päätöskynnys*
+
+x-akseli kertoo, kuinka varma vartijan pitää olla ennen kuin hän puuttuu tilanteeseen.
+
+Esimerkkejä:
+
+0.1 = vartija puuttuu jo pienellä epäilyllä
+0.5 = vartija puuttuu vain jos rikos näyttää todennäköiseltä
+0.8 = vartija puuttuu vain lähes varmoissa tapauksissa
+
+Toisin sanoen:
+
+kuinka paljon näyttöä tarvitaan ennen puuttumista.
+
+*y-akseli: nettohyöty*
+
+Net benefit kertoo, kuinka hyödyllinen päätössääntö on.
+
+Hyöty kasvaa kun:
+
+* oikeat rikokset havaitaan
+* turhat pysäytykset vähenevät
+
+Suurempi arvo tarkoittaa parempaa tasapainoa.
+
+Voit ajatella tätä:
+
+kuinka paljon järjestelmä tuottaa hyötyä verrattuna haittoihin.
+
+
+#### Mitä viivat tarkoittavat?
+*vihreä viiva: Treat None*
+
+Tämä tarkoittaa:
+
+vartija ei koskaan puutu tilanteeseen.
+
+Seuraukset:
+
+* kukaan ei joudu väärin syytetyksi
+* kaikki varkaudet jäävät huomaamatta
+
+Tämä toimii vertailukohtana.
+
+*punainen viiva: Treat All*
+
+Tämä tarkoittaa:
+
+vartija pysäyttää kaikki, joilla jää yksikin tuote maksamatta.
+
+Seuraukset:
+
+* kaikki rikokset havaitaan
+* paljon syyttömiä pysäytetään
+
+Tämä on toinen ääripää.
+
+*sininen viiva: data science -malli*
+
+Sininen viiva näyttää, mitä tapahtuu, kun käytämme mallia.
+
+Malli arvioi todennäköisyyden jokaiselle tilanteelle.
+
+Puuttuminen tapahtuu vain, jos riski ylittää valitun kynnyksen.
+
+Tämä tuottaa usein paremman tasapainon.
+
+### Miten kuvaa tulkitaan käytännössä?
+
+Valitse x-akselilta päätöskynnys.
+
+Katso, mikä viiva on korkeimmalla.
+
+Korkein viiva tarkoittaa parasta päätösstrategiaa.
+
+*Esimerkki*
+
+Jos päätöskynnys on 30 %:
+
+vartija puuttuu tilanteeseen, jos mallin mukaan rikoksen todennäköisyys on yli 30 %.
+
+Jos sininen viiva on tässä kohdassa korkeammalla kuin punainen ja vihreä:
+
+malli tuottaa vähemmän haittaa kuin kumpikaan ääristrategia.
+
+### Mitä tämä tarkoittaa käytännössä?
+
+Jos vartija toimii kuin Treat All:
+
+* syntyy paljon kohuja.
+* Syytön ihminen pysäytetään liian usein.
+
+Jos vartija toimii kuin Treat None:
+
+* rikoksia ei estetä.
+* hävikki kasvaa.
+
+Jos vartija käyttää dataa:
+
+* virheitä tapahtuu vähemmän.
+
+## Miksi kohut syntyvät?
+
+Koska ihmiset odottavat varmuutta.
+
+Todellisuudessa on vain todennäköisyyksiä.
+
+Jos vartija käyttää liian aggressiivista sääntöä:
+
+syntyy vääriä kiinniottoja.
+
+Jos vartija on liian varovainen:
+
+hävikki kasvaa.
+
+Optimi on kompromissi.
+
+> maailma on jakauma
+
+yksittäinen tapaus ei kerro totuutta.
+
+Se on vain yksi piste jakaumassa.
+
+Data science auttaa näkemään kokonaisuuden.
+
+Siksi data scientist ajattelee eri tavalla kuin vartija.
+
+Siksi data scientist välttää kohut.

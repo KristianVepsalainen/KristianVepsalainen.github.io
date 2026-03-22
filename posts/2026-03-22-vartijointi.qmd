@@ -410,7 +410,8 @@ fit <-
  data = data,
 
  family =
-  bernoulli()
+  bernoulli(),
+ refresh = 0
 
  )
 ```

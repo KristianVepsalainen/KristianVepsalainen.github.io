@@ -30,9 +30,9 @@ Keskeinen kysymys ei ole:
   
   ---
   
-  ## Mikä on hyvä ennuste?
+## Mikä on hyvä ennuste?
   
-  Hyvä ennuste täyttää kaksi ehtoa:
+Hyvä ennuste täyttää kaksi ehtoa:
   
   1. Se osuu usein lähelle toteutunutta arvoa  
   2. Se kuvaa epävarmuuden oikein  
@@ -43,9 +43,9 @@ Toinen on se, missä lähes kaikki epäonnistuvat.
 
 ---
   
-  ## Intuitio: sääennuste
+## Intuitio: sääennuste
   
-  Ajatellaan sääennustetta.
+Ajatellaan sääennustetta.
 
 Jos sanotaan:
   
@@ -59,9 +59,9 @@ Sama pätee inflaatioon.
 
 ---
   
-  ## Kalibraatio
+## Kalibraatio
   
-  Kalibraatio tarkoittaa sitä, että ennustettu todennäköisyys vastaa toteutunutta frekvenssiä.
+Kalibraatio tarkoittaa sitä, että ennustettu todennäköisyys vastaa toteutunutta frekvenssiä.
 
 Jos malli sanoo:
   
@@ -76,9 +76,9 @@ Jos näin ei ole, malli:
 
 ---
   
-  ## Miksi tämä on tärkeää?
+## Miksi tämä on tärkeää?
   
-  Makrotaloudessa väärin kalibroitu ennuste voi olla vaarallinen.
+Makrotaloudessa väärin kalibroitu ennuste voi olla vaarallinen.
 
 - Liian kapea jakauma → riskit aliarvioidaan  
 - Liian leveä jakauma → ennuste ei ole käyttökelpoinen  
@@ -87,9 +87,9 @@ Hyvä ennuste on tasapainossa näiden välillä.
 
 ---
   
-  ## Proper scoring rules
+## Proper scoring rules
   
-  Ennusteita arvioidaan **proper scoring ruleilla**, jotka ottavat huomioon koko jakauman.
+Ennusteita arvioidaan **proper scoring ruleilla**, jotka ottavat huomioon koko jakauman.
 
 Tässä käytetään kahta mittaria:
   
@@ -158,8 +158,9 @@ log_scores <- logs_sample(
   dat = t(pred)
 )
 
-mean(log_scores)
+
 ```
+Nyt keskiarvoksi log scoreille saadaan `r mean(log_scores)`
 
 ## Kalibraation visualisointi
 

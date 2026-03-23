@@ -13,7 +13,9 @@ format:
     toc: true
     code-fold: true
     code-summary: "Näytä koodi"
-slug: "Vartija-ei-ymmärrä-jakaumia"    
+slug: "Vartija-ei-ymmärrä-jakaumia"  
+aliases: 
+  - /posts/2026-03-22-vartiointi.qmd
 ---
 
 # Vartija ei ymmärrä jakaumia

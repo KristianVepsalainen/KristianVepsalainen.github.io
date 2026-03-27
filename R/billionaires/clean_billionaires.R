@@ -146,3 +146,99 @@ write_csv(
 )
 
 print("clean data saved")
+
+########################################################
+# yksi havainto per henkilö (viimeisin havainto)
+########################################################
+
+latest_billionaires <-
+  
+  billionaires |>
+  
+  arrange(full_name, year) |>
+  
+  group_by(full_name) |>
+  
+  slice_tail(n = 1) |>
+  
+  ungroup()
+
+write_csv(
+  
+  latest_billionaires,
+  
+  "data/processed/billionaires_latest.csv"
+  
+)
+
+########################################################
+# country-year panel
+########################################################
+
+country_year <-
+  
+  billionaires |>
+  
+  group_by(
+    
+    year,
+    country_residence_iso3
+    
+  ) |>
+  
+  summarise(
+    
+    n_billionaires =
+      n(),
+    
+    total_wealth =
+      sum(net_worth_usd, na.rm = TRUE),
+    
+    median_wealth =
+      median(net_worth_usd, na.rm = TRUE),
+    
+    median_age =
+      median(age, na.rm = TRUE),
+    
+    share_self_made =
+      mean(self_made, na.rm = TRUE),
+    
+    .groups = "drop"
+    
+  )
+
+write_csv(
+  
+  country_year,
+  
+  "data/processed/country_year.csv"
+  
+)
+
+########################################################
+# citizenship vs residence transitions
+########################################################
+
+migration <-
+  
+  latest_billionaires |>
+  
+  count(
+    
+    country_citizenship,
+    country_residence,
+    
+    sort = TRUE
+    
+  )
+
+write_csv(
+  
+  migration,
+  
+  "data/processed/migration.csv"
+  
+)
+
+print("panel datasets created")
+

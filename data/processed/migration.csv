@@ -1,0 +1,325 @@
+country_citizenship,country_residence,n
+United States,United States,1158
+China,China,1133
+India,India,277
+Germany,Germany,194
+Russia,Russia,178
+Brazil,Brazil,124
+South Korea,South Korea,116
+Hong Kong,Hong Kong,108
+Japan,Japan,85
+Italy,Italy,84
+Taiwan,Taiwan,81
+France,France,76
+United Kingdom,United Kingdom,76
+Canada,Canada,73
+United States,NA,64
+Turkey,Turkey,62
+Australia,Australia,60
+Indonesia,Indonesia,51
+Singapore,Singapore,49
+Switzerland,Switzerland,47
+Thailand,Thailand,44
+Sweden,Sweden,43
+Spain,Spain,42
+Hong Kong,China,37
+Philippines,Philippines,37
+Germany,NA,35
+Mexico,Mexico,35
+Malaysia,Malaysia,33
+Israel,Israel,29
+China,Hong Kong,20
+United States,China,20
+Chile,Chile,19
+Norway,Norway,18
+Saudi Arabia,Saudi Arabia,18
+Netherlands,Netherlands,16
+Germany,Switzerland,15
+Canada,United States,13
+Denmark,Denmark,13
+Austria,Austria,12
+Argentina,Argentina,11
+India,United Arab Emirates,11
+Brazil,NA,10
+France,NA,10
+Ireland,Ireland,10
+Poland,Poland,10
+Canada,China,9
+Canada,NA,9
+Russia,Switzerland,9
+South Africa,South Africa,9
+Taiwan,NA,9
+Ukraine,Ukraine,9
+United Arab Emirates,United Arab Emirates,9
+Kazakhstan,Kazakhstan,8
+Peru,Peru,8
+Sweden,United Kingdom,8
+Taiwan,China,8
+Vietnam,Vietnam,8
+Belgium,Belgium,7
+Brazil,Switzerland,7
+Czech Republic,Czech Republic,7
+Finland,Finland,7
+Hong Kong,NA,7
+Indonesia,Singapore,7
+Cyprus,Cyprus,6
+Egypt,Egypt,6
+Greece,Greece,6
+United Kingdom,NA,6
+Australia,NA,5
+Brazil,United States,5
+France,United States,5
+Germany,Austria,5
+Hungary,Hungary,5
+India,United Kingdom,5
+India,NA,5
+Israel,United States,5
+Italy,Monaco,5
+Italy,NA,5
+Nigeria,Nigeria,5
+Russia,Israel,5
+Russia,United Kingdom,5
+Sweden,Switzerland,5
+United Kingdom,Hong Kong,5
+United Kingdom,Monaco,5
+United Kingdom,United States,5
+United States,United Kingdom,5
+Austria,NA,4
+China,NA,4
+France,United Kingdom,4
+Ireland,India,4
+Israel,United Kingdom,4
+Italy,Switzerland,4
+Japan,NA,4
+Mexico,NA,4
+Morocco,Morocco,4
+Peru,NA,4
+Romania,Romania,4
+Switzerland,United Kingdom,4
+United Kingdom,Switzerland,4
+United States,Hong Kong,4
+Belgium,NA,3
+Canada,Hong Kong,3
+China,Singapore,3
+Cyprus,Monaco,3
+Czech Republic,Switzerland,3
+France,Switzerland,3
+Germany,United States,3
+India,Singapore,3
+Israel,NA,3
+Kuwait,Kuwait,3
+Lebanon,Lebanon,3
+Malaysia,NA,3
+Monaco,Monaco,3
+Oman,Oman,3
+Portugal,Portugal,3
+Romania,United States,3
+Russia,Cyprus,3
+Russia,Monaco,3
+Singapore,China,3
+Slovakia,Slovakia,3
+South Korea,Japan,3
+Spain,NA,3
+Sweden,NA,3
+Thailand,NA,3
+United Kingdom,United Arab Emirates,3
+Armenia,Armenia,2
+Australia,United Kingdom,2
+Australia,United States,2
+Belgium,Switzerland,2
+Brazil,Hong Kong,2
+Brazil,United Kingdom,2
+Bulgaria,United Kingdom,2
+Canada,Switzerland,2
+Canada,United Kingdom,2
+China,United States,2
+Colombia,Brazil,2
+Colombia,Colombia,2
+Cyprus,United Kingdom,2
+Czech Republic,NA,2
+Egypt,United Kingdom,2
+Germany,United Kingdom,2
+Greece,Switzerland,2
+Ireland,United Kingdom,2
+Ireland,United States,2
+Italy,Argentina,2
+Italy,France,2
+Italy,United States,2
+Kuwait,NA,2
+Lebanon,Bahrain,2
+Lebanon,France,2
+Macau,Macau,2
+Malaysia,Hong Kong,2
+Nepal,Nepal,2
+Netherlands,Switzerland,2
+Netherlands,United Kingdom,2
+New Zealand,New Zealand,2
+Norway,Switzerland,2
+Philippines,NA,2
+Poland,NA,2
+Portugal,United Kingdom,2
+Portugal,NA,2
+Qatar,Qatar,2
+Russia,United Arab Emirates,2
+Russia,United States,2
+Russia,NA,2
+Singapore,NA,2
+Spain,Switzerland,2
+St. Kitts and Nevis,China,2
+Switzerland,United States,2
+Switzerland,NA,2
+Tanzania,Tanzania,2
+Turkey,United States,2
+Turkey,NA,2
+United Arab Emirates,NA,2
+United States,Bahamas,2
+United States,Singapore,2
+United States,South Korea,2
+United States,Switzerland,2
+Uruguay,Uruguay,2
+Algeria,Algeria,1
+Angola,Angola,1
+Argentina,Uruguay,1
+Argentina,NA,1
+Australia,Bahamas,1
+Australia,Bermuda,1
+Australia,China,1
+Australia,India,1
+Australia,Israel,1
+Austria,Hong Kong,1
+Austria,Monaco,1
+Austria,Switzerland,1
+Bangladesh,Singapore,1
+Barbados,United States,1
+Belgium,Czechia,1
+Belgium,Kazakhstan,1
+Belgium,Monaco,1
+Belgium,United Kingdom,1
+Belize,Cayman Islands,1
+Belize,China,1
+Brazil,Bermuda,1
+Brazil,Singapore,1
+Canada,Italy,1
+Canada,United Arab Emirates,1
+Chile,Hong Kong,1
+Chile,NA,1
+Colombia,Argentina,1
+Colombia,Bermuda,1
+Colombia,United Kingdom,1
+Colombia,United States,1
+Colombia,NA,1
+Croatia,Switzerland,1
+Cyprus,India,1
+Cyprus,United Arab Emirates,1
+Cyprus,United States,1
+Czechia,Czechia,1
+Denmark,Switzerland,1
+Denmark,NA,1
+Egypt,NA,1
+Estonia,United Kingdom,1
+Eswatini (Swaziland),Eswatini (Swaziland),1
+Finland,NA,1
+France,Singapore,1
+France,United Arab Emirates,1
+France,n/a,1
+Georgia,Georgia,1
+Georgia,Kazakhstan,1
+Germany,Denmark,1
+Germany,Hong Kong,1
+Germany,Monaco,1
+Germany,South Africa,1
+Greece,France,1
+Greece,Monaco,1
+Guatemala,Guatemala,1
+Guernsey,Guernsey,1
+Iceland,Denmark,1
+Iceland,United Kingdom,1
+India,Hong Kong,1
+India,Thailand,1
+India,United States,1
+Indonesia,United Kingdom,1
+Indonesia,NA,1
+Israel,Italy,1
+Israel,Kazakhstan,1
+Israel,Monaco,1
+Israel,Ukraine,1
+Italy,Belgium,1
+Italy,Hong Kong,1
+Italy,Luxembourg,1
+Japan,New Zealand,1
+Japan,Singapore,1
+Kuwait,United States,1
+Lebanon,Switzerland,1
+Lebanon,United Kingdom,1
+Lebanon,NA,1
+Liechtenstein,Liechtenstein,1
+Lithuania,Lithuania,1
+Luxembourg,Switzerland,1
+Macau,China,1
+Malaysia,Australia,1
+Malaysia,Cambodia,1
+Malaysia,Indonesia,1
+Malaysia,Singapore,1
+Mexico,United States,1
+Monaco,Switzerland,1
+Monaco,United States,1
+Monaco,NA,1
+Morocco,NA,1
+Netherlands,Hong Kong,1
+Netherlands,United States,1
+Netherlands,NA,1
+New Zealand,Australia,1
+New Zealand,Singapore,1
+New Zealand,United Arab Emirates,1
+Norway,Monaco,1
+Norway,United States,1
+Norway,NA,1
+Oman,United Arab Emirates,1
+Pakistan,Pakistan,1
+Panama,NA,1
+Poland,Switzerland,1
+Poland,United Kingdom,1
+Romania,United Kingdom,1
+Romania,NA,1
+Russia,Australia,1
+Russia,Austria,1
+Russia,France,1
+Russia,Georgia,1
+Russia,Latvia,1
+Russia,Seychelles,1
+Russia,Uzbekistan,1
+Saudi Arabia,NA,1
+Singapore,Taiwan,1
+South Africa,Bermuda,1
+South Korea,NA,1
+Spain,Andorra,1
+Spain,United Kingdom,1
+St. Kitts and Nevis,Cayman Islands,1
+Sweden,Belgium,1
+Sweden,Hong Kong,1
+Sweden,United States,1
+Switzerland,Monaco,1
+Switzerland,Spain,1
+Taiwan,Singapore,1
+Taiwan,United States,1
+Thailand,Hong Kong,1
+Thailand,Malaysia,1
+Thailand,United Arab Emirates,1
+Uganda,Uganda,1
+Ukraine,United Kingdom,1
+Ukraine,NA,1
+United Kingdom,Bahamas,1
+United Kingdom,British Virgin Islands,1
+United Kingdom,Cayman Islands,1
+United Kingdom,China,1
+United Kingdom,Turks and Caicos Islands,1
+United States,Australia,1
+United States,Germany,1
+United States,India,1
+United States,Israel,1
+United States,Taiwan,1
+United States,U.S. Virgin Islands,1
+Venezuela,Dominican Republic,1
+Venezuela,Spain,1
+Venezuela,Venezuela,1
+Zimbabwe,United Kingdom,1

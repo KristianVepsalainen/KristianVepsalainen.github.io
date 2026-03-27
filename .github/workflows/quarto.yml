@@ -38,6 +38,10 @@ jobs:
           wbstats
           countrycode
           janitor
+          ggalluvial
+          ggraph
+          igraph
+          broom
           modelsummary
           brms
           stan-dev/cmdstanr

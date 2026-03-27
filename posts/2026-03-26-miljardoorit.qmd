@@ -18,7 +18,6 @@ format:
 execute:
   warning: false
   message: false
-draft: false
 ---
 
 ```{r}

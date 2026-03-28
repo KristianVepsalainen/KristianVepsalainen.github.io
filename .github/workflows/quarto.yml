@@ -1,56 +1,95 @@
-name: build-site
+name: Quarto Publish
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  build:
+  build-deploy:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    env:
+      R_LIBS_USER: ~/.local/share/R
+
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - uses: actions/checkout@v4
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
 
-    - uses: r-lib/actions/setup-r@v2
+      - name: Setup Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
 
-    - name: system dependencies for Stan
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential gfortran make
+      # system tools vain kerran
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            gfortran \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libxml2-dev \
+            libharfbuzz-dev \
+            libfribidi-dev
 
-    - uses: r-lib/actions/setup-r-dependencies@v2
-      with:
-        packages: |
-          eurostat
-          dplyr
-          tsibble
-          ggplot2
-          lubridate
-          feasts
-          fable
-          slider
-          flextable
-          tidyverse
-          dcurves
-          scoringRules
-          here
-          wbstats
-          countrycode
-          janitor
-          ggalluvial
-          ggraph
-          igraph
-          tidybayes
-          broom
-          modelsummary
-          brms
-          stan-dev/cmdstanr
+      # cache nopeuttaa buildin 10–20x
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/R
+            ~/.cache/R
+          key: r-${{ runner.os }}-v1-${{ hashFiles('**/*.qmd','**/*.R') }}
+          restore-keys: |
+            r-${{ runner.os }}-v1-
 
-    - name: install CmdStan
-      run: |
-        Rscript -e 'cmdstanr::install_cmdstan()'
+      # nopeampi kuin install.packages
+      - name: Install R packages
+        run: |
+          install.packages("pak", repos = "https://cloud.r-project.org")
 
-    - name: render site
-      run: |
-        quarto render
+          pak::pak(c(
+            "eurostat",
+            "dplyr",
+            "tsibble",
+            "ggplot2",
+            "lubridate",
+            "feasts",
+            "fable",
+            "slider",
+            "flextable",
+            "tidyverse",
+            "dcurves",
+            "scoringRules",
+            "here",
+            "wbstats",
+            "countrycode",
+            "janitor",
+            "ggalluvial",
+            "ggraph",
+            "igraph",
+            "tidybayes",
+            "broom",
+            "modelsummary",
+            "brms",
+            "stan-dev/cmdstanr"
+          ))
+        shell: Rscript {0}
+
+      - name: Render site
+        run: quarto render --no-cache
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

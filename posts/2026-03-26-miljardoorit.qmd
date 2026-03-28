@@ -867,7 +867,9 @@ fit_feedback <-
 
     chains = 4,
 
-    iter = 2000
+    iter = 2000, 
+    
+     refresh = 0
 
   )
 ```

@@ -2,7 +2,8 @@
 title: "Tarvitseeko Suomi lisää miljardöörejä? Data-analyysi miljardöörien roolista taloudessa"
 description: "Helsingin Sanomat kysyi tarvitseeko Suomi lisää miljardöörejä. Analysoin maailman miljardööridataa ja selvitän, miten miljardöörit liittyvät innovaatioihin, talouskasvuun ja eriarvoisuuteen."
 author: "Kristian Vepsäläinen"
-date: "2025-03-26"
+date: "2026-03-26"
+slug: miljardoorit-taloudessa
 categories:
   - data science
   - taloustiede

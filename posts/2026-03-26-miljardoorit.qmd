@@ -914,6 +914,20 @@ observed_finland <-
 
   mean(finland$n_billionaires)
 
+library(tidybayes)
+
+finland_post <-
+
+  add_epred_draws(
+
+    fit_feedback,
+
+    newdata = finland,
+
+    ndraws = 2000
+
+  )
+
 finland_post |>
 
   ggplot(

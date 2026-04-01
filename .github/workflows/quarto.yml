@@ -80,6 +80,7 @@ jobs:
             "data.table",
             "glue",
             "lubridate",
+            "pxweb",
             "future",
             "furrr",
             "fst",

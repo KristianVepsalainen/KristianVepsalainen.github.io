@@ -1,0 +1,295 @@
+---
+title: "Työmarkkinakeskustelu ilman jakaumia on pseudokeskustelua"
+subtitle: "Osa 1 – Onko Suomessa oikeasti työvoimapula?"
+author: "Kristian Vepsäläinen"
+date: 2026-04-08
+categories:
+  - data science
+  - työmarkkinat
+  - talous
+  - R
+  - tilastotiede
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+    toc-depth: 3
+    number-sections: true
+execute:
+  warning: false
+  message: false
+slug: suomen-tyovoimapula
+draft: true
+---
+
+## Tiivistelmä
+
+Suomessa puhutaan jatkuvasti työvoimapulasta.  
+Samalla työttömyys kasvaa.
+
+Nämä kaksi väitettä eivät voi olla yhtä aikaa totta yksinkertaisessa maailmassa, jossa työmarkkinat kuvataan yhdellä luvulla.
+
+Todellisessa maailmassa lähes mikään ei ole yksi luku.  
+Maailma on jakauma.
+
+Työmarkkinat eivät ole yksi markkina, vaan suuri joukko osamarkkinoita:
+
+- ammatit
+- alueet
+- osaamistasot
+- terveydentila
+- palkkatasot
+- kielitaito
+- kokemus
+- koulutus
+
+Kun nämä jakaumat eivät kohtaa, syntyy samanaikaisesti:
+
+- työvoimapula
+- työttömyys
+- osaajapula
+- ylikoulutus
+- rekrytointivaikeudet
+
+Tämä kirjoitussarja purkaa työvoimapulakeskustelun datan avulla.
+
+Ensimmäisessä osassa tarkastelemme peruskysymystä:
+
+onko Suomessa oikeasti työvoimapula?
+
+---
+
+## Miksi työvoimapula on hankala käsite?
+
+Työvoimapula esitetään usein yksittäisenä väitteenä:
+
+> Suomessa on työvoimapula.
+
+Mutta mitä tämä tarkoittaa?
+
+Mahdollisia tulkintoja:
+
+1. avoimia työpaikkoja on paljon
+2. yritykset kokevat rekrytoinnin vaikeaksi
+3. työttömyys on matalaa
+4. palkat nousevat nopeasti
+5. tietyillä aloilla on pula osaajista
+
+Nämä eivät ole sama asia.
+
+Data science -näkökulmasta kyse on  jakaumien **kohtaanto-ongelmasta**:
+
+työpaikkojen vaatimukset  vs  työntekijöiden ominaisuudet.
+
+Jos jakaumat eivät kohtaa, työmarkkina ei tasapainotu.
+
+---
+
+## Keskeinen havainto: työvoimapula ja työttömyys voivat esiintyä yhtä aikaa
+
+Jos työmarkkina olisi yksi homogeeninen markkina, korkea työttömyys tarkoittaisi automaattisesti, ettei työvoimapulaa ole. Käytännössä näin ei tapahdu.
+
+Esimerkkejä:
+
+- sairaanhoitajista voi olla pula, vaikka tradenomeja on työttömänä
+- ohjelmistokehittäjistä voi olla pula, vaikka markkinointikoordinaattoreita on paljon tarjolla
+- pääkaupunkiseudulla voi olla pula työvoimasta, vaikka toisella alueella työttömyys on korkea
+
+Keskiarvo ei kuvaa tilannetta.
+
+Tarvitsemme jakaumia.
+
+---
+
+## Data
+
+Tarkastellaan kahta keskeistä muuttujaa:
+
+- työttömien määrä
+- avoimien työpaikkojen määrä
+
+Jos työvoimapula on todellinen, avoimia työpaikkoja pitäisi olla paljon suhteessa työttömiin.
+
+Lähteet:
+
+Tilastokeskus  
+Eurostat  
+
+Käytän avoimia rajapintoja.
+
+```{r}
+#| echo: false
+
+library(tidyverse)
+library(pxweb)
+library(eurostat)
+library(janitor)
+library(lubridate)
+
+theme_set(theme_minimal(base_size = 14))
+```
+
+## Työttömyys Suomessa
+
+Työttömyys vaihtelee suhdanteiden mukana:
+
+Finanssikriisi nosti työttömyyttä.
+Korona nosti työttömyyttä hetkellisesti.
+Vuonna 2022 työmarkkina oli poikkeuksellisen vahva.
+
+```{r}
+#| echo: false
+
+unemp <- get_eurostat(
+  "une_rt_m",
+  time_format = "date"
+) |>
+  filter(
+    geo == "FI",
+    sex == "T",
+    age == "TOTAL",
+    unit == "PC_ACT",
+    s_adj == "SA"
+  ) |>
+  select(
+    time = TIME_PERIOD,
+    unemployment_rate = values
+  ) |>
+  arrange(time)
+
+
+ggplot(unemp, aes(time, unemployment_rate)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Työttömyysaste Suomessa",
+    x = NULL,
+    y = "%"
+  )
+```
+
+Työttömyys ei ole vakio. Se vaihtelee talouden mukana.
+
+Tämä on loogista, koska työvoimapula voi olla suhdanneilmiö.
+
+## Avoimet työpaikat
+
+Avoimet työpaikat mittaavat työvoiman kysyntää. Käytetään mittaamiseen Eurostatin muuttujaa *Job Vancancy Rate* eli avoimien työpaikkojen prosenttiosuus kaikistatyöpaikoista.
+
+```{r}
+#| echo: false
+
+vac <- get_eurostat("jvs_q_nace2") |>
+  filter(
+    geo == "FI",
+    nace_r2 == "B-S",
+    s_adj == "SA",
+    sizeclas == "TOTAL",
+    indic_em == "JVR"
+  ) |>
+  select(time = TIME_PERIOD, vacancy_rate = values) |>
+  drop_na()
+
+
+#| echo: false
+
+ggplot(vac, aes(time, vacancy_rate)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Avoimet työpaikat Suomessa",
+    x = NULL,
+    y = "indeksi"
+  )
+```
+Huomio:
+
+avoimien työpaikkojen määrä kasvoi voimakkaasti vuosina 2021–2022. Sen jälkeen kasvu hidastui. Työvoimapula ei ole vakioilmiö.
+
+## Beveridge-käyrä
+
+Yksi klassinen tapa tarkastella työmarkkinoita on Beveridge-käyrä.
+
+Se kuvaa suhdetta työttömyyden ja avoimien työpaikkojen välillä-
+
+Jos työmarkkina toimii tehokkaasti, näiden välillä on negatiivinen yhteys: kun avoimia työpaikkoja on paljon, työttömyys on matalaa. Jos Beveridge-käyrä siirtyy ulospäin, työmarkkinoiden kohtaanto heikkenee. Tämä tarkoittaa: työttömyyttä on enemmän suhteessa avoimiin työpaikkoihin.
+
+
+```{r}
+#| echo: false
+
+joined <- unemp |>
+  inner_join(vac, by = "time")
+
+ggplot(joined, aes(unemployment_rate, vacancy_rate)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(se = FALSE) +
+  labs(
+    x = "työttömyysaste",
+    y = "avoimet työpaikat",
+    title = "Beveridge-käyrä"
+  )
+```
+
+## Mitä tästä voi päätellä?
+
+Yksi keskeinen havainto:
+
+työvoimapula ei ole vakio. Se vaihtelee ajan mukana.
+
+Tämä viittaa siihen, että työvoimapula ei ole yksinkertainen rakenteellinen ongelma.
+
+Kyse on todennäköisesti useiden tekijöiden yhdistelmästä:
+
+* suhdanne
+* kohtaanto
+* osaaminen
+* alueellinen liikkuvuus
+
+
+## Miksi yksi luku ei riitä?
+
+Jos työmarkkinoita kuvataan yhdellä luvulla, menetetään lähes kaikki informaatio.
+
+Esimerkki:
+
+uutsissa sanotaan, että työttömyysaste 8 %:a.
+
+Mitä tämä tarkoittaa?
+
+* onko kaikilla aloilla 8 % työttömyys?
+* onko kaikilla osaamistasoilla 8 % työttömyys?
+* onko kaikilla alueilla 8 % työttömyys?
+
+Ei mikään näistä vaihtoehdoista, vaan kyse on keskiarvosta. Keskiarvo voi peittää alleen täysin erilaisia tilanteita.
+
+## Jakaumat ratkaisevat
+
+Työmarkkinoilla on useita keskeisiä jakaumia:
+
+* osaamisjakauma
+* terveysjakauma
+* koulutusjakauma
+* palkkajakauma
+* työpaikkojen vaativuusjakauma
+
+Jos jakaumat eivät kohtaa, syntyy kitkaa.
+
+Kitka näkyy:
+* pitkittyvinä rekrytointeina
+* ylikoulutuksena
+* työttömyytenä
+* osaajapulana
+
+samanaikaisesti.
+
+## Mitä seuraavaksi?
+
+Seuraavassa osassa tarkastelen kohtaantoa tarkemmin.
+
+Kysyn:
+
+onko työn ja tekijöiden kohtaaminen heikentynyt?
+
+Jos kohtaanto heikkenee, työvoimapula voi syntyä ilman että työpaikkojen määrä kasvaa merkittävästi.
+
+Tämä on keskeinen mekanismi, joka voi selittää nykyistä keskustelua.

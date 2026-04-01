@@ -190,6 +190,27 @@ true_mean <-
     1000000,
     FALSE
   )
+
+results |>
+  ggplot(
+    aes(
+      estimate,
+      fill = sample
+    )
+  ) +
+  geom_density(
+    alpha = 0.35
+  ) +
+  geom_vline(
+    xintercept = true_mean,
+    linetype = 2
+  ) +
+  labs(
+    x = "arvio keskimääräisestä onnellisuudesta",
+    y = "tiheys",
+    fill = "otos"
+  ) +
+  theme_minimal()
 ```
 
 Kuva näyttää kolme jakaumaa. Pystysuora viiva on todellinen arvo. Satunnainen 1000 vastaajan otos osuu oikeaan keskimäärin. Suuri vinoutunut otos ei osu oikeaan, vaikka havaintoja on moninkertainen määrä. Vinouma ei katoa otoskokoa kasvattamalla.

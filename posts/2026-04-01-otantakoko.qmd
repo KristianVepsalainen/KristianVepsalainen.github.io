@@ -211,6 +211,25 @@ results |>
     fill = "otos"
   ) +
   theme_minimal()
+
+
+results |>
+  ggplot(
+    aes(
+      x = estimate,
+      fill = sample
+    )
+  ) +
+  geom_histogram(
+    bins = 60,
+    alpha = 0.4,
+    position = "identity"
+  ) +
+  geom_vline(
+    xintercept = true_mean,
+    linetype = "dashed"
+  ) +
+  theme_minimal()
 ```
 
 Kuva näyttää kolme jakaumaa. Pystysuora viiva on todellinen arvo. Satunnainen 1000 vastaajan otos osuu oikeaan keskimäärin. Suuri vinoutunut otos ei osu oikeaan, vaikka havaintoja on moninkertainen määrä. Vinouma ei katoa otoskokoa kasvattamalla.

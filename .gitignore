@@ -34,7 +34,6 @@ docs/
 *.so
 *.dll
 *.dylib
-/posts/2026-01-04-protestit-ja-saa.qmd
 # -----------------
 # OS / editor
 # -----------------

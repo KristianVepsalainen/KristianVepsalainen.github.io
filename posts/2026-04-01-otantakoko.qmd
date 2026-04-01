@@ -183,7 +183,11 @@ results <-
       map_dbl(sim, ~ simulate_sample(100000,TRUE))
 
   ) |>
-  pivot_longer(-sim)
+  pivot_longer(
+    cols = -sim,
+    names_to = "sample",
+    values_to = "estimate"
+  )
 
 true_mean <-
   simulate_sample(
@@ -209,25 +213,6 @@ results |>
     x = "arvio keskimääräisestä onnellisuudesta",
     y = "tiheys",
     fill = "otos"
-  ) +
-  theme_minimal()
-
-
-results |>
-  ggplot(
-    aes(
-      x = estimate,
-      fill = sample
-    )
-  ) +
-  geom_histogram(
-    bins = 60,
-    alpha = 0.4,
-    position = "identity"
-  ) +
-  geom_vline(
-    xintercept = true_mean,
-    linetype = "dashed"
   ) +
   theme_minimal()
 ```

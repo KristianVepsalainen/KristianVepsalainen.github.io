@@ -13,7 +13,8 @@ docs/
 # -----------------
 *_cache/
 *_files/
-
+*_site_libs/
+*/site_libs/
 # varmuuden vuoksi myös alihakemistoihin
 **/*_cache/
 **/*_files/

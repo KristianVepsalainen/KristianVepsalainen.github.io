@@ -7,195 +7,309 @@ library(sf)
 library(terra)
 library(fst)
 library(here)
+library(stringr)
 
 
-wf_set_key(
-  user = "cds",
-  key = keyring::key_get("ecmwfr")
-)
 
-#Vaihe 1 – bounding box protestidatasta: ei haeta turhaan koko Eurooppaa
+#Vaihe 1 - bounding box protestidatasta: ei haeta turhaan koko Eurooppaa
 
 protests <-
-  read_fst(protests_europe, here("data","processed","protest.fst"))
-bbox <-
-  
-  protests |>
-  
-  summarise(
-    
-    north = max(latitude) + 1,
-    south = min(latitude) - 1,
-    
-    east = max(longitude) + 1,
-    west = min(longitude) - 1
-    
-  )
-
-#Vaihe 2 – ERA5 request koko periodille: testaus 2022-2024
-
-request <- list(
-  
-  product_type = "reanalysis",
-  
-  variable = c(
-    
-    "2m_temperature",
-    "total_precipitation",
-    
-    "10m_u_component_of_wind",
-    "10m_v_component_of_wind"
-    
-  ),
-  
-  year = 2022:2024,
-  
-  month = sprintf("%02d",1:12),
-  
-  day = sprintf("%02d",1:31),
-  
-  time = "12:00",
-  
-  format = "netcdf",
-  
-  area = c(
-    
-    bbox$north,
-    bbox$west,
-    bbox$south,
-    bbox$east
-    
-  )
-  
-)
-
-wf_request(
-  
-  user = "cds",
-  
-  dataset =
-    "reanalysis-era5-single-levels",
-  
-  request = request,
-  
-  path =
-    "data/era5_europe.nc"
-  
-)
-
-#vaihe 3 - raster -> tidy dataframe
-
-library(terra)
-library(tidyverse)
-
-weather <-
-  
-  rast(
-    "data/era5_europe.nc"
-  )
-
-weather_df <-
-  
-  as.data.frame(
-    
-    weather,
-    
-    xy = TRUE,
-    
-    time = TRUE
-    
-  ) |>
-  
-  rename(
-    
-    longitude = x,
-    latitude = y
-    
-  )
-#Vaihe 4 - tuulen nopeus
-
-weather_df <-
-  
-  weather_df |>
+  read_fst(here("data","processed","protest.fst")) |>
   
   mutate(
     
-    wind = sqrt(
-      
-      u10^2 +
-        v10^2
-      
-    ),
-    
-    temp =
-      
-      t2m - 273.15,
-    
-    rain =
-      
-      tp * 1000
+    date =
+      as.Date(event_date)
     
   )
 
-#Huom! Yksiköt - lämpötila: Kelvin, tp: metriä vettä, wind: m/s
 
-#Vaihe 5 - liitetään protesteihin: koordinaatit eivät identtiset -> käytetään lähintä
+#Vaihe 2 – lue ERA5 rasterit (ei dataframeksi!)
 
-library(sf)
-
-weather_sf <-
+instant <-
   
-  st_as_sf(
+  rast(
+    here(
+      "data/raw/era5/data_stream-oper_stepType-instant.nc"
+    )
+  )
+
+accum <-
+  
+  rast(
+    here(
+      "data/raw/era5/data_stream-oper_stepType-accum.nc"
+    )
+  )
+
+weather <-
+  
+  c(
+    instant,
+    accum
+  )
+
+#Vaihe 3 – parsitaan layer metadata ilman pivotointia
+
+layer_info <-
+  
+  data.table(
+    layer =
+      names(weather)
+  ) |>
+  
+  mutate(
     
-    weather_df,
+    variable =
+      sub(
+        "_valid_time=.*",
+        "",
+        layer
+      ),
     
-    coords =
+    time =
+      as.POSIXct(
+        as.numeric(
+          sub(
+            ".*=",
+            "",
+            layer
+          )
+        ),
+        origin = "1970-01-01",
+        tz = "UTC"
+      ),
+    
+    date =
+      as.Date(time)
+    
+  )
+
+#Vaihe 4 – pidetään vain tarvittavat päivät
+
+needed_dates <-
+  unique(
+    as.Date(
+      protests$event_date
+    )
+  )
+
+keep_layers <-
+  
+  layer_info |>
+  
+  filter(
+    date %in%
+      needed_dates
+  )
+
+# Vaihe 5 – valitaan rasterista vain tarvittavat layerit
+weather_small <-
+  
+  weather[[
+    keep_layers$layer
+  ]]
+
+# Vaihe 6 – protestipisteet SpatVectoriksi
+points <-
+  
+  terra::vect(
+    
+    protests |>
+      
+      select(
+        longitude,
+        latitude
+      ),
+    
+    geom =
       c(
         "longitude",
         "latitude"
       ),
     
-    crs = 4326
+    crs = "EPSG:4326"
     
   )
 
-protests_sf <-
+values <-
   
-  st_as_sf(
+  terra::extract(
+    weather_small,
+    points,
+    ID = FALSE
+  )
+
+#Vaihe 7 – nimetään srakkeet oikein
+
+colnames(values) <-
+  
+  keep_layers$layer
+
+# Vaihe 8 - yhdistetään protesteihin
+
+weather_wide <-
+  
+  cbind(
+    protests,
+    values
+  )
+
+#Vaihe 9 - Valitaan oikea päivä per prostesti
+
+get_weather_for_row <- function(date, row_values, info){
+  
+  idx <-
+    info$date == date
+  
+  vars <-
+    info$variable[idx]
+  
+  vals <-
+    as.numeric(
+      row_values[idx]
+    )
+  
+  out <-
+    setNames(
+      vals,
+      vars
+    )
+  
+  return(out)
+  
+}
+
+#Vaihe 9 - rakennetaan lopullinen dataset
+
+weather_final <-
+  
+  map_dfr(
+    
+    1:nrow(weather_wide),
+    
+    function(i){
+      
+      w <-
+        
+        get_weather_for_row(
+          
+          as.Date(
+            weather_wide$event_date[i]
+          ),
+          
+          weather_wide[i, keep_layers$layer],
+          
+          keep_layers
+          
+        )
+      
+      tibble(
+        
+        event_id =
+          weather_wide$event_id[i],
+        
+        temp =
+          w["t2m"] - 273.15,
+        
+        rain =
+          w["tp"] * 1000,
+        
+        wind =
+          sqrt(
+            w["u10"]^2 +
+              w["v10"]^2
+          )
+        
+      )
+      
+    }
+    
+  )
+
+#Vaihe 10 - yhdistetään takaisin protestidataan
+
+protests_weather <-
+  
+  bind_cols(
     
     protests,
     
-    coords =
-      c(
-        "longitude",
-        "latitude"
-      ),
-    
-    crs = 4326
+    weather_final |>
+      
+      select(
+        temp,
+        rain,
+        wind
+      )
     
   )
 
-joined <-
+#Vaihe 11 - määritellään hyvä sää
+
+protests_weather <-
   
-  st_join(
+  protests_weather |>
+  
+  mutate(
     
-    protests_sf,
-    
-    weather_sf,
-    
-    join =
-      st_nearest_feature
+    good_weather =
+      
+      temp > 0 &
+      rain < 1 &
+      wind < 8
     
   )
 
-#Sanity check - tästä pitäisi tulla lähelle nolla
+#vaih 12 - kirjoitetaan
 
-joined |>
+write_fst(
+  
+  protests_weather,
+  
+  here(
+    "data/derived/protests_weather.fst"
+  )
+  
+)
+
+#Sanity chek
+
+summary(
+    protests_weather$temp)
+
+protests_weather |>
   
   summarise(
     
-    missing_weather =
-      
+    share_missing =
+      mean(is.na(temp)),
+    
+    n_missing =
+      sum(is.na(temp))
+    
+  )
+
+protests_weather |>
+  
+  filter(
+    is.na(temp)
+  ) |>
+  
+  count(country)
+#ongelmia erityisesti svetisissä
+protests_weather |>
+  
+  filter(
+    country == "CH"
+  ) |>
+  
+  summarise(
+    
+    share_missing =
       mean(is.na(temp))
     
   )
+
+range(needed_dates)
+range(layer_info$date)

@@ -1,0 +1,249 @@
+---
+title: "Protestit tapahtuvat harvoin huonossa säässä"
+description: "Eurooppalainen data osoittaa, että protestit ajoittuvat selvästi useammin siedettävään säähän. Sää ei aiheuta protesteja, mutta se vaikuttaa siihen milloin ne järjestetään."
+author: "Kristian Vepsäläinen"
+date: "2026-03-31"
+slug: protestit-ja-saa
+categories:
+  - data science
+  - yhteiskunta
+  - kausaalisuus
+  - valikoituminen
+  - visualisointi
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute:
+  warning: false
+  message: false
+draft: TRUE  
+---
+
+Tämän postauksen kimmokkeena oli Elokapinan mielenkilmaus Lapinlahdella. Mielenilmaukset kuuluvat demokratiaan, mutta somessa usein kysytään, miksi näitä näkee lähinnä hyvällä säällä. Olen myös itse miettinyt samaa ja päätin selvittää, onko protesteilla ja säätilalla yhteyttä. Loogisesti ajatellen näin voisi olla, sillä harva haluaa osoittaa mieltään, jos on myrskytuuli tai pakkasta 30 astetta.
+
+## Data
+
+Tarkastelin eurooppalaisia protesteja vuosilta 2022–2024 ja yhdistin niihin säätiedot. Protestien datalähteenä toimii [The GDELT Project](https://www.gdeltproject.org/). Se kerää dataa protesteista ja väkivaltaisuuksista maailman medioista yli sadalla eri kielellä lähes kaikkialta. Säätiedot puolestaan hain  Copernicus-hankkeen [Climate Data Storesta](https://cds.climate.copernicus.eu/). Molemmat ovat erittäin suositeltavia lähteitä laadukkaisiin analyyseihin.
+
+Analyysissä mukana:
+
+- 2170 protestia
+- 12 Euroopan maata
+- lämpötila, sade ja tuuli protestipäivänä
+
+Hyvä sää määriteltiin seuraavasti:
+
+- lämpötila yli 0 °C
+- sadetta alle 1 mm päivässä
+- tuulen nopeus alle 8 m/s
+
+Kriteeri ei ole erityisen tiukka — se kuvaa lähinnä säätä, jossa ulkona oleminen on kohtuullisen mukavaa.
+
+```{r}
+library(here)
+library(fst)
+library(tidyverse)
+
+protests_weather <- read_fst(here(
+    "data/derived/protests_weather.fst"
+  ))
+
+analysis_data <-
+  
+  protests_weather |>
+  
+  filter(
+    !is.na(temp),
+    country != "CH"
+  )
+
+
+```
+
+## Kuinka usein protesteja järjestetään hyvässä säässä?
+
+```{r}
+number <- analysis_data |>
+
+  count(good_weather) |>
+
+  mutate(
+    share = n / sum(n)
+  )
+
+number <- number %>% 
+  filter(good_weather == 1)
+```
+
+Protesteista noin `r round(number$share*100,1)` tapahtuu hyvässä säässä. Visualisoidaan jakauma:
+
+```{r}
+analysis_data |>
+
+  count(good_weather) |>
+
+  mutate(
+    share = n / sum(n),
+    label = scales::percent(share, accuracy = 1)
+  ) |>
+
+  ggplot(
+    aes(
+      x = good_weather,
+      y = share
+    )
+  ) +
+
+  geom_col() +
+
+  geom_text(
+    aes(label = label),
+    vjust = -0.5
+  ) +
+
+  scale_y_continuous(
+    labels = scales::percent,
+    limits = c(0,1)
+  ) +
+
+  labs(
+    x = "",
+    y = "",
+    title = "Suurin osa protesteista tapahtuu siedettävässä säässä"
+  )
+```
+
+## Entä lämpötila?
+Miten on, riittääkö lämpötila yksin selittämään ilmiötä? Voidaanko unohtaa tuulen ja sateen vaikutus? 
+```{r}
+temp <- analysis_data |>
+
+  summarise(
+    share_above_zero =
+      mean(temp > 0)
+  )
+```
+
+Yli nollan asteen lämpötilassa protesteista järjesttiin `r round(temp*100,1)` prosenttia eli suuri valtaosa.
+
+## Vertailu satunnaisiin päiviin
+
+Seuraava looginen kysymys on se, että miten päivät, jolloin ei ole protesteja? Onko niiden päivien sää selkeästi huonompi kuin päivinä, jolloin protesteja on? Tätä varten luodaan kontrolliaineisto, johon arvotaan satunnaisia päiviä samalta ajanjaksolta eli vuosilta 2022-2024 ja samoilta sijanneilta ja haetaan niiden säädata.
+
+```{r}
+set.seed(1)
+
+random_dates <-
+
+  analysis_data |>
+
+  mutate(
+    date =
+      sample(
+        unique(layer_info$date),
+        size = n(),
+        replace = TRUE
+      )
+  )
+
+weather_lookup <-
+
+  analysis_data |>
+
+  select(
+    longitude,
+    latitude
+  ) |>
+
+  distinct()
+
+eu_winter <- 
+  random_dates |>
+
+  summarise(
+    share_above_zero =
+      mean(temp > 0)*100,
+    share_low_rain =
+      mean(rain < 1)*100,
+    share_low_wind =
+      mean(wind < 8)*100
+  )
+```
+
+Satunnaisesti valittuilla pävillä on keskimäärin säätila on yli nollan `r eu_winter$share_above_zero` %:ssa päiviä, sadetta vähän `r eu_winter$share_low_rain` %:ssa päiviä ja tuuli suotuisa `r eu_winter$share_low_wind`%:ssa päiviä.
+
+## Kuinka paljon sää vaikuttaa?
+
+Tehdään logistinen malli ja ilmoitetaan tulos todennäköisyytenä:
+
+```{r}
+model <-
+
+  glm(
+
+    good_weather ~ 1,
+
+    family = binomial(),
+
+    data = analysis_data
+
+  )
+
+
+tn<- plogis(coef(model))
+```
+
+Yhteys on vahva, sillä todnenäköisyys on `r tn`.
+
+## Vaikuttaako sää enemmän maissa, joissa on oikea talvi?
+
+Yksi tapa testata hypoteesia on tarkastella maita, joissa talvi on aidosti kylmä.
+
+Pohjoismaissa suuri osa vuodesta on ulkotapahtumien kannalta epämukavaa:
+
+- lämpötila usein alle 0 °C
+- lumi ja jää vaikeuttavat liikkumista
+- päivänvalo on rajallista
+
+Jos sää vaikuttaa protestien ajoitukseen, vaikutuksen pitäisi näkyä erityisen voimakkaasti näissä maissa.
+
+Määritellään Pohjoismaat:
+
+```{r}
+nordics <-
+  c(
+    "FI",
+    "SE",
+    "NO",
+    "DK"
+  )
+
+analysis_data <-
+
+  analysis_data |>
+
+  mutate(
+
+    nordic =
+      country %in% nordics
+
+  )
+
+analysis_data |>
+
+  group_by(nordic) |>
+
+  summarise(
+
+    share_good_weather =
+      mean(good_weather),
+
+    n =
+      n()
+
+  )
+```
+

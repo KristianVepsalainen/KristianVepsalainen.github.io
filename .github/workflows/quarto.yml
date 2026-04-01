@@ -86,6 +86,7 @@ jobs:
             "ecmwfr",
             "sf",
             "terra",
+            "stringr",
             "acledR",
             "modelsummary",
             "brms",

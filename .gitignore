@@ -41,3 +41,8 @@ docs/
 .DS_Store
 Thumbs.db
 /.quarto/
+
+#------------------
+# Data
+#------------------
+*.nc

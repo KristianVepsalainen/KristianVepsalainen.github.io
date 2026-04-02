@@ -19,7 +19,7 @@ format:
 execute:
   warning: false
   message: false
-slug: suomen-tyovoimapula
+slug: suomen-tyovoimapula-osa1
 draft: true
 ---
 
@@ -174,7 +174,7 @@ Tämä on loogista, koska työvoimapula voi olla suhdanneilmiö.
 
 ## Avoimet työpaikat
 
-Avoimet työpaikat mittaavat työvoiman kysyntää. Käytetään mittaamiseen Eurostatin muuttujaa *Job Vancancy Rate* eli avoimien työpaikkojen prosenttiosuus kaikistatyöpaikoista.
+Avoimet työpaikat mittaavat työvoiman kysyntää. Käytetään mittaamiseen Eurostatin muuttujaa *Job Vancancy Rate* eli avoimien työpaikkojen prosenttiosuus kaikista työpaikoista.
 
 ```{r}
 #| echo: false
@@ -246,6 +246,124 @@ Kyse on todennäköisesti useiden tekijöiden yhdistelmästä:
 * alueellinen liikkuvuus
 
 
+Pelkkä kuvaaja ei kuitenkaan riitä.
+
+Tarvitaan kvantitatiivisen mittarin muutokselle.
+
+## Log-lineaarinen kohtaantomalli
+
+Kohtaantofunktio voidaan estimoida logaritmisessa muodossa:
+
+$\log{V}=\beta_0+\beta_1\log{U},$ missä parametri $\beta_1$ kuvastaa markkinoiden työmarkkinoiden joustavuutta. Jos se muuttuu ajan myötä, myös kohtaanto muuttuu. Käytän alla olevassa mallissa leikkauspisteenä vuotta 2020, koska silloin tuli poikkeuksellinen työmarkkinashokki Covidin takia. Tämä vaikutti samanaikaisesti työntekemisen tapoihin (etätyöt yleistyivät), koulutuspolkuihin (etätyöt yleistyivät) ja kokonaisiin toimialoihin (esimeriksi ravintala-ala ja ilmailuala menettivät paljon työvoimaa muille aloille). Useissa maissa Beveridge-käyrä siirtyi pandemian jälkeen. Myös tutkimuskirjallisuudessa vuosi 2020 on yleinen break point.
+
+```{r}
+#| echo: false
+
+df_model <- joined |>
+
+  mutate(
+    log_u = log(unemployment_rate),
+    log_v = log(vacancy_rate),
+    post_2020 = time >= as.Date("2020-01-01")
+  )
+
+
+model <- lm(
+  log_v ~ log_u * post_2020,
+  data = df_model
+)
+
+tidy(model)
+```
+
+Taulukon tulkinta: 
+* Intercept on vakio, joka saa arvon 3,25. Tämä on lähtötaso työmarkkinoiden kireydelle. 
+* log_u taas kuvaa työttömyyden ja työpaikkojen välistä suhdetta, mitä enemmän työttömyyttä, sitä vähemmän avoimia työpaikkoja. 
+* post_2020TRUE tarkoittaa sitä, että vuoden 2020 jälkeen avoimia työpaikkoja on enemmän samalla työttömyystasolla. *  log_u:post_2020TRUE taas tarkoitta sitä, että log_u-kohdassa kuvattu yhteys muuttuu hieman vuoden 2020 jälkeen. 
+
+Keskeisin muuttuja on log_u, jonka arvo on -1,30. Tämä tarkoitta sitä, että kun työttömyys kasvaa, avoimien työpaikkojen määärä pienenee. Toisin sanoen, huonoina aikoina rekrytoidaan vähemmän. Tämän kertoimen negatiivinen arvo kertoo siitä, että malli toimii oikein. Positiivinen kerroin olisi ollut ristiriidassa makrotalousteorian kanssa. 
+
+Toinen huomiotava muuttuja on post_2020TRUE, joka saa kertoimen 1,13. Tämä ttarkoittaa, että vuoden 2020 jälkeen avoimien työpaikokjken määrä on ollut keskimäärin suurempaa samalla työttömyystasolla kuin ennen vuotta 2020. Tämä on juuri se ilmistö, josta synytyy **työvoimapulakeskustelu**. Eli yritykset raportoivat rekyrytointivaikeuksista, vaikka samaaan aikaan on työttömiä. Tärkeää on kuitenkin huomata, että p-arvon on noin 0,19 eli yhteys ei ole tilastollisesti merkitsevä, vaikka suunta on selkeä.
+
+## Onko kohtaanto heikentynyt?
+Jos suorat menevät alaspäin, kohtaanto on heikentynyt. 
+
+```{r}
+#| echo: false
+
+df_model |>
+
+  ggplot(aes(log_u,
+             log_v,
+             colour = post_2020)) +
+
+  geom_point(alpha = 0.7) +
+
+  geom_smooth(method = "lm",
+              se = FALSE) +
+
+  labs(
+    title = "Kohtaanto ennen ja jälkeen 2020",
+    x = "log työttömyys",
+    y = "log avoimet työpaikat"
+  )
+```
+Kuten kuvaajasta nähdään, työpaikkojen määrä putoaa kuin työttömyys kasvaa. Kuitenkin olennaista on viivojen välinen suhde. Vuoden 2020 jälkeinen viiva on korkeammalla kuin ennen 2020 viiva. Tämä tarkoittaa sitä, että samalla työttömyysasteella auki olevien työpaikkojen määrä on kasvanut. Juuri tämä ilmiö näkyy julkisessa **työvoimapulakeskustelussa**, mutta yksittäinen luku piilottaa tämän ilmiön, sillä 
+>maailma on jakauma
+
+## Kontrafaktuaali: kuinka paljon kitkaa on syntynyt?
+
+Estimoidaan, kuinka paljon avoimia työpaikkoja olisi syntynyt, jos kohtaanto olisi pysynyt ennallaan vuoden 2020 tasossa.
+
+```{r}
+#| echo: false
+
+counterfactual_model <- lm(
+  log_v ~ log_u,
+  data = df_model |>
+    filter(post_2020 == FALSE)
+)
+
+df_model <- df_model |>
+
+  mutate(
+    pred_cf =
+      predict(counterfactual_model,
+              newdata = df_model)
+  )
+
+#| echo: false
+
+ggplot(df_model,
+       aes(time)) +
+
+  geom_line(aes(y = log_v),
+            linewidth = 1) +
+
+  geom_line(aes(y = pred_cf),
+            linetype = "dashed") +
+
+  labs(
+    title = "Havaittu ja kontrafaktuaalinen työpaikkojen määrä",
+    y = "log työpaikkojen määrä",
+    x = "aika"
+  )
+```
+
+
+## Tulkinta
+
+Jos matching efficiency heikkenee, työmarkkinoilla on enemmän täyttämättömiä paikkoja samalla työttömyystasolla.
+
+Tämä voidaan tulkita usealla tavalla:
+
+osaamisjakauma on muuttunut
+työpaikkojen vaatimukset ovat muuttuneet
+rekrytointiprosessit ovat muuttuneet
+maantieteellinen liikkuvuus on vähentynyt
+
+tai näiden yhdistelmä.
+
 ## Miksi yksi luku ei riitä?
 
 Jos työmarkkinoita kuvataan yhdellä luvulla, menetetään lähes kaikki informaatio.
@@ -284,12 +402,11 @@ samanaikaisesti.
 
 ## Mitä seuraavaksi?
 
-Seuraavassa osassa tarkastelen kohtaantoa tarkemmin.
+Seuraavassa osassa tarkastelemme mismatchia ammattien välillä.
 
-Kysyn:
+Jos työvoimapula keskittyy pienelle joukolle ammatteja, kyse ei ole koko talouden ongelmasta.
 
-onko työn ja tekijöiden kohtaaminen heikentynyt?
+Kyse on jakaumaongelmasta.
 
-Jos kohtaanto heikkenee, työvoimapula voi syntyä ilman että työpaikkojen määrä kasvaa merkittävästi.
 
-Tämä on keskeinen mekanismi, joka voi selittää nykyistä keskustelua.
+Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.

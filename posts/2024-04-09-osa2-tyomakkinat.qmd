@@ -1,0 +1,54 @@
+---
+title: "Työmarkkinakeskustelu ilman jakaumia on pseudokeskustelua"
+subtitle: "Osa 2 – Onko kohtaanto-ongelma eri ammatteissa totta?"
+author: "Kristian Vepsäläinen"
+date: 2026-04-09
+categories:
+  - data science
+  - työmarkkinat
+  - ekonometria
+  - R
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+    number-sections: true
+execute:
+  warning: false
+  message: false
+slug: suomen-tyovoimapula-osa2
+draft: true
+---
+
+
+Pelkkä kuvaaja ei kuitenkaan riitä.
+
+Tarvitaan kvantitatiivisen mittarin muutokselle.
+
+## Log-lineaarinen matching-malli
+
+Kohtaantofunktio voidaan estimoida logaritmisessa muodossa:
+
+$\log{V}=\beta_0+\beta_1\log{U},$ missä parametri $\beta_1$ kuvastaa markkinoiden työmarkkinoiden joustavuutta. Jos se muuttuu ajan myötä, myös kohtaanto muuttuu.
+
+```{r}
+#| echo: false
+
+df_model <- df |>
+
+  mutate(
+    log_u = log(unemployment_rate),
+    log_v = log(vacancy_rate),
+    post_2020 = time >= as.Date("2020-01-01")
+  )
+
+
+model <- lm(
+  log_v ~ log_u * post_2020,
+  data = df_model
+)
+
+tidy(model)
+```
+

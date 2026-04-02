@@ -126,6 +126,7 @@ library(pxweb)
 library(eurostat)
 library(janitor)
 library(lubridate)
+library(broom)
 
 theme_set(theme_minimal(base_size = 14))
 ```

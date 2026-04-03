@@ -319,87 +319,29 @@ Estimoidaan, kuinka paljon avoimia työpaikkoja olisi syntynyt, jos kohtaanto ol
 ```{r}
 #| echo: false
 
-counterfactual_model <- lm(
-  log_v ~ log_u,
-  data = df_model |>
-    filter(post_2020 == FALSE)
-)
-
-df_model <- df_model |>
-
-  mutate(
-    pred_cf =
-      predict(counterfactual_model,
-              newdata = df_model)
-  )
-
-#| echo: false
-
 ggplot(df_model,
        aes(time)) +
 
-  geom_line(aes(y = log_v),
+  geom_line(aes(y = log_v,
+                colour = "havaittu"),
             linewidth = 1) +
 
-  geom_line(aes(y = pred_cf),
-            linetype = "dashed") +
+  geom_line(aes(y = pred_cf,
+                colour = "ennuste ilman rakennemuutosta"),
+            linetype = "dashed",
+            linewidth = 1) +
 
   labs(
-    title = "Havaittu ja kontrafaktuaalinen työpaikkojen määrä",
+    title = "Avoimet työpaikat: havaittu vs ennuste ilman rakennemuutosta",
     y = "log työpaikkojen määrä",
     x = "aika"
+    colour = NULL
   )
 ```
 
+Kuvaajassa nähdään, että ennen vuotta 2015 Suomessa työllisyys oli poikkeuksellisen heikkoa, koska ennuste on havaitun työpaikkojen määrän yläpuolella. Sitten oli pitkään alla, kunnes 2025 siirtyy taas yläpuolelle. Kuten kuvaasta nähdään, edes kohtaanto-ongelma ei ole vakio ajassa, vaan se riippuu suhdanteesta.
 
-## Tulkinta
-
-Jos matching efficiency heikkenee, työmarkkinoilla on enemmän täyttämättömiä paikkoja samalla työttömyystasolla.
-
-Tämä voidaan tulkita usealla tavalla:
-
-osaamisjakauma on muuttunut
-työpaikkojen vaatimukset ovat muuttuneet
-rekrytointiprosessit ovat muuttuneet
-maantieteellinen liikkuvuus on vähentynyt
-
-tai näiden yhdistelmä.
-
-## Miksi yksi luku ei riitä?
-
-Jos työmarkkinoita kuvataan yhdellä luvulla, menetetään lähes kaikki informaatio.
-
-Esimerkki:
-
-uutsissa sanotaan, että työttömyysaste 8 %:a.
-
-Mitä tämä tarkoittaa?
-
-* onko kaikilla aloilla 8 % työttömyys?
-* onko kaikilla osaamistasoilla 8 % työttömyys?
-* onko kaikilla alueilla 8 % työttömyys?
-
-Ei mikään näistä vaihtoehdoista, vaan kyse on keskiarvosta. Keskiarvo voi peittää alleen täysin erilaisia tilanteita.
-
-## Jakaumat ratkaisevat
-
-Työmarkkinoilla on useita keskeisiä jakaumia:
-
-* osaamisjakauma
-* terveysjakauma
-* koulutusjakauma
-* palkkajakauma
-* työpaikkojen vaativuusjakauma
-
-Jos jakaumat eivät kohtaa, syntyy kitkaa.
-
-Kitka näkyy:
-* pitkittyvinä rekrytointeina
-* ylikoulutuksena
-* työttömyytenä
-* osaajapulana
-
-samanaikaisesti.
+**Metodologinen huomio** tämä kuvaaja perusteuu malliiin $\log{V}=\beta_0+\beta_1\log{U}$ ja on estimoitu ennen vuotta 2020. Se ei siis "tiedä" mtiään finassikriisistä, eurokriisistä tai Nokiasta. Siksi se sopii hyvin baseline-tason mittariksi. 
 
 ## Mitä seuraavaksi?
 

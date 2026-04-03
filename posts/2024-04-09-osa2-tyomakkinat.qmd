@@ -1,6 +1,6 @@
 ---
 title: "Työmarkkinakeskustelu ilman jakaumia on pseudokeskustelua"
-subtitle: "Osa 2 – Onko kohtaanto-ongelma eri ammatteissa totta?"
+subtitle: "Osa 2 – Missä työvoimapula oikeasti on?"
 author: "Kristian Vepsäläinen"
 date: 2026-04-09
 categories:
@@ -21,4 +21,204 @@ slug: suomen-tyovoimapula-osa2
 draft: true
 ---
 
+## Tiivistelmä
+
+Työvoimapulasta puhutaan usein koko talouden ilmiönä. Todellisuudessa työvoimapula on lähes aina paikallinen ilmiö.
+Pulaa esiintyy:
+* tietyissä ammateissa  
+* tietyillä osaamistasoilla  
+* tietyillä alueilla  
+
+Jos tarkastellaan vain koko talouden keskiarvoja, ei nähdä, missä ongelma sijaitsee.
+
+Tässä osassa siirryn tarkastelemaan jakaumia kunnolla.
+
+Vastaan kysymykseen: missä työvoimapula oikeasti on?
+
+---
+
+## Miksi keskiarvo ei riitä?
+
+Oletetaan yksinkertainen esimerkki.
+
+Työmarkkinoilla on kaksi ammattia:
+
+* ohjelmistokehittäjät  
+* graafiset suunnittelijat  
+
+Jos kehittäjistä on pula ja suunnittelijoista ylitarjonta, kokonaisluvut voivat näyttää tasapainoisilta. Keskiarvo näyttää siis normaalilta. Silti kohtaanto ei toimi ammattien tasolla. Työvoimapula syntyy jakaumien tasolla.
+
+---
+
+## kohtaanto-indeksi
+
+Kohtaanto tarkoittaa sitä, että: työpaikkojen jakauma  ei vastaa  työntekijöiden jakaumaa.
+
+Voimme mitata tätä vertaamalla:
+* osuus avoimista työpaikoista ammatissa $i$  
+* osuus työttömistä työnhakijoista ammatissa $i$.
+
+Jos osuudet ovat samat, kohtaanto toimii hyvin. Jos osuudet eroavat paljon, kohtaanto toimii huonosti.
+
+---
+
+## Intuitio
+
+Jos 20 % avoimista työpaikoista on ohjelmistokehittäjille, mutta vain 5 % työttömistä on ohjelmistokehittäjiä, syntyy pula. Jos 20 % työttömistä on myyjiä, mutta vain 5 % avoimista työpaikoista on myyjille, syntyy ylitarjonta.
+
+---
+
+## Data
+
+Käytetään datatana Tilastokeskuksen dataa ammateista, avoimista työpaikoista ja työttömistä työnhakijoista. Tarkastellaan aluksi tilannetta koko maan tasolla. Data sisältää vuodet 2006-2025 kuukauden tasolla. Kuukauden tilanteena datassa on aina kuukauden viimeinen päivä. Ammatit ovat ISCO 2-digit tasolla. Datasta poistetaan luokat, jotka eivät ole varsinaisia ammaatiryhmiä, kuten opiskelijat, erilaisissa valmennuksissa olevat ja ne, joiden tilannetta ei tunneta. Samoin poistetaan sotilasammatit, koska niihin reitti on hyvin suljettu ja vaatii esimerkiksi varusmiespalveluksen läpäisyä tietyllä tasolla ja jos sitä ei ole tehty, ei ammattiin voi käytännössä kovinkaan helposti päästä.
+
+```{r}
+#| echo: false
+
+library(tidyverse)
+library(eurostat)
+library(janitor)
+library(pxweb)
+library(fst)
+
+theme_set(theme_minimal(base_size = 14))
+
+df <- read_fst(here::here("data","raw","unemployment","tyottomat_ja_tyopaikat_by_ammatti.fst"))
+
+#Muokataan dataa:
+
+df_clean <- df |>
+
+  rename(
+    occupation_label = Ammattiryhmä,
+    vacancies = `Avoimet työpaikat tammi-joulukuun aikana (lkm.)`,
+    year = Vuosi
+  ) |>
+
+  mutate(
+
+    year = as.integer(year),
+
+    occ2 =
+      str_extract(
+        occupation_label,
+        "^[0-9]{2}"
+      )
+
+  ) |>
+
+  filter(
+    !is.na(occ2)
+  )
+
+#ammattirakenteen jakauma
+
+df_occ <- df_clean |>
+
+  group_by(year, occupation_label, occ2) |>
+
+  summarise(
+
+    vacancies =
+      sum(vacancies, na.rm = TRUE),
+
+    .groups="drop"
+  ) |>
+
+  group_by(year) |>
+
+  mutate(
+
+    vacancy_share =
+      vacancies / sum(vacancies)
+
+  ) |>
+
+  ungroup()
+
+```
+
+
+## Mitkä ammatit dominoivat työmarkkinaa?
+
+Tämä lista kertoo, missä työvoimaa kysytään eniten. Käyteään uusinta tilannetta vuodelta 2025. 
+```{r}
+df_occ |>
+  select(-occ2) |>
+  filter(year == max(year)) |>
+  mutate(vacancy_share = round(vacancy_share*100,1)) |>
+  rename(vuosi = year,ammattiryhmä = occupation_label ,`avoimet työpaikat` = vacancies ,`prosenttia avoimista paikoista` =  vacancy_share) |>
+  arrange(desc(`avoimet työpaikat`)) |>
+
+  slice_head(n=15)
+```
+## Rakenteen muutos ajan yli
+
+```{r}
+top_occ <- df_occ |>
+
+  filter(year == max(year)) |>
+
+  slice_max(
+    vacancies,
+    n = 10
+  ) |>
+
+  pull(occ2)
+
+
+df_occ |>
+
+  filter(
+    occ2 %in% top_occ
+  ) |>
+
+  ggplot(
+    aes(year,
+        vacancy_share,
+        colour = occupation_label)
+  ) +
+
+  geom_line(linewidth=1) +
+  
+  scale_color_discrete(labels = function(x) str_wrap(x, width = 25)) +
+
+  labs(
+    title="Työvoiman kysynnän rakenne muuttuu",
+    y="osuus työpaikoista",
+    x = "vuosi",
+    color = "ammattiryhmä"
+  )
+```
+
+## Missä kasvu on suurinta?
+
+Lasketaan muutos vertaamalla nesimmäistä vuotta ja viimeistä vuotta.
+
+```{r}
+growth <- df_occ |>
+
+  group_by(occupation_label) |>
+
+  summarise(
+
+    change =
+      last(vacancy_share) -
+      first(vacancy_share)
+
+  ) |>
+
+  arrange(desc(change))
+
+
+growth |>
+  mutate(change = round(change*100,1))|>
+  rename(ammattiryhmä=occupation_label, muutos = change) |>
+  slice_head(n=15)
+```
+
+
+# kohtaanto-mittari
+
+Voidaan katsoa, kuinka paljon työpaikkojen ja työttömien jakaumat eroavat toisistaan. Indeksi saa arvon 0 jos työpaikat (eli eroa ei  ole) ja työttömien ammatit kohtaavat täysin ja 1 jos en eivät kohtaa lainkaan (eli eroavat täysin). Tietenkin sekä 0 ja 1 ovat lähinnä teoreettisesti saavutettavia arvoja, koska käytännössä aina on vähintään 1 työtön, jonka osaaminen ei sovi mihinkään avoinna olevaan paikkaan.
 

@@ -292,6 +292,22 @@ Jos suorat menevät alaspäin, kohtaanto on heikentynyt.
 ```{r}
 #| echo: false
 
+#| echo: false
+
+counterfactual_model <- lm(
+  log_v ~ log_u,
+  data = df_model |>
+    filter(post_2020 == FALSE)
+)
+
+df_model <- df_model |>
+
+  mutate(
+    pred_cf =
+      predict(counterfactual_model,
+              newdata = df_model)
+  )
+
 df_model |>
 
   ggplot(aes(log_u,
@@ -334,7 +350,7 @@ ggplot(df_model,
   labs(
     title = "Avoimet työpaikat: havaittu vs ennuste ilman rakennemuutosta",
     y = "log työpaikkojen määrä",
-    x = "aika"
+    x = "aika",
     colour = NULL
   )
 ```

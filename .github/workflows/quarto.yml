@@ -81,6 +81,7 @@ jobs:
             "glue",
             "lubridate",
             "pxweb",
+            "readxl",
             "future",
             "furrr",
             "fst",

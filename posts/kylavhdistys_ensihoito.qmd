@@ -22,7 +22,6 @@ execute:
   message: false
 lang: fi
 slug: maallikoiden-ensihoito
-draft: true
 ---
 
 ## Tausta

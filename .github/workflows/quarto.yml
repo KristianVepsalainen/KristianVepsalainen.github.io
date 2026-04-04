@@ -82,6 +82,7 @@ jobs:
             "lubridate",
             "pxweb",
             "readxl",
+            "knitr",
             "future",
             "furrr",
             "fst",

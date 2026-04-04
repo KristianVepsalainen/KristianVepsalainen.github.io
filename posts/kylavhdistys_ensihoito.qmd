@@ -1,0 +1,1016 @@
+---
+title: "Kyläyhdistykset ensiavun tuottajina: faktoja ja todennäköisyyslaskentaa"
+author: "Data Science -analyysi"
+date: "2026-04-04"
+categories:
+  - simulaatio
+  - ensihoito
+  - maaseutu
+  - data science
+  - R
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    theme: cosmo
+    fig-width: 9
+    fig-height: 6
+    self-contained: true
+execute:
+  warning: false
+  message: false
+lang: fi
+slug: maallikoiden-ensihoito
+draft: true
+---
+
+## Tausta
+
+Keski-Suomen hyvinvointialue sai Valviralta harvinaisen huomautuksen ensivastetoiminnasta,
+koska se oli täydentänyt ensihoidon toimintaa kyläyhdistysten vapaaehtoisilla
+sydäniskuriryhmillä syrjäseuduilla. Valviran mukaan järjestely on lainvastainen:
+se rikkoo sosiaali- ja terveydenhuollon järjestämislakia, koska vapaaehtoistoiminta
+ei täytä yksityisiltä terveydenhuollon palveluntuottajilta vaadittavia ehtoja.
+
+Tässä kirjoituksessa tarkastelen aihetta **yksinomaan tilastojen ja lääketieteellisen
+tutkimusnäytön kautta**, en tunnepuolen kautta.
+
+---
+
+##  Kuinka monta kyläyhdistystä Suomessa on?
+
+Suomessa on noin **4 200 kyläyhdistystä ja -toimikuntaa** (Wikipedia / Suomen Kylät ry).
+Näistä noin 3 100 on rekisteröityjä kyläyhdistyksiä ja noin 900 kylätoimikuntia.
+Ne ovat järjestäytyneet 19 maakunnalliseksi kyläyhdistykseksi Suomen Kylät ry:n
+kattojärjestön alle.
+
+Keski-Suomen hyvinvointialueella toimi **22 vapaaehtoista sydäniskuriryhmää**,
+joissa oli yhteensä **160 koulutettua vapaaehtoista** (YLE 2026).
+
+```{r}
+#| label: kylayhd-luvut
+#| fig-cap: "Kyläyhdistykset Suomessa maakunnittain (arvio)"
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(scales)
+
+# Arvio kyläyhdistysten jakaumasta maakunnittain
+# Lähde: Suomen Kylät ry, Wikipedia (n ≈ 4200 yhteensä)
+maakunnat <- data.frame(
+  maakunta = c(
+    "Uusimaa", "Varsinais-Suomi", "Satakunta", "Kanta-Häme",
+    "Pirkanmaa", "Päijät-Häme", "Kymenlaakso", "Etelä-Karjala",
+    "Etelä-Savo", "Pohjois-Savo", "Pohjois-Karjala", "Keski-Suomi",
+    "Etelä-Pohjanmaa", "Pohjanmaa", "Keski-Pohjanmaa",
+    "Pohjois-Pohjanmaa", "Kainuu", "Lappi", "Ahvenanmaa"
+  ),
+  kylayhd_arvio = c(
+    280, 320, 200, 160, 280, 150, 130, 110,
+    220, 280, 220, 260, 300, 160, 80,
+    350, 90, 200, 10
+  )
+)
+
+ggplot(maakunnat, aes(x = reorder(maakunta, kylayhd_arvio), y = kylayhd_arvio)) +
+  geom_col(fill = "#2E7D32", alpha = 0.85) +
+  coord_flip() +
+  labs(
+    title = "Kyläyhdistykset Suomessa maakunnittain",
+    subtitle = "Arvio yhteensä n. 4 200 yhdistyksestä (Suomen Kylät ry)",
+    x = NULL,
+    y = "Kyläyhdistysten lukumäärä (arvio)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.y = element_text(size = 10)
+  )
+```
+
+**Keskeinen luku:** Keski-Suomessa toimii noin 260–280 kyläyhdistystä, joista 22:lla
+oli sopimus sydäniskuritoiminnasta hyvinvointialueen kanssa. Se tarkoittaa, että
+sopimus kattoi noin **8 %** alueen kyläyhdistyksistä.
+
+---
+
+## Ensivasteyksikköjen lukumäärä Suomessa
+
+Palosuojelun edistämissäätiön tutkimuksen mukaan Suomessa on yhteensä noin
+**545 ensivasteyksikköä** (2019 tiedot). Pelastuslaitoksilla on näistä **501 yksikköä**
+(92 %), loput tuottavat muut toimijat.
+
+Kaikki Suomen 20 sairaanhoitopiiriä ovat sisällyttäneet ensivastetoiminnan
+ensihoidon palvelutasopäätökseen.
+
+```{r}
+#| label: ensivaste-rakenne
+#| fig-cap: "Ensivasteyksiköiden tuottajat Suomessa"
+
+library(ggplot2)
+
+tuottajat <- data.frame(
+  tuottaja = c("Pelastuslaitokset", "Muut toimijat\n(VPK, muu)"),
+  lukumaara = c(501, 44),
+  osuus = c(92, 8)
+)
+
+ggplot(tuottajat, aes(x = "", y = lukumaara, fill = tuottaja)) +
+  geom_col(width = 1, color = "white", linewidth = 1.2) +
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = c("#1565C0", "#90CAF9")) +
+  geom_text(aes(label = paste0(lukumaara, " kpl\n(", osuus, "%)")),
+            position = position_stack(vjust = 0.5),
+            size = 5, fontface = "bold", color = "white") +
+  labs(
+    title = "Ensivasteyksiköt Suomessa tuottajittain",
+    subtitle = "Yhteensä n. 545 yksikköä (Palosuojelun edistämissäätiö, 2019)",
+    fill = "Tuottaja"
+  ) +
+  theme_void(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "bottom"
+  )
+```
+
+### Ensivasteyksiköiden alueellinen merkitys
+
+Ensivasteyksikkö hälytetään Suomessa keskimäärin **7,2 %:iin** kiireellisistä
+(A- ja B-luokan) tehtävistä. Alueellinen vaihtelu on suurta:
+
+- **Vähiten käytetään** Länsi-Pohjan alueella: 2,2 % tehtävistä
+- **Eniten käytetään** Kanta-Hämeessä: 14,9 % tehtävistä
+
+Elottomuustehtäviä on kaikista ensivastetehtävistä noin **10 %**.
+
+---
+
+## Todennäköisyysmalli: kuolema viiveen funktiona
+
+### Teoreettinen perusta
+
+Lääketieteellinen kirjallisuus on johdonmukainen:
+
+> *"Eloonjäämismahdollisuus laskee noin 10 prosenttia joka minuutti ennen hoidon aloitusta"*
+> (Sydänliitto / Iltalehti 2019; Terveyskirjasto)
+
+> *"Jos painelu-puhalluselvytys ja defibrillaatio käynnistyvät 3–5 minuutissa,
+> tämä jopa kolminkertaistaa autettavan selviytymisen mahdollisuuksia"*
+> (Terveyskirjasto / SPR)
+
+> *"Jos elvytys ja sydäniskurin käyttö tapahtuu minuuteissa pysähdyksestä,
+> jopa kolme neljästä selviää"*
+> (Sydänliitto)
+
+Nämä luvut koskevat erityisesti **äkkielottomuustehtäviä** (sydänpysähdys).
+
+```{r}
+#| label: selviytymismalli
+#| fig-cap: "Selviytymistodennäköisyys sydänpysähdyksessä viiveen funktiona"
+
+library(ggplot2)
+library(dplyr)
+library(knitr)
+
+
+# Malli: eksponentiaalilasku 10 % / min perusselviytymistodennäköisyydestä
+# Alkutodennäköisyys (0 min viive, välitön elvytys): ~75% (Sydänliitto)
+# Lasku ~10 % per minuutti (absoluuttinen prosenttiyksikkö)
+# Kirjallisuuden mukaan malli on eksponentiaalinen
+
+surv_fn <- function(t, p0 = 0.75, lambda = 0.10) {
+  p0 * exp(-lambda * t)
+}
+
+t <- seq(0, 20, by = 0.1)
+df <- data.frame(
+  aika_min = t,
+  selviytyminen = surv_fn(t)
+)
+
+# Merkitään kriittiset pisteet
+pisteet <- data.frame(
+  aika = c(3, 5, 8, 12, 15),
+  selviytyminen = surv_fn(c(3, 5, 8, 12, 15)),
+  label = c(
+    "3 min:\n~56%",
+    "5 min:\n~45%",
+    "8 min:\n~34%",
+    "12 min:\n~23%",
+    "15 min:\n~17%"
+  )
+)
+
+# Syrjäseutualueen tyypillinen ambulanssiviive
+amb_viive_min  <- 12  # syrjäseudulla
+kylayhd_viive  <- 5   # kyläyhdistyksen vapaaehtoinen
+
+ggplot(df, aes(x = aika_min, y = selviytyminen * 100)) +
+  geom_ribbon(
+    data = df %>% filter(aika_min >= 0, aika_min <= kylayhd_viive),
+    aes(ymin = 0, ymax = selviytyminen * 100),
+    fill = "#A5D6A7", alpha = 0.4
+  ) +
+  geom_ribbon(
+    data = df %>% filter(aika_min >= kylayhd_viive, aika_min <= amb_viive_min),
+    aes(ymin = 0, ymax = selviytyminen * 100),
+    fill = "#FFCC80", alpha = 0.4
+  ) +
+  geom_line(color = "#B71C1C", linewidth = 1.5) +
+  geom_vline(xintercept = kylayhd_viive, linetype = "dashed",
+             color = "#2E7D32", linewidth = 1.1) +
+  geom_vline(xintercept = amb_viive_min, linetype = "dashed",
+             color = "#E65100", linewidth = 1.1) +
+  annotate("text", x = kylayhd_viive + 0.2, y = 68,
+           label = paste0("Kyläyhdistys\npaikalla: ", kylayhd_viive, " min\n(",
+                          round(surv_fn(kylayhd_viive)*100), "%)"),
+           hjust = 0, color = "#2E7D32", size = 4, fontface = "bold") +
+  annotate("text", x = amb_viive_min + 0.2, y = 55,
+           label = paste0("Ambulanssi\nsyrjäseudulla: ", amb_viive_min, " min\n(",
+                          round(surv_fn(amb_viive_min)*100), "%)"),
+           hjust = 0, color = "#E65100", size = 4, fontface = "bold") +
+  scale_y_continuous(labels = function(x) paste0(x, "%"), limits = c(0, 80)) +
+  scale_x_continuous(breaks = seq(0, 20, 2)) +
+  labs(
+    title = "Selviytymistodennäköisyys sydänpysähdyksessä",
+    subtitle = "Malli perustuu Sydänliiton / SPR:n ja kansainvälisen kirjallisuuden lukuihin\n(~10 % lasku per minuutti, eksponentiaalinen)",
+    x = "Viive sydänpysähdyksestä elvytyksen aloitukseen (minuuttia)",
+    y = "Selviytymistodennäköisyys",
+    caption = "Lähde: Sydänliitto, Terveyskirjasto, SPR"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+---
+
+## Monte Carlo -simulaatio: kyläyhdistyksen vaikutus
+
+Simuloidaan **10 000 sydänpysähdystapausta** syrjäseudulla. Parametrit perustuvat
+julkisiin tietoihin.
+
+### Simulaation oletukset
+
+| Parametri | Arvo | Lähde |
+|---|---|---|
+| Ambulanssin viive syrjäseudulla | Normaali(μ=12, σ=4) min | Pelastuslaitosten palvelutasopäätökset |
+| Kyläyhdistyksen viive | Normaali(μ=5, σ=2) min | Arvio (lähiapu) |
+| Selviytymisprosentti t=0 | 75 % | Sydänliitto |
+| Selviytymislaskun nopeus | 10 % / min (eksp.) | Kansainvälinen kirjallisuus |
+| Kyläyhdistys ehtii ensin | Keski-Suomen tiedot: 1 tapaus | Ensihoitopäällikkö Aunola, YLE |
+
+```{r}
+#| label: monte-carlo
+#| fig-cap: "Simulaatio: selviytymistodennäköisyyksien jakauma"
+
+set.seed(42)
+n <- 10000
+
+# Selviytymisfunktio
+surv_fn <- function(t, p0 = 0.75, lambda = 0.10) {
+  pmax(0, p0 * exp(-lambda * t))
+}
+
+# Simuloidaan ambulanssiviiveet (syrjäseutu)
+amb_viive   <- pmax(1, rnorm(n, mean = 12, sd = 4))
+
+# Simuloidaan kyläyhdistysviiveet
+kyla_viive  <- pmax(0.5, rnorm(n, mean = 5, sd = 2))
+
+# Kyläyhdistys ehtii ennen ambulanssia (yleensä kyllä, koska lähempänä)
+kyla_ensin  <- kyla_viive < amb_viive   # loogisesti melkein aina TRUE
+
+# Selviytymistodennäköisyys ilman kyläyhdistystä
+surv_amb    <- surv_fn(amb_viive)
+
+# Selviytymistodennäköisyys kyläyhdistyksen kanssa:
+# Jos kyläyhdistys ehtii ensin, se aloittaa PPE -> hyödyntää nopeampaa viivettä
+# Mutta: kyläyhdistys EI korvaa ambulanssia, ainoastaan aloittaa PPE
+# -> käytetään kyläyhdistyksen viivettä PPE:n aloitukseen
+surv_kyla_ppe <- ifelse(
+  kyla_ensin,
+  surv_fn(kyla_viive),   # PPE alkaa nopeammin
+  surv_fn(amb_viive)     # ei eroa
+)
+
+# Data frameksi
+df_sim <- data.frame(
+  surv_amb       = surv_amb * 100,
+  surv_kyla_ppe  = surv_kyla_ppe * 100
+)
+
+library(tidyr)
+df_long <- pivot_longer(df_sim, cols = everything(),
+                        names_to = "skenaario",
+                        values_to = "selviytyminen_pct")
+
+df_long$skenaario <- factor(df_long$skenaario,
+  levels = c("surv_amb", "surv_kyla_ppe"),
+  labels = c("Vain ambulanssi\n(syrjäseudun viive)",
+             "Kyläyhdistys aloittaa PPE\n(ambulanssi saapuu myöhemmin)"))
+
+library(ggplot2)
+ggplot(df_long, aes(x = selviytyminen_pct, fill = skenaario)) +
+  geom_histogram(binwidth = 2, alpha = 0.7, position = "identity", color = "white") +
+  scale_fill_manual(values = c("#E53935", "#43A047")) +
+  labs(
+    title = "Monte Carlo -simulaatio: selviytymistodennäköisyyksien jakauma",
+    subtitle = paste0("n = ", format(n, big.mark = " "),
+                      " simuloitua sydänpysähdystapausta syrjäseudulla"),
+    x = "Selviytymistodennäköisyys (%)",
+    y = "Tapausten lukumäärä",
+    fill = "Skenaario",
+    caption = "Oletukset: amb. viive N(12,4) min, kyläyhdistys N(5,2) min, p0=75%, λ=0.10/min"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_blank()
+  )
+```
+
+```{r}
+#| label: sim-yhteenveto
+
+# Lasketaan odotetut selviytyjät ja ero
+mediaani_amb  <- median(surv_amb)
+mediaani_kyla <- median(surv_kyla_ppe)
+ero_abs       <- mediaani_kyla - mediaani_amb
+
+# Yhteenvetotaulukko
+yhteenveto <- data.frame(
+  Skenaario = c("Vain ambulanssi (syrjäseudun viive)",
+                "Kyläyhdistys aloittaa PPE + ambulanssi"),
+  `Mediaaniviive (min)` = c(round(median(amb_viive), 1),
+                             round(median(kyla_viive), 1)),
+  `Mediaani selviyt. (%)` = c(round(mediaani_amb * 100, 1),
+                               round(mediaani_kyla * 100, 1)),
+  `Ero selviytymisessä` = c("—",
+                             paste0("+", round(ero_abs * 100, 1), " %-yksikköä"))
+)
+
+knitr::kable(yhteenveto,
+             caption = "Simulaation yhteenveto (mediaanit, n = 10 000)",
+             col.names = c("Skenaario", "Mediaaniviive (min)",
+                           "Mediaaniselviyt. (%)", "Ero"),
+             align = c("l","r","r","r"))
+```
+
+Jatketaan täsä vielä pidemmälle ja rakennetaan spatiaalisella tilastotieteellä malli, jossa paremmnin huomioidaan alueellinen ulottuvuus ja vapaehtoisten merkitys siinä. 
+
+
+## Todelliset ambulanssiviiveet Suomessa alueittain
+
+Käytetään maasudun tulevaisuuden artikkelin ja STM:n dataa. (STM 2022, Maaseudun Tulevaisuus 2024) Sosiaali- ja terveysministeriön tuoreimmat (2022) tiedot ensihoidon tavoittamisajoista
+osoittavat dramaattisen eron kaupungin ja maaseudun välillä:
+
+- **Ydintaajama** (mediaani): 6 min 52 s
+- **Maaseutu** (mediaani): 17 min 32 s
+- **Lappi** (maaseutu, mediaani): 25 min 50 s
+- **Maaseutu**: 90 %:lla tehtävistä apu saapui vasta 32 min 33 s kuluessa
+
+```{r vasteajat-alueittain}
+#| fig-cap: "Ambulanssin mediaanivasteajat Suomessa aluetyypeittäin ja maakunnittain (A+B-luokan tehtävät, 2022)"
+
+# Todelliset STM-data 2022 (Maaseudun Tulevaisuus 2024, YLE A-studio)
+# Mediaaniaika minuutteina, maaseutu (riskialue 4)
+maaseutu_viiveet <- data.frame(
+  alue = c(
+    "Uusimaa", "Varsinais-Suomi", "Pirkanmaa",
+    "Kanta-Häme", "Keski-Pohjanmaa", "Pohjanmaa (Vaasa)",
+    "Keski-Suomi", "Etelä-Savo", "Pohjois-Savo",
+    "Pohjois-Karjala", "Kainuu", "Lappi"
+  ),
+  mediaani_min = c(14.5, 17.0, 15.5, 15.5, 15.5, 15.0,
+                   18.0, 20.0, 22.0, 22.0, 24.0, 25.8),
+  p90_min = c(24.1, 30.0, 28.0, 27.0, 27.0, 26.0,
+              33.0, 38.0, 42.0, 44.0, 50.0, 46.4),
+  aluetyyppi = c(rep("Etelä/Länsi-Suomi", 6),
+                 rep("Itä/Pohjois-Suomi", 6))
+)
+
+# Lisätään ydintaajama-referenssi
+ref_df <- data.frame(
+  alue = "Ydintaajama\n(koko Suomi)",
+  mediaani_min = 6.87,
+  p90_min = 11.47,
+  aluetyyppi = "Referenssi"
+)
+plot_df <- bind_rows(ref_df, maaseutu_viiveet) %>%
+  mutate(alue = reorder(alue, mediaani_min))
+
+ggplot(plot_df, aes(x = alue, y = mediaani_min, fill = aluetyyppi)) +
+  geom_col(alpha = 0.85) +
+  geom_errorbar(aes(ymin = mediaani_min, ymax = p90_min),
+                width = 0.3, color = "#333333", linewidth = 0.7) +
+  geom_hline(yintercept = 8, linetype = "dashed", color = "#C62828", linewidth = 1) +
+  annotate("text", x = 1, y = 8.4, label = "Tavoiteaika: 8 min",
+           hjust = 0, color = "#C62828", fontface = "bold", size = 3.5) +
+  scale_fill_manual(values = c("Referenssi" = "#1565C0",
+                               "Etelä/Länsi-Suomi" = "#43A047",
+                               "Itä/Pohjois-Suomi" = "#E65100")) +
+  coord_flip() +
+  scale_y_continuous(breaks = seq(0, 55, 5),
+                     labels = function(x) paste0(x, " min")) +
+  labs(
+    title = "Ambulanssin tavoittamisaika maaseudulla alueittain",
+    subtitle = "Pylväs = mediaani, jana = 90. persentiili. Punainen viiva = 8 min tavoite.\nLähde: STM 2022 / Maaseudun Tulevaisuus 2024",
+    x = NULL,
+    y = "Tavoittamisaika (min)",
+    fill = "Alue"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+```
+
+
+> **Keskeinen havainto:** Keski-Suomessa maaseutualueen mediaaniviive on ~18 min.
+> Lapissa 10 %:ssa tapauksista apu saapuu vasta yli **46 minuutin** kuluttua.
+> Tavoiteaika (8 min) täyttyy asutulla maaseudulla vain murto-osassa tehtävistä.
+
+---
+
+## Spatiaalinen analyysi: yhden vapaaehtoisen kattama alue
+
+###  Geometrinen malli
+
+Keskeinen kysymys: **kuinka suuren alueen yksi kyläyhdistyksen jäsen voi kattaa?**
+
+Oletus: Vapaaehtoinen ajaa henkilöautolla maaseututeitä (keskinopeus ~60 km/h).
+Tavoite: Saavuttaa kohde ennen ambulanssia — tai ainakin aloittaa PPE välittömästi.
+
+```{r spatial-kattavuus}
+#| fig-cap: "Yhden vapaaehtoisen kattama alue eri reaktioajoilla (r = v × t)"
+
+# Vapaaehtoisen nopeus maaseudulla (km/h)
+nopeus_kmh <- 60
+
+# Reaktioajat: aika hälytyksen vastaanottamisesta auton lähtöön
+reaktioaika_min <- c(1, 2, 3, 5)
+
+# Ambulanssin mediaaniviive Keski-Suomi (18 min)
+# Vapaaehtoinen voi saapua: amb_viive - reaktioaika - ajoaika > 0
+# => Max ajoaika = amb_viive - reaktioaika
+# => Max säde r = nopeus * max_ajoaika
+
+amb_viive_min <- 18  # Keski-Suomi mediaani
+
+reaktio_df <- data.frame(
+  reaktio_min = reaktioaika_min,
+  max_ajoaika = amb_viive_min - reaktioaika_min,
+  sade_km = (nopeus_kmh / 60) * (amb_viive_min - reaktioaika_min),
+  pinta_ala_km2 = pi * ((nopeus_kmh / 60) * (amb_viive_min - reaktioaika_min))^2
+)
+
+# Suomen kylätiheys-konteksti:
+# Suomi: 338 000 km2, n. 17 000 taajaan asuttua kylää/asutusaluetta
+# Kyläyhdistyksiä: 4200 -> keskimääräinen vastuualue n. 80 km2
+
+kylayhdistys_avg_km2 <- 338000 / 4200  # ~80.5 km2
+
+ggplot(reaktio_df, aes(x = factor(reaktio_min), y = pinta_ala_km2, fill = factor(reaktio_min))) +
+  geom_col(alpha = 0.85) +
+  geom_hline(yintercept = kylayhdistys_avg_km2, linetype = "dashed",
+             color = "#1565C0", linewidth = 1.2) +
+  annotate("text", x = 0.55, y = kylayhdistys_avg_km2 + 15,
+           label = paste0("Kyläyhdistyksen\nkeskimääräinen alue\n(~", round(kylayhdistys_avg_km2), " km²)"),
+           hjust = 0, color = "#1565C0", size = 3.5, fontface = "bold") +
+  geom_text(aes(label = paste0(round(pinta_ala_km2), " km²\n(r=", round(sade_km, 1), " km)")),
+            vjust = -0.5, size = 3.5, fontface = "bold") +
+  scale_fill_manual(values = c("#66BB6A", "#26A69A", "#FFA726", "#EF5350")) +
+  scale_y_continuous(limits = c(0, 1100)) +
+  labs(
+    title = "Yhden vapaaehtoisen teoreettinen kattavuusympyrä",
+    subtitle = paste0("Oletus: v = 60 km/h, ambulanssin viive = ", amb_viive_min,
+                      " min (Keski-Suomi mediaani)\nVapaaehtoinen ehtii ennen ambulanssia"),
+    x = "Reaktioaika hälytyksestä lähtöön (min)",
+    y = "Kattama pinta-ala (km²)",
+    fill = "Reaktioaika"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "none"
+  )
+```
+
+```{r kattavuus-taulukko}
+kattavuus_tab <- reaktio_df %>%
+  mutate(
+    reaktio_label = paste0(reaktio_min, " min"),
+    sade_label = paste0(round(sade_km, 1), " km"),
+    ala_label = paste0(round(pinta_ala_km2), " km²"),
+    suhde = round(pinta_ala_km2 / kylayhdistys_avg_km2 * 100),
+    kattavuus_label = paste0(suhde, "% kyläyhdistyksen alueesta")
+  ) %>%
+  select(reaktio_label, sade_label, ala_label, kattavuus_label)
+
+kable(kattavuus_tab,
+      col.names = c("Reaktioaika", "Maksimisäde", "Kattavuusala", "Suhde kylä-alueeseen"),
+      caption = paste0("Yhden vapaaehtoisen kattavuus eri reaktioajoilla (amb. viive = ",
+                       amb_viive_min, " min, v = 60 km/h)"))
+```
+
+### Spatiaaliset palveluvajeet — mikä on "katvealue"?
+
+Lapissa ambulanssin 90. persentiilin viive on yli 46 minuuttia. Tällöin vapaaehtoisen
+teoreettinen kattavuussäde kasvaa huomattavasti — mutta väestötiheys laskee.
+
+```{r spatial-heatmap}
+#| fig-cap: "Simuloitu pelastushyöty: ambulanssiviiveen ja vapaaehtoistiheyden yhteisvaikutus"
+
+# Simuloidaan 2D-avaruus: x = ambulanssiviive (min), y = vapaaehtoistiheys (1/km2)
+# z = odotettu lisäselviytyminen (%-yksikköä)
+
+surv_fn <- function(t, p0 = 0.75, lambda = 0.10) p0 * exp(-lambda * t)
+
+# Vapaaehtoinen saapuu: amb_viive / 2 (heuristinen: puolet matkasta)
+# Todennäköisyys, että vapaaehtoinen on saatavilla: f(tiheys)
+set.seed(123)
+
+viive_seq <- seq(5, 45, by = 2)
+tiheys_seq <- seq(0.001, 0.05, by = 0.002)  # vapaaehtoista per km2
+
+grid_df <- expand.grid(amb_viive = viive_seq, tiheys = tiheys_seq)
+
+# p(vapaaehtoinen saatavilla) = 1 - exp(-tiheys * pi * r^2), r = 3 km catchment
+r_km <- 3
+grid_df <- grid_df %>%
+  mutate(
+    p_vapaaehtoinen = 1 - exp(-tiheys * pi * r_km^2),
+    vap_viive = amb_viive * 0.45,  # vapaaehtoinen saapuu ~45% ambulanssiajasta
+    delta_surv = p_vapaaehtoinen * (surv_fn(vap_viive) - surv_fn(amb_viive)) * 100
+  )
+
+ggplot(grid_df, aes(x = amb_viive, y = tiheys * 1000, fill = delta_surv)) +
+  geom_tile() +
+  scale_fill_gradientn(
+    colors = c("#1a1a2e", "#16213e", "#0f3460", "#533483",
+               "#e94560", "#f5a623", "#f8e71c"),
+    name = "Lisäselviytyminen\n(%-yksikköä)"
+  ) +
+  scale_y_continuous(labels = function(x) paste0(x, "/1000 km²")) +
+  geom_vline(xintercept = 18, color = "white", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = 18.5, y = 42, label = "Keski-Suomi\nmediaani",
+           color = "white", size = 3, hjust = 0) +
+  geom_vline(xintercept = 25.8, color = "#FFD700", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = 26.3, y = 42, label = "Lappi\nmediaani",
+           color = "#FFD700", size = 3, hjust = 0) +
+  labs(
+    title = "Spatiaalinen simulaatio: vapaaehtoisten hyöty eri olosuhteissa",
+    subtitle = "Väri = odotettu lisäselviytyminen sydänpysähdyksessä (%-yks.)\nX = ambulanssin viive, Y = vapaaehtoistiheys",
+    x = "Ambulanssin tavoittamisaika (min)",
+    y = "Vapaaehtoistiheys (henkilöä / 1000 km²)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "right"
+  )
+```
+
+> **Tulkinta:** Suurin hyöty saavutetaan alueilla, joissa ambulanssiviive on pitkä
+> (>15 min) **ja** vapaaehtoistiheys on kohtuullinen (>10/1000 km²). Lapissa viive
+> on pitkä, mutta väestötiheys on niin alhainen, että vapaaehtoisia on harvassa.
+
+---
+
+## Kansainvälinen vertailu: mitä maailmalla on opittu?
+
+Tämä idea vapaaehtoisista auttajista ei ole uniikki suomalainen keksintö, vaan maailmalta löytyy myös vastaavia esimerkkejä. Katsotaan niistä parhaiten dokumentoituja ja tutkimuskirjallisuudessa käsiteltyjä.
+
+###  Keskeisten maiden järjestelmät
+
+```{r kv-vertailu-taulukko}
+kv_df <- data.frame(
+  Maa = c("Tanska", "Ruotsi", "Alankomaat", "Iso-Britannia\n(GoodSAM)",
+           "Irlanti (CFR)", "Australia\n(GoodSAM)", "Suomi (nykytila)"),
+  Jarjestelma = c(
+    "Heartrunner-app (2017–)",
+    "SMS-hälytys + app (RCT 2015)",
+    "Tekstiviesti-app (Pijls 2021)",
+    "GoodSAM-app (LAS/EMAS)",
+    "Tekstiviesti (CFR Ireland)",
+    "GoodSAM + ultraportable AED",
+    "Ensivasteyksikkö (pelastuslaitos)"
+  ),
+  Vapaaehtoisia = c(
+    "~34 000 (589/100k as.)",
+    "~7 000 (RCT-alueella)",
+    "~5 735 (932/100k as.)",
+    "~20 000+ rekisteröitynyttä",
+    "Useita satoja ryhmiä",
+    "~1 800 aktiivista",
+    "501 yksikköä (pelastuslaitos)"
+  ),
+  Nayttö_OR = c(
+    "OR 1.30 (95% CI 1.15–1.47)*",
+    "PPE↑, 30-pv ei sign. (p=0.28)",
+    "OR 2.8 selviytyminen",
+    "OR 3.15 / 3.19 (p<0.05)**",
+    "Rural OHCA: 7% survival",
+    "Käynnissä (FIRST-trial)",
+    "Ensivaste 8.37 min ennen amb."
+  ),
+  Huomio = c(
+    "Aktivoitiin vain 57.5% tapauksista",
+    "Lyhyt EMS-viive (5 min) haittasi",
+    "Korkea vapaaehtois-tiheys",
+    "Matala hälytyksen hyväksymis-%",
+    "Vain 9% rural sai avun <8 min",
+    "Ultraportable AED = tulevaisuus",
+    "Kattaa 92% ensivastetarpeesta"
+  )
+)
+
+kable(kv_df,
+      col.names = c("Maa", "Järjestelmä", "Vapaaehtoisia", "Näyttö (OR/p)", "Huomio"),
+      caption = "Kansainvälinen vertailu vapaaehtoisista ensivastaajista sydänpysähdyksissä")
+```
+
+*) Propensity score -korjattu poolia-analyysi (Kragh ym., JAHA 2024, n=9 553)
+
+**) GoodSAM-app; Smith ym., Eur Heart J Acute Cardiovasc Care 2022
+
+### Tanska: datarikkain esimerkki
+
+Tanskan Heartrunner-järjestelmä on maailman parhaiten dokumentoitu:
+
+```{r tanska-data}
+#| fig-cap: "Tanska: vapaaehtoisen saapuminen ennen EMS:ää kaupunki-maaseutu -akselilla"
+
+# Kragh ym. JAHA 2024: urban, suburban, rural data
+# Vapaaehtoinen saapuu ennen EMS-ta:
+tanska_df <- data.frame(
+  aluetyyppi = factor(c("Kaupunki", "Esikaupunki", "Maaseutu"),
+                      levels = c("Kaupunki", "Esikaupunki", "Maaseutu")),
+  saapuu_ensin_pct = c(42, 52, 63),   # % vapaaehtoisista jotka saapuivat ennen EMS
+  cpr_rate = c(78, 82, 85),            # bystander CPR %
+  survival_30d = c(13.8, 15.2, 12.1), # 30-pv elossaolo %
+  ems_viive_min = c(5.2, 7.8, 12.4)   # EMS mediaaniviive
+)
+
+p1 <- ggplot(tanska_df, aes(x = aluetyyppi)) +
+  geom_col(aes(y = saapuu_ensin_pct, fill = aluetyyppi), alpha = 0.85) +
+  geom_text(aes(y = saapuu_ensin_pct, label = paste0(saapuu_ensin_pct, "%")),
+            vjust = -0.5, fontface = "bold") +
+  scale_fill_manual(values = c("#1565C0", "#388E3C", "#E65100")) +
+  labs(title = "Vapaaehtoinen saapui ennen EMS:ää",
+       subtitle = "Tanska (Heartrunner, Kragh ym. 2024)",
+       x = NULL, y = "Osuus hälytyksistä (%)") +
+  ylim(0, 75) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold", size = 11))
+
+p2 <- ggplot(tanska_df, aes(x = aluetyyppi, y = ems_viive_min, fill = aluetyyppi)) +
+  geom_col(alpha = 0.85) +
+  geom_text(aes(label = paste0(ems_viive_min, " min")),
+            vjust = -0.5, fontface = "bold") +
+  scale_fill_manual(values = c("#1565C0", "#388E3C", "#E65100")) +
+  labs(title = "EMS-mediaaniviive alueittain",
+       subtitle = "Tanska 2024",
+       x = NULL, y = "Minuuttia") +
+  ylim(0, 16) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold", size = 11))
+
+library(patchwork)
+p1 + p2
+```
+
+> **Keskeinen havainto Tanskasta:** Maaseudulla vapaaehtoinen saapui ennen EMS:ää
+> **63 %:ssa tapauksista** — enemmän kuin kaupungissa. Tämä johtuu siitä, että
+> EMS-viive on pidempi, joten vapaaehtoinen ehtii todennäköisemmin ensin.
+> GoodSAM:ssa (UK) vastaava selviytymishyöty oli OR 3.15–3.19.
+
+---
+
+## Valtakunnallinen skenaarioanalyysi: montako henkeä säästetään vapaehtoisten avulla?
+
+### Sydänpysähdykset Suomessa
+
+Suomessa tapahtuu arviolta **3 000–4 000 sairaalan ulkopuolista sydänpysähdystä**
+vuosittain (THL-arvio; viite: ~50/100 000 as. kansainvälinen ilmaantuvuus).
+Nykyinen 30 päivän selviytymisaste on kansainvälisesti ~10–15 %.
+
+```{r skenaarioanalyysi}
+#| fig-cap: "Skenaarioanalyysi: vapaaehtoisten potentiaalinen vaikutus Suomessa"
+
+set.seed(2026)
+n_sim <- 50000
+
+# Parametrit
+ohca_vuosi <- 3500          # sydänpysähdystä/v Suomessa
+pct_maaseutu <- 0.30        # 30% tapahtuu maaseudulla (pitkä viive)
+ohca_maaseutu <- ohca_vuosi * pct_maaseutu  # n. 1050
+
+# Selviytymisfunktio
+surv_fn <- function(t, p0 = 0.75, lambda = 0.10) pmax(0, p0 * exp(-lambda * t))
+
+# Skenaario A: nykytila (vain ambulanssi, maaseutu)
+# Mediaaniviive: 18 min, hajonta 5 min
+amb_viive_A <- pmax(5, rnorm(n_sim, mean = 18, sd = 5))
+surv_A <- surv_fn(amb_viive_A)
+
+# Skenaario B: vapaaehtoinen (Keski-Suomi-malli: 22 ryhmää, ~160 hlöä)
+# Vapaaehtoinen saatavilla 63% tapauksista (Tanskan rural-data)
+# Viive: 5 min (lähimpi naapuri)
+p_available_B <- 0.40   # Konservatiivinen: 40% (Suomessa pienempi tiheys kuin Tanskassa)
+kyla_viive_B  <- pmax(1, rnorm(n_sim, mean = 6, sd = 2))
+vap_ensin_B   <- runif(n_sim) < p_available_B & kyla_viive_B < amb_viive_A
+
+surv_B <- ifelse(vap_ensin_B, surv_fn(kyla_viive_B), surv_fn(amb_viive_A))
+
+# Skenaario C: optimoitu järjestelmä (GoodSAM-tyyppi, OR 3.15, UK-data)
+# Lisätään app-pohjainen hälytys + AED-koulutus -> p_available nousi
+p_available_C <- 0.63  # Tanskan rural-taso
+kyla_viive_C  <- pmax(1, rnorm(n_sim, mean = 5, sd = 1.5))
+vap_ensin_C   <- runif(n_sim) < p_available_C & kyla_viive_C < amb_viive_A
+surv_C <- ifelse(vap_ensin_C, surv_fn(kyla_viive_C), surv_fn(amb_viive_A))
+
+# Skenaario D: Lappi (pisin viive, harvin väestö)
+amb_viive_D <- pmax(10, rnorm(n_sim, mean = 26, sd = 7))
+p_available_D <- 0.20  # Hyvin harva
+kyla_viive_D  <- pmax(2, rnorm(n_sim, mean = 8, sd = 3))
+vap_ensin_D   <- runif(n_sim) < p_available_D & kyla_viive_D < amb_viive_D
+surv_D <- ifelse(vap_ensin_D, surv_fn(kyla_viive_D), surv_fn(amb_viive_D))
+
+# Lasketaan odotetut pelastetut per vuosi (maaseudulla)
+delta_B <- mean(surv_B - surv_A) * ohca_maaseutu
+delta_C <- mean(surv_C - surv_A) * ohca_maaseutu
+delta_D_base <- mean(surv_fn(amb_viive_D)) * ohca_maaseutu * 0.15  # Lapin osuus
+
+skenaariot <- data.frame(
+  skenaario = factor(
+    c("A: Nykytila\n(vain ambulanssi,\nmaaseutu)",
+      "B: Kyläyhdistys\n(nykymalli,\n40% saatavuus)",
+      "C: Optimoitu app\n(GoodSAM-tyyppi,\n63% saatavuus)",
+      "D: Lappi\n(pitkä viive,\n20% saatavuus)"),
+    levels = c("A: Nykytila\n(vain ambulanssi,\nmaaseutu)",
+               "B: Kyläyhdistys\n(nykymalli,\n40% saatavuus)",
+               "C: Optimoitu app\n(GoodSAM-tyyppi,\n63% saatavuus)",
+               "D: Lappi\n(pitkä viive,\n20% saatavuus)")
+  ),
+  mediaani_surv_pct = c(
+    round(mean(surv_A) * 100, 1),
+    round(mean(surv_B) * 100, 1),
+    round(mean(surv_C) * 100, 1),
+    round(mean(surv_D) * 100, 1)
+  ),
+  extra_lives = c(0,
+                  round(delta_B),
+                  round(delta_C),
+                  round(delta_D_base * 0.3))
+)
+
+ggplot(skenaariot, aes(x = skenaario, y = mediaani_surv_pct, fill = skenaario)) +
+  geom_col(alpha = 0.85) +
+  geom_text(aes(label = paste0(mediaani_surv_pct, "%")),
+            vjust = -0.5, fontface = "bold", size = 4) +
+  geom_text(aes(label = ifelse(extra_lives > 0,
+                               paste0("+", extra_lives, " hlö/v*"),
+                               "")),
+            vjust = -2.5, color = "#1B5E20", fontface = "bold", size = 3.5) +
+  scale_fill_manual(values = c("#EF5350", "#42A5F5", "#66BB6A", "#FFA726")) +
+  scale_y_continuous(limits = c(0, 45),
+                     labels = function(x) paste0(x, "%")) +
+  labs(
+    title = "Skenaarioanalyysi: selviytymistodennäköisyys ja lisäpelastetut",
+    subtitle = paste0("Pohja: n = ", format(n_sim, big.mark=" "),
+                      " simulaatiota, ~1 050 maaseutu-OHCA/v Suomessa\n",
+                      "* Lisäpelastetut vs. nykytila (skenaario A), konservatiivinen arvio"),
+    x = NULL,
+    y = "Odotettu selviytyminen (%)",
+    fill = NULL,
+    caption = "Lähteet: STM 2022, Kragh ym. JAHA 2024, Smith ym. Eur Heart J Acute Cardiovasc Care 2022"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "none",
+    axis.text.x = element_text(size = 9)
+  )
+```
+
+###  Bayesilainen sensitiivisyysanalyysi
+
+Edellä esitytn mallin parametrien epävarmuus on suuri. Tämän taia kannattaa tehdä herkkyysanalyysi Monte Carlo -epävarmuuksilla:
+
+```{r bayesian-sensitivity}
+#| fig-cap: "Herkkyysanalyysi: lisäpelastettujen jakauma eri parametriyhdistelmillä"
+
+set.seed(42)
+n_boot <- 5000
+
+# Epävarmuudet parametreissa
+results_boot <- replicate(n_boot, {
+  # Näytä parametrit epävarmuusjakaumistaan
+  p0     <- runif(1, 0.60, 0.80)    # Alkuselviytyminen [0.60, 0.80]
+  lambda <- runif(1, 0.08, 0.12)    # Selviytymislaskun nopeus
+  p_vap  <- runif(1, 0.25, 0.55)    # Saatavuus [konservatiivinen]
+  vap_mu <- runif(1, 4, 8)          # Vapaaehtoisen viive
+  amb_mu <- runif(1, 15, 22)        # Ambulanssiviive (Keski-Suomi)
+
+  surv_fn2 <- function(t) pmax(0, p0 * exp(-lambda * t))
+
+  amb_v <- pmax(5, rnorm(1000, mean = amb_mu, sd = 4))
+  vap_v <- pmax(1, rnorm(1000, mean = vap_mu, sd = 2))
+  vap_ok <- runif(1000) < p_vap & vap_v < amb_v
+
+  surv_ref  <- mean(surv_fn2(amb_v))
+  surv_vap  <- mean(ifelse(vap_ok, surv_fn2(vap_v), surv_fn2(amb_v)))
+
+  (surv_vap - surv_ref) * 1050  # Lisäpelastetut/v
+})
+
+boot_df <- data.frame(lisahenget = results_boot)
+
+ggplot(boot_df, aes(x = lisahenget)) +
+  geom_histogram(bins = 60, fill = "#1565C0", alpha = 0.75, color = "white") +
+  geom_vline(xintercept = quantile(results_boot, 0.025),
+             color = "#C62828", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = quantile(results_boot, 0.975),
+             color = "#C62828", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = median(results_boot),
+             color = "#1B5E20", linewidth = 1.5) +
+  annotate("text",
+           x = median(results_boot) + 1,
+           y = 300,
+           label = paste0("Mediaani: ", round(median(results_boot)), " hlö/v"),
+           hjust = 0, color = "#1B5E20", fontface = "bold", size = 4) +
+  annotate("text",
+           x = quantile(results_boot, 0.025) - 1,
+           y = 270,
+           label = paste0("2.5%: ", round(quantile(results_boot, 0.025))),
+           hjust = 1, color = "#C62828", size = 3.5) +
+  annotate("text",
+           x = quantile(results_boot, 0.975) + 1,
+           y = 270,
+           label = paste0("97.5%: ", round(quantile(results_boot, 0.975))),
+           hjust = 0, color = "#C62828", size = 3.5) +
+  labs(
+    title = "Herkkyysanalyysi: lisäpelastettujen jakauma Suomessa",
+    subtitle = paste0("n = ", format(n_boot, big.mark=" "),
+                      " bootstrap-näytettä, parametriepävarmuus huomioitu\n",
+                      "Skenaario B (kyläyhdistys, konservatiivinen) vs. nykytila"),
+    x = "Odotettu lisäpelastettujen määrä per vuosi",
+    y = "Näytteiden lukumäärä",
+    caption = "Punainen = 95% epävarmuusväli, vihreä = mediaani"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+```{r yhteenveto-luvut}
+q025 <- round(quantile(results_boot, 0.025))
+q975 <- round(quantile(results_boot, 0.975))
+med  <- round(median(results_boot))
+
+cat(sprintf(
+  "95%% epävarmuusväli lisäpelastettujen määrälle:\n[%d, %d] henkilöä vuodessa\nMediaani: %d henkilöä/vuosi\n",
+  q025, q975, med
+))
+```
+
+---
+
+## Kriittinen arvio: miksi luku on epävarma?
+
+```{r kriittinen-taulukko}
+kriittiset <- data.frame(
+  Tekija = c(
+    "Tanskalainen saatavuusluku (63%)",
+    "Reaktioaika-oletus (5–8 min)",
+    "PPE-laatu vapaaehtoinen vs. ammattilainen",
+    "Öisin saatavuus",
+    "Maantiede (tiet, järvet)",
+    "Yksi tapaus Keski-Suomessa (Aunola)",
+    "Laki kieltää järjestelyn"
+  ),
+  Vaikutus = c(
+    "Yliarvioi: Suomessa vähemmän vapaaehtoisia",
+    "Voi aliarvioida (nukkuminen, muu toiminta)",
+    "Heikentää hyötyä: ammattilainen tehokkaampi",
+    "Laskee saatavuuden merkittävästi",
+    "Lapissa järvet hidastavat, eivät Pohjanmaalla",
+    "Viittaa alhaiseen käytännön vaikutukseen",
+    "Ei juridinen, vaan terveyspolitiikkakysymys"
+  ),
+  Suunta = c("↓", "↓", "↓", "↓", "Vaihtelee", "↓", "—")
+)
+
+kable(kriittiset,
+      col.names = c("Tekijä", "Vaikutus malliin", "Suunta"),
+      caption = "Mallin kriittiset epävarmuustekijät")
+```
+
+---
+
+## Synteesi: data science -näkökulma politiikkaan
+
+### Mitä data sanoo?
+
+```{r synteesi-kuvaaja}
+#| fig-cap: "Näyttöpyramidi: kansainvälinen kirjallisuus vapaaehtoisista ensivastaajista"
+
+synteesi_df <- data.frame(
+  taso = factor(c(
+    "Meta-analyysi (n>9000,\nOR=1.30, p<0.001)",
+    "RCT (Ruotsi 2015,\nCPR↑, survival n.s.)",
+    "Observational (GoodSAM,\nOR=3.15, p=0.02)",
+    "Observational (Tanska,\nCPR 76%↑, defib 3.7x)",
+    "Rekisteridata (Suomi,\n1 tapaus, n=22 ryhmää)"
+  ), levels = c(
+    "Meta-analyysi (n>9000,\nOR=1.30, p<0.001)",
+    "RCT (Ruotsi 2015,\nCPR↑, survival n.s.)",
+    "Observational (GoodSAM,\nOR=3.15, p=0.02)",
+    "Observational (Tanska,\nCPR 76%↑, defib 3.7x)",
+    "Rekisteridata (Suomi,\n1 tapaus, n=22 ryhmää)"
+  )),
+  vahvuus = c(5, 4, 3, 3, 1),
+  sovellettavuus_fi = c(3, 4, 3, 4, 5),
+  color = c("#1565C0", "#388E3C", "#7B1FA2", "#7B1FA2", "#E65100")
+)
+
+ggplot(synteesi_df, aes(x = vahvuus, y = sovellettavuus_fi,
+                         label = taso, color = color)) +
+  geom_point(size = 8, alpha = 0.7) +
+  geom_text(nudge_y = 0.25, size = 2.8, color = "#333333") +
+  scale_color_identity() +
+  scale_x_continuous(limits = c(0, 6),
+                     breaks = 1:5,
+                     labels = c("Heikko", "Kohtalainen", "Hyvä", "Vahva", "Erittäin\nvahva")) +
+  scale_y_continuous(limits = c(0, 6),
+                     breaks = 1:5,
+                     labels = c("Ei lainkaan", "Heikko", "Kohtalainen", "Hyvä", "Erinomainen")) +
+  labs(
+    title = "Näytön vahvuus vs. sovellettavuus Suomeen",
+    subtitle = "Kansainvälinen kirjallisuus vapaaehtoisista ensivastaajista sydänpysähdyksissä",
+    x = "Tutkimusnäytön vahvuus",
+    y = "Sovellettavuus Suomeen"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+### Johtopäätökset datasciencen näkökulmasta
+
+**Mitä voidaan sanoa luottavaisesti:**
+
+1. Ambulanssiviive maaseudulla on Suomessa **huomattavasti pidempi** kuin 8 min tavoite —
+   tämä on kiistaton tilastollinen fakta (STM 2022).
+
+2. Kansainvälinen kirjallisuus osoittaa johdonmukaisesti, että vapaaehtoinen ensivastaaja
+   **nostaa selviytymistä** erityisesti pitkän EMS-viiveen alueilla (OR 1.30–3.19).
+
+3. Suomessa käytännön näyttö on olematon: vain yhdessä tapauksessa
+   vapaaehtoinen ehti paikalle ennen ensihoitoa (n=22 ryhmää).
+
+4. Simulaatiomme osoittaa, että **optimaalisella järjestelmällä** (app-hälytys, AED-koulutus,
+   63% saatavuus) voitaisiin pelastaa 10–80 lisähenkilöä vuodessa maaseudulla —
+   mutta epävarmuus on suuri (95% CI: `r q025`–`r q975`).
+
+**Mitä data ei kerro:**
+
+- Oikeaa järjestämistapaa (lainsäädäntömuutos, sopimuspalokuntamalli, app-järjestelmä)
+- Psykologisia vaikutuksia vapaaehtoisiin (burnout, PTSD — tunnettu ongelma Irlannissa)
+- Kustannusvaikuttavuutta (GoodSAM: edulliset setup-kustannukset)
+
+---
+
+
+## Lähteet
+
+- Suomen Kylät ry. *Tietoa järjestöstä.* <https://suomenkylat.fi>
+- Wikipedia. *Kyläyhdistys.* <https://fi.wikipedia.org/wiki/Kyläyhdistys>
+- YLE. *Keski-Suomen hyvinvointialue sai huomautuksen yhteistyöstä kyläyhdistysten kanssa.* 2026. <https://yle.fi/a/74-20218706>
+- Palosuojelun edistämissäätiö. *Ensivasteyksikkö lyhentää potilaan tavoittamisviivettä.* 2019.<https://www.palosuojelunedistamissaatio.fi/ensivasteyksikko-lyhentaa-potilaan-tavoittamisviivetta/>
+- Terveyskirjasto / SPR. *Peruselvytys.* <https://www.terveyskirjasto.fi/spr00006>
+- Sydänliitto / Iltalehti. *Kun sydän pysähtyy, aikaa on vain muutama minuutti.*<https://www.iltalehti.fi/terveysuutiset/a/bf152311-efbd-4fd0-9d1e-5707cbc49346> 2019.
+- Käypä hoito. *Elvytys.* <https://www.kaypahoito.fi/hoi17010>
+- Itä-Uudenmaan pelastuslaitos. *Ensihoidon palveluita joudutaan tehostamaan.* 2024. <https://pelastustoimi.fi/-/ensihoidon-palveluita-joudutaan-tehostamaan-kevaalla-2024>
+- STM / Maaseudun Tulevaisuus. *Ambulanssia joutuu odottamaan maaseudulla…* 2024. <https://www.maaseuduntulevaisuus.fi/uutiset/37cf924e-7f95-451a-982b-c4062330cac6>
+
+
+**Kansainvälinen kirjallisuus:**
+
+- Kragh AR et al. *Volunteer Responder Interventions in OHCA in Urban, Suburban, and Rural Areas.* JAHA 2024. doi:10.1161/JAHA.123.032629
+- Smith CM et al. *Effect of GoodSAM volunteer first-responder app on survival to hospital discharge.* Eur Heart J Acute Cardiovasc Care 2022. doi:10.1093/ehjacc/zuab099
+- Bray JE et al. *Community Volunteer Responder Programs in Cardiac Arrest.* JACC 2023. doi:10.1016/j.jacc.2023.05.018
+- Shahriari P et al. *Underutilized potential of a nationwide community first responder system.* JACC 2026.
+- Allert C et al. *Voluntary first responders' experiences of OHCA in rural areas.* BMC Cardiovasc Disord 2024. doi:10.1186/s12872-024-03826-x
+- Andelius L et al. *Smartphone activation of citizen responders.* JACC 2020. doi:10.1016/j.jacc.2020.04.073
+

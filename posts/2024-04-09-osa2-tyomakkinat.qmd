@@ -76,16 +76,27 @@ Käytetään datatana Tilastokeskuksen dataa ammateista, avoimista työpaikoista
 #| echo: false
 
 library(tidyverse)
-library(eurostat)
 library(janitor)
-library(pxweb)
 library(readxl)
 library(here)
-
+library(scales)
 
 theme_set(theme_minimal(base_size = 14))
 
-data <- readxl::read_excel(here("data","raw","unemployment","tyopaikat_ja_tyottomat.xlsx"))
+raaka<- readxl::read_excel(here("data","raw","unemployment","tyopaikat_ja_tyottomat.xlsx"), skip = 2, col_names = F)
+
+raaka <- raaka %>%
+  mutate(across(everything(), ~ .x)) %>% # Varmistetaan tyypit
+  {
+    # Luodaan funktio, joka täyttää rivin 1
+    temp_df <- .
+    for(i in 2:ncol(temp_df)) {
+      temp_df[1, i] <- ifelse(is.na(temp_df[1, i]), temp_df[1, i-1], temp_df[1, i])
+    }
+    temp_df
+  }
+
+raaka <- raaka %>% select(-1)
 ```
 
 

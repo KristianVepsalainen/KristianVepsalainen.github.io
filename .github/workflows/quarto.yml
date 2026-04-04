@@ -90,6 +90,7 @@ jobs:
             "sf",
             "terra",
             "stringr",
+            "patchwork", 
             "acledR",
             "modelsummary",
             "brms",

@@ -20,7 +20,6 @@ execute:
   warning: false
   message: false
 slug: suomen-tyovoimapula-osa1
-draft: true
 ---
 
 ## Tiivistelmä

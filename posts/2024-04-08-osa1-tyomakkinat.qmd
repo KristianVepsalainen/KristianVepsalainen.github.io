@@ -20,7 +20,6 @@ execute:
   warning: false
   message: false
 slug: suomen-tyovoimapula-osa1
-draft: true
 ---
 
 ## Tiivistelmä
@@ -58,7 +57,6 @@ Ensimmäisessä osassa tarkastelemme peruskysymystä:
 
 onko Suomessa oikeasti työvoimapula?
 
----
 
 ## Miksi työvoimapula on hankala käsite?
 
@@ -84,7 +82,6 @@ työpaikkojen vaatimukset  vs  työntekijöiden ominaisuudet.
 
 Jos jakaumat eivät kohtaa, työmarkkina ei tasapainotu.
 
----
 
 ## Keskeinen havainto: työvoimapula ja työttömyys voivat esiintyä yhtä aikaa
 
@@ -100,7 +97,6 @@ Keskiarvo ei kuvaa tilannetta.
 
 Tarvitsemme jakaumia.
 
----
 
 ## Data
 
@@ -109,14 +105,9 @@ Tarkastellaan kahta keskeistä muuttujaa:
 - työttömien määrä
 - avoimien työpaikkojen määrä
 
-Jos työvoimapula on todellinen, avoimia työpaikkoja pitäisi olla paljon suhteessa työttömiin.
+Jos työvoimapula on todellinen, avoimia työpaikkoja pitäisi olla paljon suhteessa työttömiin.  
 
-Lähteet:
-
-Tilastokeskus  
-Eurostat  
-
-Käytän avoimia rajapintoja.
+Käytän avoimia rajapintoja Eurostatin ja Tilastokeskuksen datoihin.
 
 ```{r}
 #| echo: false
@@ -277,10 +268,15 @@ model <- lm(
 tidy(model)
 ```
 
-Taulukon tulkinta: 
+Taulukon tulkinta:
+
 * Intercept on vakio, joka saa arvon 3,25. Tämä on lähtötaso työmarkkinoiden kireydelle. 
+
 * log_u taas kuvaa työttömyyden ja työpaikkojen välistä suhdetta, mitä enemmän työttömyyttä, sitä vähemmän avoimia työpaikkoja. 
-* post_2020TRUE tarkoittaa sitä, että vuoden 2020 jälkeen avoimia työpaikkoja on enemmän samalla työttömyystasolla. *  log_u:post_2020TRUE taas tarkoitta sitä, että log_u-kohdassa kuvattu yhteys muuttuu hieman vuoden 2020 jälkeen. 
+
+* post_2020TRUE tarkoittaa sitä, että vuoden 2020 jälkeen avoimia työpaikkoja on enemmän samalla työttömyystasolla.
+
+* log_u:post_2020TRUE taas tarkoitta sitä, että log_u-kohdassa kuvattu yhteys muuttuu hieman vuoden 2020 jälkeen. 
 
 Keskeisin muuttuja on log_u, jonka arvo on -1,30. Tämä tarkoitta sitä, että kun työttömyys kasvaa, avoimien työpaikkojen määärä pienenee. Toisin sanoen, huonoina aikoina rekrytoidaan vähemmän. Tämän kertoimen negatiivinen arvo kertoo siitä, että malli toimii oikein. Positiivinen kerroin olisi ollut ristiriidassa makrotalousteorian kanssa. 
 
@@ -361,9 +357,9 @@ Kuvaajassa nähdään, että ennen vuotta 2015 Suomessa työllisyys oli poikkeuk
 
 ## Mitä seuraavaksi?
 
-Seuraavassa osassa tarkastelemme mismatchia ammattien välillä.
+Seuraavassa osassa tarkastelen kohtaanto-ongelmaa ammattien välillä.
 
-Jos työvoimapula keskittyy pienelle joukolle ammatteja, kyse ei ole koko talouden ongelmasta.
+Jos työvoimapula keskittyy pienelle joukolle ammatteja ja vastaavasti, jos vain pienellä joukolla ammatista on ylitarjontaa, kyse ei ole koko talouden ongelmasta.
 
 Kyse on jakaumaongelmasta.
 

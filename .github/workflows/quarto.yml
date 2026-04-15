@@ -93,6 +93,7 @@ jobs:
             "patchwork", 
             "acledR",
             "modelsummary",
+            "zoo",
             "brms",
             "stan-dev/cmdstanr"
           ))

@@ -148,6 +148,7 @@ df_uusin <- df_maakunnat |>
 uusin_kk <- format(max(df_uusin$aika), "%m/%Y")
 
 df_uusin |>
+filter(grepl("MK",alue)) |>
   mutate(
     alue = fct_reorder(alue, kohtaantosuhde),
     tyyppi = case_when(

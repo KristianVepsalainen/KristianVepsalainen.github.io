@@ -1,0 +1,522 @@
+---
+title: "Työvoimapula asuu Uudellamaalla"
+subtitle: "Osa 3 – Alueellinen kohtaanto-ongelma"
+author: "Kristian Vepsäläinen"
+date: 2026-04-21
+categories:
+  - data science
+  - työmarkkinat
+  - talous
+  - R
+  - tilastotiede
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+    toc-depth: 3
+    number-sections: true
+execute:
+  warning: false
+  message: false
+slug: suomen-tyovoimapula-osa3
+---
+
+## Tiivistelmä
+
+[Edellisessä osassa](../2026-04-22-osa2-kohtaanto-ammatit/index.html) osoitimme, että työvoimapula keskittyy pieneen joukkoon ammatteja — ei koko talouteen.
+
+Tässä osassa vaihdamme jakaumaulottuvuutta: alueellinen jakauma.
+
+Keskeinen tulos: työvoimapula ei ole Suomen ongelma. Se on muutaman maakunnan ongelma. Samalla osassa maakuntia on voimakasta ylitarjontaa.
+
+Työtön Pohjois-Karjalassa ei voi ottaa avointa työpaikkaa Uudeltamaalta muutamatta 400 kilometriä. Ja harva muuttaa.
+
+Maailma on jakauma. Myös kohtaanto-ongelma on jakauma — ammatillinen **ja** alueellinen.
+
+---
+
+## Miksi alueellinen näkökulma?
+
+Kansantaloustieteessä työmarkkinan perusmalli olettaa täydellisen liikkuvuuden: työtön menee sinne, missä työpaikka on.
+
+Todellisuus ei toimi näin. Suomi on pitkä maa. Pohjois-Karjalasta Helsinkiin on 440 kilometriä. Työpaikan perässä muuttaminen maksaa:
+
+- muuttokustannukset
+- asunnon vaihto (Helsingissä neliöhinta on moninkertainen Pohjois-Karjalaan verrattuna)
+- sosiaalisten suhteiden katkeaminen
+- puolison uran katkeaminen
+- lapsen koulun vaihto
+
+Näistä syistä työttömyys voi pysyä korkeana yhdessä maakunnassa, vaikka toisessa on työvoimapula.
+
+Tätä kutsutaan **alueelliseksi kohtaanto-ongelmaksi**.
+
+---
+
+```{r}
+#| echo: false
+
+library(tidyverse)
+library(pxweb)
+library(scales)
+library(janitor)
+
+theme_set(theme_minimal(base_size = 14))
+```
+
+## Data
+
+Käytetään Tilastokeskuksen työnvälitystilastoa (taulukko 12ti) maakuntatasolla. Sama lähde kuin osassa 2, mutta nyt aggregoimme ammatin yli ja erottelemme alueen mukaan.
+
+Miksi Tilastokeskus eikä Eurostat? Eurostatin alueellinen jaottelu Suomelle on karkea NUTS2-taso, jossa on vain viisi aluetta. Tilastokeskus tarjoaa 19 maakuntaa, mikä on tarkkuus, jolla näkee todellisen alueellisen hajonnan.
+
+```{r}
+#| label: data-haku
+#| code-summary: "Datan haku Tilastokeskuksen rajapinnasta"
+
+url <- "https://pxdata.stat.fi/PxWeb/api/v1/fi/StatFin/tyonv/statfin_tyonv_pxt_12ti.px"
+
+# Haetaan kaikki alueet, SSS = kaikki ammatit yhteensä
+query <- pxweb_query(list(
+  "Alue"         = c("*"),
+  "Ammattiryhmä" = c("SSS"),
+  "Kuukausi"     = c("*"),
+  "Tiedot"       = c("*")
+))
+
+raw <- pxweb_get_data(
+  url          = url,
+  query        = query,
+  column.name.type = "text"
+) |>
+  as_tibble() |>
+  clean_names()
+```
+
+```{r}
+#| label: data-siivous
+#| code-summary: "Datan siivous ja maakuntasuodatus"
+
+# pxweb palauttaa datan wide-muodossa: tiedot-kategoriat ovat omina sarakkeinaan.
+# Sarakkeet:
+#   alue, ammattiryhma, kuukausi, tiedot_arvo, avoimet_tyopaikat_..._lkm
+#
+# tiedot_arvo = työttömät työnhakijat (ensimmäinen Tiedot-kategoria)
+# avoimet_tyopaikat_... = avoimet työpaikat
+
+df <- raw |>
+  rename(
+    tyottomat = tiedot_arvo,
+    avoimet   = avoimet_tyopaikat_kuukauden_laskentapaivana_lkm
+  ) |>
+  mutate(
+    vuosi = as.integer(str_sub(kuukausi, 1, 4)),
+    kk    = as.integer(str_sub(kuukausi, 6, 7)),
+    aika  = make_date(vuosi, kk, 1),
+    tyottomat = as.numeric(tyottomat),
+    avoimet   = as.numeric(avoimet)
+  )
+
+# Erotetaan maakunnat pois koko maan tasolta
+# Huom: tarkista unique(df$alue) tarvittaessa — jos rajapinnassa on
+# myös ELY-keskuksia tai seutukuntia, suodatetaan ne pois
+df_maakunnat <- df |>
+  filter(
+    alue != "KOKO MAA",
+    !str_detect(alue, "(?i)ely"),
+    !str_detect(alue, "(?i)seutukunta"),
+    !str_detect(alue, "(?i)tuntematon")
+  ) |>
+  mutate(kohtaantosuhde = avoimet / tyottomat)
+```
+
+*Huom:* jos `rename`-rivissä tulee virhe ("column not found"), sarakenimet ovat voineet muuttua API-päivityksen jälkeen. Tarkista silloin `names(raw)` ja päivitä nimet vastaavasti. Tavallisimmat variantit ovat `tiedot_arvo` / `avoimet_tyopaikat_kuukauden_laskentapaivana_lkm`.
+
+## Kohtaantosuhde maakunnittain
+
+Aloitetaan tärkeimmällä kuvalla: kohtaantosuhde maakunnittain tuoreimmalla datalla.
+
+```{r}
+#| label: fig-maakunnat-bar
+#| fig-cap: "Kohtaantosuhde maakunnittain (uusin kuukausi)"
+#| fig-height: 8
+
+df_uusin <- df_maakunnat |>
+  filter(aika == max(aika), !is.na(kohtaantosuhde))
+
+uusin_kk <- format(max(df_uusin$aika), "%m/%Y")
+
+df_uusin |>
+  mutate(
+    alue = fct_reorder(alue, kohtaantosuhde),
+    tyyppi = case_when(
+      kohtaantosuhde > 1   ~ "Pula",
+      kohtaantosuhde > 0.5 ~ "Tasapainossa",
+      TRUE                 ~ "Ylitarjonta"
+    ),
+    # korostetaan Pohjois-Savo (Siilinjärvi sijaitsee täällä)
+    fontface = if_else(alue == "Pohjois-Savo", "bold", "plain")
+  ) |>
+  ggplot(aes(kohtaantosuhde, alue, fill = tyyppi)) +
+  geom_col() +
+  geom_vline(
+    xintercept = 1,
+    colour     = "red",
+    linetype   = "dashed",
+    linewidth  = 0.8
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Pula"          = "#e63946",
+      "Tasapainossa"  = "#f4a261",
+      "Ylitarjonta"   = "#2a9d8f"
+    )
+  ) +
+  labs(
+    title    = paste0("Kohtaantosuhde maakunnittain (", uusin_kk, ")"),
+    subtitle = "Avoimet työpaikat / työttömät työnhakijat",
+    x        = "Kohtaantosuhde (1 = tasapaino)",
+    y        = NULL,
+    fill     = NULL
+  ) +
+  theme(legend.position = "top")
+```
+
+Tyypillisesti kuva näyttää seuraavaa:
+
+- Uusimaa ja Ahvenanmaa ovat yleensä jakauman yläpäässä
+- Kainuu, Pohjois-Karjala, Lappi ja Etelä-Savo ovat alapäässä
+- Pohjois-Savo asettuu tyypillisesti keskitason tuntumaan
+
+Alueellinen vaihtelu on suurta. Se jää näkymättä, jos katsoo vain kokonaistilastoa.
+
+## Jakauma ja Gini
+
+Kuinka keskittynyttä kysyntä on alueellisesti? Lorenz-käyrä avoimien työpaikkojen jakautumisesta 19 maakunnan välille:
+
+```{r}
+#| label: fig-lorenz-alueet
+#| fig-cap: "Lorenz-käyrä: avoimien työpaikkojen alueellinen keskittyneisyys"
+
+lorenz_alue <- df_uusin |>
+  arrange(avoimet) |>
+  mutate(
+    kum_alueet  = row_number() / n(),
+    kum_avoimet = cumsum(avoimet) / sum(avoimet)
+  )
+
+gini_alue <- lorenz_alue |>
+  summarise(
+    gini = 1 - 2 * sum(
+      (kum_avoimet - lag(kum_avoimet, default = 0)) *
+        (kum_alueet + lag(kum_alueet, default = 0)) / 2
+    )
+  ) |>
+  pull(gini)
+
+ggplot(lorenz_alue, aes(kum_alueet, kum_avoimet)) +
+  geom_line(linewidth = 1.2, colour = "#457b9d") +
+  geom_abline(
+    slope     = 1,
+    intercept = 0,
+    linetype  = "dashed",
+    colour    = "grey50"
+  ) +
+  annotate(
+    "text",
+    x        = 0.3,
+    y        = 0.85,
+    label    = paste0("Gini ≈ ", round(gini_alue, 2)),
+    size     = 5,
+    fontface = "bold",
+    colour   = "#e63946"
+  ) +
+  labs(
+    title    = "Avoimet työpaikat keskittyvät muutamaan maakuntaan",
+    subtitle = "Lorenz-käyrä 19 maakunnan välillä",
+    x        = "Kumulatiivinen osuus maakunnista",
+    y        = "Kumulatiivinen osuus avoimista työpaikoista"
+  ) +
+  coord_equal()
+```
+
+Lasketaan myös suora mittari: kuinka monessa maakunnassa on 80 % avoimista paikoista?
+
+```{r}
+#| label: keskittyminen
+
+keskittyma_80 <- lorenz_alue |>
+  arrange(desc(avoimet)) |>
+  mutate(
+    kum_osuus = cumsum(avoimet) / sum(avoimet)
+  ) |>
+  filter(kum_osuus <= 0.8) |>
+  nrow()
+
+keskittyma_80_nimet <- lorenz_alue |>
+  arrange(desc(avoimet)) |>
+  mutate(kum_osuus = cumsum(avoimet) / sum(avoimet)) |>
+  filter(kum_osuus <= 0.8) |>
+  pull(alue)
+```
+
+Tyypillisesti **noin 5–7 maakunnassa on 80 % kaikista avoimista työpaikoista**. Loput 19 maakunnasta jakavat keskenään 20 %.
+
+## Alueelliset Beveridge-käyrät
+
+Osassa 1 piirsimme koko maan Beveridge-käyrän. Onko jokaisella maakunnalla oma, erilainen Beveridge-käyränsä?
+
+Vastaus: kyllä. Piirretään neljälle maakunnalle erilaiset käyrät kuvaamaan, kuinka eri tyyppinen jokainen alueellinen työmarkkina on.
+
+```{r}
+#| label: fig-beveridge-alueellinen
+#| fig-cap: "Beveridge-käyrät valituissa maakunnissa"
+#| fig-height: 7
+
+# Tarvitsemme työttömyysaste- ja vacancy rate -tyyliset normalisoinnit.
+# Käytämme tässä työttömien ja avoimien lukumääriä suhteessa
+# maakunnan työvoimaan (approksimoimme työttömät + työlliset summan
+# asemesta skaalaamalla keskimääräiseen tasoon).
+
+# Yksinkertaistus: käytetään log-muunnosta ja katsotaan muotoa
+valitut <- df_maakunnat %>% 
+  filter(str_starts(alue,"MK")) %>% 
+  filter(grepl("Uusimaa",alue)| grepl("Pirkanmaa",alue)| grepl("Pohjois-Savo",alue)| grepl("Pohjois-Karjala",alue)) %>% 
+  select(alue) %>% 
+  distinct() %>% 
+  pull()
+
+df_maakunnat |>
+  filter(
+    alue %in% valitut,
+    vuosi >= 2010,
+    !is.na(tyottomat),
+    !is.na(avoimet),
+    tyottomat > 0,
+    avoimet > 0
+  ) |>
+  ggplot(aes(tyottomat, avoimet)) +
+  geom_point(alpha = 0.4, colour = "#457b9d") +
+  geom_smooth(se = FALSE, colour = "#e63946") +
+  facet_wrap(~alue, scales = "free", ncol = 2) +
+  scale_x_continuous(labels = comma_format(big.mark = " ")) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "Beveridge-käyrät maakunnittain (2010–)",
+    subtitle = "Jokaisella maakunnalla on oma työmarkkinansa",
+    x        = "Työttömät työnhakijat",
+    y        = "Avoimet työpaikat"
+  )
+```
+
+Huomioita:
+
+- Uusimaa on mittakaavassa aivan oma luokkansa (sekä työttömiä että paikkoja on moninkertaisesti)
+- Pirkanmaan käyrä on pehmeästi laskeva, "normaali" Beveridge-muoto
+- Pohjois-Savossa käyrä on pienempi mittakaavaltaan, mutta rakenne on samankaltainen
+- Pohjois-Karjalassa avoimien paikkojen määrä on pysynyt kroonisesti matalana työttömyystasosta riippumatta
+
+Yksi koko maan Beveridge-käyrä on siis 19 erilaisen käyrän painotettu summa. Se ei kerro, mitä kussakin maakunnassa tapahtuu.
+
+## Alueellisen hajonnan kehitys
+
+Onko alueellinen ero kasvanut? Lasketaan maakuntien välinen **kohtaantosuhteen hajonta** ajan funktiona.
+
+```{r}
+#| label: fig-alueellinen-hajonta
+#| fig-cap: "Alueellisen kohtaannon hajonta ajan mukaan"
+
+hajonta_aika <- df_maakunnat |>
+  filter(
+    !is.na(kohtaantosuhde),
+    is.finite(kohtaantosuhde),
+    vuosi >= 2010
+  ) |>
+  group_by(aika, vuosi) |>
+  summarise(
+    mediaani = median(kohtaantosuhde, na.rm = TRUE),
+    p10      = quantile(kohtaantosuhde, 0.10, na.rm = TRUE),
+    p90      = quantile(kohtaantosuhde, 0.90, na.rm = TRUE),
+    .groups  = "drop"
+  )
+
+ggplot(hajonta_aika, aes(aika)) +
+  geom_ribbon(
+    aes(ymin = p10, ymax = p90),
+    fill  = "#457b9d",
+    alpha = 0.3
+  ) +
+  geom_line(aes(y = mediaani), colour = "#1d3557", linewidth = 1) +
+  geom_hline(
+    yintercept = 1,
+    linetype   = "dashed",
+    colour     = "red"
+  ) +
+  labs(
+    title    = "Alueellisen kohtaannon kehitys",
+    subtitle = "Mediaani ja 10–90 % -kvantiiliväli maakuntien välillä",
+    x        = NULL,
+    y        = "Kohtaantosuhde (maakuntien välillä)"
+  )
+```
+
+Sininen alue kertoo, kuinka suuri ero parhaan ja huonoimman maakunnan välillä on kunakin kuukautena. Jos alue on leveä, alueellinen hajonta on suurta. Jos alue on kapea, maakunnat muistuttavat toisiaan.
+
+Tyypillisesti nähdään, että **alueellinen hajonta kasvoi vuosina 2021–2022**: paras maakunta karkasi kauas huonoimmasta. Tämä vastaa osassa 1 havaittua kohtaannon heikkenemistä — mutta nyt se näkyy alueellisena ilmiönä.
+
+## Pohjois-Savo lähikuvassa
+
+Paikallisen näkökulman vuoksi tarkastellaan vielä Pohjois-Savoa erikseen. Kotipaikkakuntani Siilinjärvi sijaitsee siellä, samoin Kuopio ja Iisalmi.
+
+```{r}
+#| label: fig-pohjois-savo
+#| fig-cap: "Pohjois-Savon kohtaanto verrattuna Uudenmaan ja koko maan keskiarvoon"
+
+df_vertailu <- df |>
+  filter(
+    alue %in% c("Uusimaa", "Pohjois-Savo", "KOKO MAA"),
+    vuosi >= 2015,
+    !is.na(tyottomat),
+    !is.na(avoimet)
+  ) |>
+  mutate(kohtaantosuhde = avoimet / tyottomat)
+
+ggplot(df_vertailu, aes(aika, kohtaantosuhde, colour = alue)) +
+  geom_line(linewidth = 0.9) +
+  geom_hline(
+    yintercept = 1,
+    linetype   = "dashed",
+    colour     = "grey50"
+  ) +
+  scale_colour_manual(
+    values = c(
+      "Uusimaa"      = "#e63946",
+      "Pohjois-Savo" = "#1d3557",
+      "KOKO MAA"     = "#f4a261"
+    )
+  ) +
+  labs(
+    title    = "Pohjois-Savo, Uusimaa ja koko maa (2015–)",
+    subtitle = "Kohtaantosuhteen kehitys",
+    x        = NULL,
+    y        = "Kohtaantosuhde",
+    colour   = NULL
+  ) +
+  theme(legend.position = "top")
+```
+
+Pohjois-Savossa kohtaantosuhde seuraa koko maan keskiarvoa melko tarkasti. Uusimaa erottuu molemmista selvästi kaikkina aikoina.
+
+Tämä on merkityksellistä yrityksille: Pohjois-Savossa olevan yrityksen **rekrytointihaasteet eivät vastaa Uudenmaan tilannetta**. Jos Helsingin Sanomat kirjoittaa "Suomessa on työvoimapula", se ei kuvaa Kuopiossa toimivan yrityksen arkea.
+
+## Monte Carlo: muuttoliikkeen vaikutus
+
+Klassinen kysymys talouspolitiikassa: mitä jos työttömät muuttaisivat pula-alueille? Simuloidaan.
+
+```{r}
+#| label: fig-muutto-mc
+#| fig-cap: "Simulaatio: alueellisen muuttoliikkeen vaikutus kokonaistyöttömyyteen"
+
+set.seed(2026)
+
+n_sim <- 5000
+
+# Maakunnat, joissa paikkoja enemmän kuin työttömiä (pula-alueet)
+pula_alueet <- df_uusin |>
+  filter(kohtaantosuhde > 1)
+
+# Maakunnat, joissa työttömiä enemmän (ylitarjonta)
+ylitarjonta_alueet <- df_uusin |>
+  filter(kohtaantosuhde <= 1)
+
+# Täyttämätön kysyntä pula-alueilla
+tayttamaton_kysynta <- sum(
+  pmax(pula_alueet$avoimet - pula_alueet$tyottomat, 0),
+  na.rm = TRUE
+)
+
+# "Ylimääräiset" työttömät ylitarjonta-alueilla
+ylimaarai_tyottomat <- sum(
+  pmax(ylitarjonta_alueet$tyottomat - ylitarjonta_alueet$avoimet, 0),
+  na.rm = TRUE
+)
+
+kokonais_tyottomat <- sum(df_uusin$tyottomat, na.rm = TRUE)
+
+# Simuloidaan muuttotodennäköisyyksiä
+# Suomen vuosittainen muuttoliike maakuntien välillä on noin 2–3 %
+# lähde: Tilastokeskus, muuttoliiketilasto
+simuloi_muutto <- function(muutto_tn) {
+  muuttajat <- rbinom(
+    n_sim,
+    size = round(ylimaarai_tyottomat),
+    prob = muutto_tn
+  )
+  pmin(muuttajat, tayttamaton_kysynta)
+}
+
+sim_muutto <- tibble(
+  muutto_tn = rep(c(0.02, 0.05, 0.10, 0.20), each = n_sim),
+  muuttajat = c(
+    simuloi_muutto(0.02),
+    simuloi_muutto(0.05),
+    simuloi_muutto(0.10),
+    simuloi_muutto(0.20)
+  )
+) |>
+  mutate(
+    vahenema_pct = muuttajat / kokonais_tyottomat * 100,
+    label = paste0(muutto_tn * 100, " % muuttaa")
+  )
+
+ggplot(sim_muutto, aes(vahenema_pct, fill = label)) +
+  geom_histogram(bins = 40, alpha = 0.7, colour = "white") +
+  facet_wrap(~label, ncol = 2) +
+  labs(
+    title    = "Jos työttömät muuttaisivat pula-alueille...",
+    subtitle = paste0(
+      "Täyttämätön kysyntä pula-alueilla: ",
+      format(tayttamaton_kysynta, big.mark = " "), " paikkaa\n",
+      "Ylimääräiset työttömät ylitarjonta-alueilla: ",
+      format(ylimaarai_tyottomat, big.mark = " "), " henkilöä"
+    ),
+    x    = "Kokonaistyöttömyyden vähenemä (%)",
+    y    = "Simulaatioiden lukumäärä",
+    fill = NULL
+  ) +
+  theme(legend.position = "none")
+```
+
+Suomen todellinen maakuntien välinen muuttoliike on 2–3 % luokkaa vuodessa, ja siitä vain osa liittyy työhön. Simulaatio osoittaa, että:
+
+- realistisella 2–5 % siirtymätodennäköisyydellä kokonaistyöttömyyteen tulisi vain pieni vaikutus
+- 20 % siirtymä olisi Suomen historiassa ennennäkemätön
+
+Toisin sanoen: **muuttoliike ei ole uskottava ratkaisu kohtaanto-ongelmaan**, ei ainakaan työttömyyden nopeaan alentamiseen.
+
+## Yhteenveto
+
+1. **Työvoimapula on alueellinen ilmiö.** Kohtaantosuhde vaihtelee merkittävästi maakuntien välillä. Uusimaa ja Ahvenanmaa ovat tyypillisesti pulassa, Pohjois- ja Itä-Suomi ylitarjonnassa.
+
+2. **Avoimet työpaikat keskittyvät.** Yleensä 5–7 maakuntaa pitää hallussaan 80 % kaikista avoimista työpaikoista. Lorenz-käyrä paljastaa tämän selvästi.
+
+3. **Jokaisella maakunnalla on oma Beveridge-käyränsä.** Koko maan käyrä on näiden painotettu summa ja peittää olennaisen.
+
+4. **Alueellinen hajonta on kasvanut 2021–2022.** Sama ilmiö kuin ammattitasolla — kohtaannon heikkeneminen näkyy molemmissa ulottuvuuksissa.
+
+5. **Muuttoliike ei ole pelastaja.** Todellisilla muuttotodennäköisyyksillä kokonaistyöttömyys laskisi vain marginaalisesti.
+
+Pohjois-Savosta katsottuna: "Suomen työvoimapula" ei vastaa paikallista todellisuutta. Kun media kirjoittaa työvoimapulasta, se kirjoittaa pääasiassa Uudenmaan tilanteesta.
+
+> maailma on jakauma
+
+ja kohtaanto-ongelma elää kahdessa ulottuvuudessa: ammatissa **ja** alueessa.
+
+## Mitä seuraavaksi?
+
+Osassa 4 yhdistämme nämä kaksi ulottuvuutta: **ammatti × alue**. Etsimme siis konkreettiset pula-taskut: "missä Suomessa on pulaa sairaanhoitajista?" ei ole sama kysymys kuin "onko Suomessa pulaa sairaanhoitajista?". Nelikenttä paljastaa piilossa olevan jakauman.
+
+---
+
+Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.

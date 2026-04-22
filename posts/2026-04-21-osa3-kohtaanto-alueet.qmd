@@ -131,8 +131,6 @@ df_maakunnat <- df |>
   mutate(kohtaantosuhde = avoimet / tyottomat)
 ```
 
-*Huom:* jos `rename`-rivissä tulee virhe ("column not found"), sarakenimet ovat voineet muuttua API-päivityksen jälkeen. Tarkista silloin `names(raw)` ja päivitä nimet vastaavasti. Tavallisimmat variantit ovat `tiedot_arvo` / `avoimet_tyopaikat_kuukauden_laskentapaivana_lkm`.
-
 ## Kohtaantosuhde maakunnittain
 
 Aloitetaan tärkeimmällä kuvalla: kohtaantosuhde maakunnittain tuoreimmalla datalla.

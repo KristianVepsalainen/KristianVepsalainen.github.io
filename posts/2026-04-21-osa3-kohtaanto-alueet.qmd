@@ -183,13 +183,6 @@ filter(grepl("MK",alue)) |>
   ) +
   theme(legend.position = "top")
 ```
-
-Tyypillisesti kuva näyttää seuraavaa:
-
-- Uusimaa ja Ahvenanmaa ovat yleensä jakauman yläpäässä
-- Kainuu, Pohjois-Karjala, Lappi ja Etelä-Savo ovat alapäässä
-- Pohjois-Savo asettuu tyypillisesti keskitason tuntumaan
-
 Alueellinen vaihtelu on suurta. Se jää näkymättä, jos katsoo vain kokonaistilastoa.
 
 ## Jakauma ja Gini

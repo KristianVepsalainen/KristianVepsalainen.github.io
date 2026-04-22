@@ -102,12 +102,12 @@ raw <- pxweb_get_data(
 # Sarakkeet:
 #   alue, ammattiryhma, kuukausi, tiedot_arvo, avoimet_tyopaikat_..._lkm
 #
-# tiedot_arvo = työttömät työnhakijat (ensimmäinen Tiedot-kategoria)
+# tyottomat_tyonhakijat_laskentapaivana_lkm = työttömät työnhakijat (ensimmäinen Tiedot-kategoria)
 # avoimet_tyopaikat_... = avoimet työpaikat
 
 df <- raw |>
   rename(
-    tyottomat = tiedot_arvo,
+    tyottomat = tyottomat_tyonhakijat_laskentapaivana_lkm,
     avoimet   = avoimet_tyopaikat_kuukauden_laskentapaivana_lkm
   ) |>
   mutate(

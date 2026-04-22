@@ -2,7 +2,7 @@
 title: "Työvoimapula on 10 ammatin ongelma"
 subtitle: "Osa 2 – Kohtaanto-ongelmat ammattitasolla"
 author: "Kristian Vepsäläinen"
-date: 2026-04-22
+date: 2026-04-17
 categories:
   - data science
   - työmarkkinat

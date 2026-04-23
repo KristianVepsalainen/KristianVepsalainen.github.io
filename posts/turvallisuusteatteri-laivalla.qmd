@@ -58,7 +58,7 @@ Laivat liikennöivät pääosin Suomi–Ruotsi- ja Suomi–Viro-reiteillä.
 
 ### Meriterrorismi historiallisesti
 
-Tieteellinen kirjallisuus on yksimielinen: **meriterrorismi ei ole ollut terroristien ensisijainen toimintamuoto**. Lainattakoon Journal of Transportation Security -lehteä (Springer 2020), jossa todetaan, että huolimatta Itämeren intensiivisestä laivamatkustajaliikenteestä, meriterrorismista ei ole dokumentoituja tapauksia Itämerellä. Globaalistakin perspektiivistä tapaukset ovat äärimmäisen harvinaisia: Achille Lauro 1985 (Välimeri), SuperFerry 14 2004 (Filippiinit). Nämä kaksi tapausta kattavat käytännössä koko moderni meriterrorismin historian lähialueilla.
+Tieteellinen kirjallisuus on yksimielinen: **meriterrorismi ei ole ollut terroristien ensisijainen toimintamuoto**. Lainattakoon Journal of Transportation Security -lehteä (Springer 2020), jossa todetaan, että huolimatta Itämeren intensiivisestä laivamatkustajaliikenteestä, meriterrorismista ei ole dokumentoituja tapauksia Itämerellä. Globaalistakin perspektiivistä tapaukset ovat äärimmäisen harvinaisia: Achille Lauro 1985 (Välimeri), SuperFerry 14 2004 (Filippiinit). Nämä kaksi tapausta kattavat käytännössä koko moderni meriterrorismin lähihistorian.
 
 Suojelupoliisin uhka-arvion (2026) mukaan terrorismin todennäköisin vektori Suomessa ovat yksinäiset tekijät ja pienet ryhmittymät, jotka kohdistavat väkivaltansa helppoihin maaleihin – eivät laivaterminaalit, jotka edellyttävät logistista suunnittelua.
 
@@ -403,7 +403,7 @@ Turvallisuusteatteri ei synny pahuudesta. Se syntyy kolmesta rakenteellisesta on
 
 **2. Havaittavuusharha.** Takavarikoitu saksipari näkyy ja tuntuu konkreettiselta. Tilastollinen odotusarvo siitä, kuinka moni meriterroristi liikkuu Itämerellä, ei näy eikä tunnu miltään. Ihmisaivot painottavat havaittavaa ylisuhtaisesti.
 
-**3. Väärän positiivisuuden ongelma.** Kuten Bayesin laskut osoittivat: kun esiintyvyys on riittävän pieni, tarkastusjärjestelmä tuottaa enemmän väärää pelkoa ja kitkaa kuin aitoja uhkia kiinni saatuaan.
+**3. Väärän positiivisuuden ongelma.** Kuten Bayelainen tilastotiede osoittaa: kun esiintyvyys on riittävän pieni, tarkastusjärjestelmä tuottaa enemmän väärää pelkoa ja kitkaa kuin aitoja uhkia kiinni saatuaan.
 
 Tämä ei tarkoita, että laivat ovat vaarallisia. Ne ovat erittäin turvallisia. Se tarkoittaa, että turvallisuus syntyy muualla kuin läpivalaisukoneen edessä.
 

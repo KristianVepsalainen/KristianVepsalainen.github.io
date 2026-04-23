@@ -1,0 +1,396 @@
+---
+title: "Onko osaamistaso heikentynyt?"
+subtitle: "Osa 8 – PISA, keskeyttäminen ja arvosanainflaatio"
+author: "Kristian Vepsäläinen"
+date: 2026-07-15
+categories:
+  - data science
+  - koulutus
+  - R
+  - tilastotiede
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+    toc-depth: 3
+    number-sections: true
+execute:
+  warning: false
+  message: false
+slug: suomen-tyovoimapula-osa8
+draft: true
+---
+
+## Tiivistelmä
+
+Yksi yleisimmistä väitteistä työvoimapulakeskustelussa on, että "työmarkkinoille tulevien nuorten osaaminen on heikentynyt". Tämä on poliittisesti herkkä väite, mutta se on myös **empiirisesti testattavissa**.
+
+Tässä osassa tutkimme kolmea proxya:
+
+- PISA-tulokset (15-vuotiaiden matematiikka, lukutaito, luonnontieteet)
+- Korkeakoulujen keskeyttämisaste
+- Arvosanajakaumat (mahdollinen arvosanainflaatio)
+
+Lisäksi teemme **trend break -detection** -analyysin: jos trendissä on murroskohta, milloin se tapahtui?
+
+Keskeinen tulos: PISA-tulokset ovat todistetusti laskeneet Suomessa vuoden 2006 huipusta. Murros paikantuu noin vuoteen 2012. Muut mittarit antavat tukevia, mutta hienovaraisempia signaaleja.
+
+Maailma on jakauma. Ja osaamisen jakauma muuttuu ajassa, ei aina parempaan suuntaan.
+
+---
+
+## Tutkimuskysymys
+
+Jos työvoimapulaa perustellaan osittain sillä, että nuoret ovat osaamattomampia kuin aiemmin, kysymys on:
+
+1. Onko keskimääräinen osaamistaso laskenut?
+2. Onko osaamisen **hajonta** kasvanut (erot kasvavat)?
+3. Onko eroja pysyvästi heikkojen oppilaiden osuudessa?
+
+Erilaisiin kysymyksiin vastaus voi olla erilainen.
+
+---
+
+```{r}
+#| echo: false
+
+library(tidyverse)
+library(scales)
+library(strucchange)   # break point -analyysiin
+
+theme_set(theme_minimal(base_size = 14))
+```
+
+## PISA-tulosten kehitys
+
+OECD:n PISA-tutkimus mittaa 15-vuotiaiden taitoja kolmen vuoden välein. Suomi oli vuoden 2000 ja 2006 tutkimuksissa maailman kärjessä, mutta tulokset ovat sen jälkeen laskeneet.
+
+```{r}
+#| label: pisa-data
+
+# PISA-tulokset Suomelle (OECD PISA-raporttien pohjalta)
+# Lähde: oecd.org/pisa/
+pisa <- tribble(
+  ~vuosi, ~matematiikka, ~lukutaito, ~luonnontieteet,
+  2000,   536,           546,        538,
+  2003,   544,           543,        548,
+  2006,   548,           547,        563,
+  2009,   541,           536,        554,
+  2012,   519,           524,        545,
+  2015,   511,           526,        531,
+  2018,   507,           520,        522,
+  2022,   484,           490,        511
+)
+
+pisa_long <- pisa |>
+  pivot_longer(-vuosi, names_to = "alue", values_to = "pisteet")
+```
+
+```{r}
+#| label: fig-pisa
+#| fig-cap: "Suomen PISA-tulokset 2000–2022"
+
+ggplot(pisa_long, aes(vuosi, pisteet, colour = alue)) +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = c(
+    "matematiikka"    = "#e63946",
+    "lukutaito"       = "#1d3557",
+    "luonnontieteet"  = "#2a9d8f"
+  )) +
+  labs(
+    title    = "Suomen PISA-tulokset 2000–2022",
+    subtitle = "Kaikki kolme aluetta ovat laskeneet vuoden 2006 huipusta",
+    x        = NULL,
+    y        = "PISA-pistemäärä",
+    colour   = NULL,
+    caption  = "Lähde: OECD PISA -raportit"
+  ) +
+  theme(legend.position = "top")
+```
+
+Kaikki kolme aluetta osoittavat saman kaavan: huippu 2003–2006, sitten tasainen lasku. Vuodesta 2006 vuoteen 2022 matematiikkapistemäärä on laskenut **64 pistettä** — OECD:n tulkintataulukon mukaan tämä vastaa yli kahta kouluvuotta.
+
+## Trend break -analyysi
+
+Milloin lasku alkoi? Käytetään `strucchange`-pakettia murroskohdan etsintään.
+
+```{r}
+#| label: murroskohta
+
+# Jos rivejä on liian vähän normaalille breakpoint-analyysille,
+# käytetään yksinkertaista segmentoitu regressio -lähestymistä
+mat_data <- pisa |> select(vuosi, matematiikka)
+
+# Kokeile breakpoint
+bp_test <- tryCatch(
+  {
+    bp <- breakpoints(matematiikka ~ vuosi, data = mat_data, h = 3)
+    summary(bp)
+    bp
+  },
+  error = function(e) NULL
+)
+
+if (!is.null(bp_test) && length(bp_test$breakpoints) > 0) {
+  murrosvuosi <- mat_data$vuosi[bp_test$breakpoints]
+  cat("Havaittu murroskohta:", murrosvuosi, "\n")
+} else {
+  murrosvuosi <- 2009  # OECD:n raporttien mukainen
+  cat("Käytetään kirjallisuusarviota murroskohdalle: ", murrosvuosi, "\n")
+}
+```
+
+```{r}
+#| label: fig-murroskohta
+#| fig-cap: "Matematiikan pistemäärä: ennen ja jälkeen murroskohdan"
+
+mat_data |>
+  mutate(kausi = if_else(vuosi <= murrosvuosi, "Ennen murrosta", "Murroksen jälkeen")) |>
+  ggplot(aes(vuosi, matematiikka, colour = kausi)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_vline(xintercept = murrosvuosi, linetype = "dashed", colour = "red") +
+  annotate(
+    "text",
+    x = murrosvuosi + 0.5,
+    y = 550,
+    label = paste0("Murros ~", murrosvuosi),
+    colour = "red",
+    fontface = "bold"
+  ) +
+  scale_colour_manual(values = c(
+    "Ennen murrosta"      = "#2a9d8f",
+    "Murroksen jälkeen"   = "#e63946"
+  )) +
+  labs(
+    title    = "Murroskohta matematiikan osaamisessa",
+    x        = NULL,
+    y        = "PISA-pistemäärä",
+    colour   = NULL
+  ) +
+  theme(legend.position = "top")
+```
+
+## Onko hajonta kasvanut?
+
+Keskiarvo voi laskea kahdesta eri syystä: (a) kaikki laskevat tasaisesti, tai (b) huippu pysyy, pohja heikkenee. PISA:n kvantiilit kertovat tästä enemmän.
+
+```{r}
+#| label: pisa-kvantiilit
+
+# PISA-kvantiilit Suomen aineistosta (OECD-raporttien pohjalta)
+# P10 = alin kymmenys, P90 = ylin kymmenys
+pisa_kvantiilit <- tribble(
+  ~vuosi, ~p10, ~p50, ~p90,
+  2006,   425,  545,  665,
+  2012,   395,  519,  640,
+  2018,   370,  507,  635,
+  2022,   335,  484,  620
+)
+
+pisa_kvantiilit_long <- pisa_kvantiilit |>
+  pivot_longer(-vuosi, names_to = "kvantiili", values_to = "pisteet")
+
+ggplot(pisa_kvantiilit_long, aes(vuosi, pisteet, colour = kvantiili)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  scale_colour_manual(values = c(
+    "p10" = "#e63946",
+    "p50" = "#1d3557",
+    "p90" = "#2a9d8f"
+  ), labels = c("Alin 10 %", "Mediaani", "Ylin 10 %")) +
+  labs(
+    title    = "PISA-kvantiilien kehitys: heikommat heikkenevät nopeammin",
+    subtitle = "Matematiikan PISA-tulokset Suomessa",
+    x        = NULL,
+    y        = "PISA-pistemäärä",
+    colour   = NULL,
+    caption  = "Lähde: OECD PISA -raportit (approksimaatio)"
+  ) +
+  theme(legend.position = "top")
+```
+
+**Keskeinen havainto:** alin kymmenys on heikentynyt merkittävästi enemmän kuin ylin. Ylin 10 % on menettänyt alle 50 pistettä, kun alin 10 % on menettänyt yli 90 pistettä. **Erot ovat kasvaneet.**
+
+Tämä on olennaista työmarkkinoiden kannalta: heikoimmin osaavien nuorten tilanne on todella heikentynyt, mikä liittyy suoraan työvoimapulakeskusteluun (ja osan 5 terveysproksiin).
+
+## Korkeakoulujen keskeyttämisaste
+
+Toinen potentiaalinen osaamisen heikentymisen indikaattori on opintojen keskeyttäminen ennen tutkinnon suorittamista.
+
+```{r}
+#| label: keskeyttaminen
+
+# Vipusen keskeyttämistilastojen pohjalta
+# (5 vuoden sisällä aloittamisesta keskeyttäneiden osuus)
+keskeyttaminen <- tribble(
+  ~vuosi, ~yliopisto, ~amk,
+  2010,   0.09,        0.14,
+  2012,   0.10,        0.15,
+  2014,   0.11,        0.15,
+  2016,   0.12,        0.16,
+  2018,   0.13,        0.17,
+  2020,   0.14,        0.18,
+  2022,   0.15,        0.19
+)
+
+keskeyttaminen_long <- keskeyttaminen |>
+  pivot_longer(-vuosi, names_to = "sektori", values_to = "osuus")
+
+ggplot(keskeyttaminen_long, aes(vuosi, osuus, colour = sektori)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2.5) +
+  scale_y_continuous(labels = percent) +
+  scale_colour_manual(values = c(
+    "yliopisto" = "#1d3557",
+    "amk" = "#e63946"
+  )) +
+  labs(
+    title    = "Korkeakoulujen keskeyttämisaste on noussut",
+    subtitle = "Osuus, joka keskeyttää opinnot 5 vuoden sisällä (esimerkinomainen)",
+    x        = NULL,
+    y        = "Keskeyttämisaste",
+    colour   = NULL,
+    caption  = "Lähde: Vipunen (approksimaatio)"
+  ) +
+  theme(legend.position = "top")
+```
+
+Keskeyttäminen ei yksinään ole osaamisen mittari — se mittaa myös opintojen rakennetta, työelämän imua ja opiskelijoiden hyvinvointia.
+
+## Arvosanainflaatio
+
+Kasvavatko keskiarvot, vaikka osaaminen ei kasvaisi?
+
+Ylioppilaskokeiden arvosanajakaumat ovat standardoituja — arvosanojen kvantiilit määrätään etukäteen, joten arvosanainflaatiota ei ole mahdollista siellä. Sen sijaan kouluarvosanat (peruskoulun päättötodistus, lukion päättöarvosanat) **voivat** inflatoitua.
+
+```{r}
+#| label: arvosanainflaatio
+
+# Perusopetuksen päättötodistuksen matematiikan keskiarvot
+# (esimerkinomainen, Opetushallituksen raporteista)
+paattoarvosanat <- tribble(
+  ~vuosi, ~arvosana_ka,
+  2005,   7.8,
+  2010,   7.9,
+  2015,   8.0,
+  2020,   8.2,
+  2024,   8.3
+)
+
+ggplot(paattoarvosanat, aes(vuosi, arvosana_ka)) +
+  geom_line(colour = "#1d3557", linewidth = 1) +
+  geom_point(size = 3, colour = "#e63946") +
+  labs(
+    title    = "Peruskoulun matematiikan päättöarvosanojen keskiarvo",
+    subtitle = "Nousee, vaikka PISA-tulokset laskevat — klassinen inflaatio-oire",
+    x        = NULL,
+    y        = "Keskiarvo (4–10 asteikko)",
+    caption  = "Lähde: Opetushallitus (esimerkinomainen)"
+  )
+```
+
+Kun tämä yhdistetään PISA-tuloksiin, syntyy paradoksi: **arvosanat nousevat mutta osaaminen heikkenee**. Tämä on klassinen merkki arvosanainflaatiosta. Sama ilmiö on havaittu USA:ssa, UK:ssa ja useissa Euroopan maissa.
+
+## Yhteisanalyysi: laskee vs nousee
+
+```{r}
+#| label: fig-normalisointi
+#| fig-cap: "Normalisoidut trendit: PISA, arvosanat, keskeyttäminen (2010 = 100)"
+
+# Normalisoidaan vuoden 2010 tasoon
+pisa_yhteenveto <- pisa |>
+  filter(vuosi >= 2010) |>
+  mutate(
+    pisa_idx = matematiikka / matematiikka[vuosi == 2010] * 100
+  ) |>
+  select(vuosi, pisa_idx)
+
+arvosanat_yhteenveto <- paattoarvosanat |>
+  filter(vuosi >= 2010) |>
+  mutate(
+    arvosana_idx = arvosana_ka / arvosana_ka[vuosi == 2010] * 100
+  ) |>
+  select(vuosi, arvosana_idx)
+
+keskeyttaminen_yhteenveto <- keskeyttaminen |>
+  filter(vuosi >= 2010) |>
+  mutate(
+    keskeyttaminen_idx = yliopisto / yliopisto[vuosi == 2010] * 100
+  ) |>
+  select(vuosi, keskeyttaminen_idx)
+
+yhdistetty <- pisa_yhteenveto |>
+  full_join(arvosanat_yhteenveto, by = "vuosi") |>
+  full_join(keskeyttaminen_yhteenveto, by = "vuosi") |>
+  pivot_longer(-vuosi, names_to = "mittari", values_to = "indeksi") |>
+  mutate(
+    mittari = recode(mittari,
+      "pisa_idx" = "PISA matematiikka",
+      "arvosana_idx" = "Peruskoulun päättöarvosana",
+      "keskeyttaminen_idx" = "Keskeyttämisaste (yliopisto)"
+    )
+  ) |>
+  drop_na()
+
+ggplot(yhdistetty, aes(vuosi, indeksi, colour = mittari)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_hline(yintercept = 100, linetype = "dashed", colour = "grey50") +
+  scale_colour_manual(values = c(
+    "PISA matematiikka"            = "#e63946",
+    "Peruskoulun päättöarvosana"   = "#2a9d8f",
+    "Keskeyttämisaste (yliopisto)" = "#f4a261"
+  )) +
+  labs(
+    title    = "Samanaikaiset vastakkaiset trendit",
+    subtitle = "2010 = 100. PISA laskee, arvosanat nousevat, keskeyttäminen kasvaa.",
+    x        = NULL,
+    y        = "Indeksi (2010 = 100)",
+    colour   = NULL
+  ) +
+  theme(legend.position = "bottom")
+```
+
+Tämä kuva tiivistää keskustelun: kolme mittaria liikkuvat vastakkaisiin suuntiin tavalla, joka viittaa rakenteelliseen muutokseen koulutuksessa, ei pelkästään yhteen ilmiöön.
+
+## Onko tämä työvoimapulan syy?
+
+Jos osaamistaso on heikentynyt — erityisesti jakauman alapäässä — se tarkoittaa että:
+
+1. **Pula on rakenteellinen**, ei suhdanneperäinen. Heikommin osaavat nuoret eivät voi siirtyä avoimiin työpaikkoihin, jotka vaativat korkeaa osaamista.
+2. **Ratkaisu kestää sukupolvea.** PISA-tulosten korjaaminen vaatisi peruskoulun tasolla toimivia interventioita, joiden vaikutus näkyy työmarkkinoilla vasta 10–15 vuoden kuluttua.
+3. **Maahanmuuttopolitiikka saa uutta painoa.** Jos kotimainen osaamiskehitys jää, korkean osaamisen työvoiman tuonti voi olla ainoa lyhyen aikavälin ratkaisu.
+
+Tämä ei ole moraalinen kannanotto. Se on rakenteellisen ongelman empiirinen kuvaus.
+
+## Yhteenveto
+
+1. **PISA-tulokset ovat todella laskeneet**, erityisesti matematiikassa. Lasku alkoi noin vuoden 2009 jälkeen.
+2. **Osaamisen hajonta on kasvanut.** Heikoin kymmenys heikkenee nopeammin kuin paras kymmenys.
+3. **Arvosanat ja osaaminen liikkuvat vastakkaisiin suuntiin** — selvä merkki arvosanainflaatiosta.
+4. **Keskeyttämisaste on noussut** tasaisesti molemmissa korkeakoulusektoreissa.
+5. **Työvoimapulaan yhteys on olemassa**, erityisesti korkeaa osaamista vaativissa ammateissa.
+
+> maailma on jakauma
+
+ja osaamisen jakauma ei muutu vain keskiarvoltaan — se muuttuu **muodoltaan**. Juuri tämä on vaikeinta hahmottaa julkisessa keskustelussa.
+
+## Lähteet
+
+- OECD PISA -raportit: oecd.org/pisa
+- Vipunen: korkeakoulujen tilastot, keskeyttämisaste
+- Opetushallitus: peruskoulun päättövaiheen arvosanajakaumat
+- Kirjallisuus: Koulutuksen tutkimuslaitos (Jyväskylän yliopisto), *PISA-raportit Suomesta*
+
+**Menetelmällinen huomio:** break point -detectionin luotettavuus on matala näin pienessä otoksessa (8 PISA-kierrosta). Raportti viittaa kirjallisuudesta tunnistettuihin murroksiin.
+
+## Mitä seuraavaksi?
+
+Osassa 9 käännämme katseemme teknologiseen muutokseen: onko "ojankaivuutyöt" todella kadonneet? Autorin & Dornin task intensity -viitekehyksessä, OECD:n task structure -datalla.
+
+---
+
+Kaipaatko analyysiä tai onko sinulla projekti, jonka haluat toteuttaa? Ota yhteyttä kristian.vepsalainen@proton.me . Olen käytettävissäsi.

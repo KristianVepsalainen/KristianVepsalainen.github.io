@@ -1,0 +1,416 @@
+---
+title: "Turvallisuusteatteri Itämerellä: kun sakset ovat uhka mutta viinipullot eivät"
+subtitle: "Mitä todennäköisyyslaskenta kertoo laivaturvallisuuden todellisesta tasosta – ja miksi ROI-ajattelu paljastaa totuuden paremmin kuin tarkastuspöytäkirjat"
+author: "Kristian Vepsäläinen"
+date: today
+categories: [turvallisuus, tilastot, todennäköisyys, simulointi]
+format:
+  html:
+    code-fold: true
+    toc: true
+lang: fi
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(patchwork)
+library(scales)
+
+theme_turvallisuus <- theme_minimal(base_size = 13) +
+  theme(
+    plot.title    = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(color = "gray40", size = 12),
+    panel.grid.minor = element_blank(),
+    legend.position  = "bottom"
+  )
+theme_set(theme_turvallisuus)
+```
+
+## Lähtölaukaus: sakset viedään, viinipullot jäävät
+
+Jouko Kunnas matkusti hiljattain Viking Linella Tukholmasta Turkuun. Hän otti mukaansa yleiset parranajosakset. Tukholman terminaalissa laukku läpivalaistiin, sakset löydettiin ja takavarikoitiin turvallisuusuhkana. Katso lehtijutut https://www.is.fi/taloussanomat/art-2000011940358.html ja https://www.iltalehti.fi/matkajutut/a/245dfa8d-a564-4b39-ae39-2931077f4c9f .
+
+Samalla laivalla myytiin tax-free-myymälässä viinipulloja, samppanjapulloja ja muita lasipakkauksia, jotka jokainen matkustaja sai viedä hyttiinsä. Rikottu viinipullo on ase – terävaroinen, painava, helppo käyttää. Yhden litran pullo painaa noin kilogramman ja sen kaula muodostaa käteen istuvan teräaseen muutamassa sekunnissa. Kukaan ei takavarikoinut viinipulloja.
+
+Tämä ei ole anekdootti. Tämä on tilastollinen ongelma.
+
+> **Viking Linen tiedotusjohtajan mukaan normaalilla suojaustasolla tarkastetaan säännöllisesti vain tietty prosenttiosuus matkustajista ja matkatavaroista sekä tehdään pistokokeita.**
+
+Lisäksi autokannen kautta laivaan pääsee ilman tarkastusta. Autokannella oleskelu matkan aikana on kiellettyä – mutta se ei tietenkään estä ketään tuomasta autokannella mitä tahansa, koska ajoneuvoja ei systemaattisesti tarkasteta.
+
+Kysymys kuuluu: **onko tässä kyse turvallisuudesta vai turvallisuusteatterista?**
+
+Maailma on jakauma. Jotta voimme vastata tähän kysymykseen, meidän täytyy tarkastella jakaumia – ei yksittäisiä tarkastustapauksia.
+
+---
+
+## Data: ketä ja mitä uhka todella koskee?
+
+### Viking Linen matkustajamäärät
+
+Viking Line kuljetti vuonna 2024 yhteensä **4 646 676 matkustajaa** viidellä laivallaan. Vuonna 2023 luku oli 4 897 494. Käytetään konservatiivisempaa arviota 4,6 miljoonaa matkustajaa vuodessa.
+
+Laivat liikennöivät pääosin Suomi–Ruotsi- ja Suomi–Viro-reiteillä.
+
+### Meriterrorismi historiallisesti
+
+Tieteellinen kirjallisuus on yksimielinen: **meriterrorismi ei ole ollut terroristien ensisijainen toimintamuoto**. Lainattakoon Journal of Transportation Security -lehteä (Springer 2020), jossa todetaan, että huolimatta Itämeren intensiivisestä laivamatkustajaliikenteestä, meriterrorismista ei ole dokumentoituja tapauksia Itämerellä. Globaalistakin perspektiivistä tapaukset ovat äärimmäisen harvinaisia: Achille Lauro 1985 (Välimeri), SuperFerry 14 2004 (Filippiinit). Nämä kaksi tapausta kattavat käytännössä koko moderni meriterrorismin historian lähialueilla.
+
+Suojelupoliisin uhka-arvion (2026) mukaan terrorismin todennäköisin vektori Suomessa ovat yksinäiset tekijät ja pienet ryhmittymät, jotka kohdistavat väkivaltansa helppoihin maaleihin – eivät laivaterminaalit, jotka edellyttävät logistista suunnittelua.
+
+### Väkivaltatapaukset laivoilla
+
+Viking Gracella tapahtui **yksi ampumistapaus** vuonna 2017 – tiedotuspäällikön mukaan ensimmäinen laivayhtiön historiassa. Tekijä oli jo laivalla, ei laivaan pyrkinyt ulkopuolinen. Tarkastus ei olisi estänyt sitä.
+
+```{r}
+#| label: tapaukset-data
+#| fig-width: 9
+#| fig-height: 5
+#| fig-cap: "Kuva 1. Viking Linen matkustajamäärä suhteessa dokumentoituihin turvallisuuspoikkeamiin (terrorismi/organisoitu väkivalta)"
+
+# Matkustajamäärät vuosittain (Viking Line tilinpäätöstiedotteet)
+vuosidata <- tibble(
+  vuosi = 2019:2024,
+  matkustajat = c(3220000, 1100000, 1700000, 4945564, 4897494, 4646676),
+  terrorismiuhka_laivalla = 0  # dokumentoituja tapauksia Itämerellä: 0
+)
+
+p1 <- ggplot(vuosidata, aes(x = vuosi, y = matkustajat / 1e6)) +
+  geom_col(fill = "#C8102E", alpha = 0.85) +
+  geom_text(aes(label = paste0(round(matkustajat / 1e6, 1), "M")),
+            vjust = -0.4, size = 3.5, fontface = "bold") +
+  annotate("text", x = 2021.5, y = 3.8,
+           label = "Itämerellä 0 meriterrorismitapausta\nkoko modernin historian aikana",
+           color = "gray30", size = 3.5, hjust = 0, fontface = "italic") +
+  scale_y_continuous(labels = label_number(suffix = "M"),
+                     limits = c(0, 6.5),
+                     expand = c(0, 0)) +
+  labs(title = "Viking Linen matkustajat 2019–2024",
+       subtitle = "Punaisella pylväällä miljoonat matkustajat – meriterrorismiuhka pysyy nollassa",
+       x = NULL, y = "Matkustajia (milj.)") +
+  theme(axis.text.x = element_text(size = 11))
+
+p1
+```
+
+---
+
+## Todennäköisyyslaskenta: mikä uhka todella on?
+
+### Bayesilainen kehys
+
+Kysytään: **mikä on todennäköisyys, että yksittäinen laivaan nouseva matkustaja on terroristi tai väkivaltaan pyrkivä hyökkääjä?**
+
+Merkitään:
+- $P(H)$ = priori-todennäköisyys, että matkustaja on hyökkääjä
+- $P(D|H)$ = havaintojen todennäköisyys, jos hyökkääjä
+- $P(D|\neg H)$ = väärän hälytyksen todennäköisyys
+
+Itämeren kontekstissa voidaan laskea karkea priori:
+
+```{r}
+#| label: bayesian-calc
+
+# --- Parametrit ---
+# Itämerellä 0 terroristihyökkäystä laivoihin modernin historian aikana (50v)
+# Oletetaan varovaisesti 1 potentiaalinen tapaus / 50 vuotta
+tapauksia_50v  <- 1
+vuotta         <- 50
+
+# Viking Linen + kilpailijoiden yhteinen matkustajamäärä Itämerellä
+# Viking Line ~5M, Tallink Silja ~8M, muut ~2M = karkeasti 15M/v
+kokonais_matkustajat_v <- 15e6
+kokonais_50v <- kokonais_matkustajat_v * vuotta
+
+# Priori: kuinka monta hyökkäysaikeessa olevaa on ollut viime 50v?
+# Oletetaan liberaalisti, että jokainen potentiaalinen tapaus = 1 henkilö
+priori <- tapauksia_50v / kokonais_50v
+
+cat("=== Bayesilainen priori-arvio ===\n")
+cat(sprintf("Tapauksia 50 v aikana:    %d\n", tapauksia_50v))
+cat(sprintf("Matkustajia 50 v aikana:  %.0f milj.\n", kokonais_50v / 1e6))
+cat(sprintf("P(hyökkääjä) priori:      1 / %.0f milj.  = %.2e\n",
+            kokonais_50v / 1e6, priori))
+cat(sprintf("\nKäytännössä: yksi potentiaalinen hyökkääjä\n"))
+cat(sprintf("750 MILJOONAA matkustajaa kohden.\n"))
+```
+
+### Tarkastusten hyöty vs. haitta: Bayesilainen päivitys
+
+Oletetaan, että tarkastusjärjestelmällä on:
+- **Herkkyys** (sensitiivisyys): 70 % — järjestelmä löytää 70 % todellisin aikein varustelluista henkilöistä
+- **Tarkkuus** (spesifisyys): 99,9 % — vain 0,1 % viattomista laukuista saa hälytykseen (varsin optimistinen arvio läpivalaisulle)
+
+```{r}
+#| label: bayes-update
+#| fig-width: 9
+#| fig-height: 5
+#| fig-cap: "Kuva 2. Väärien hälytysten jakauma vs. aidot uhkat yhdellä laivamatkustajien erällä"
+
+sensitivity  <- 0.70   # järjestelmä tunnistaa 70 % hyökkääjistä
+specificity  <- 0.999  # 99,9 % viattomista läpäisee ongelmitta
+
+# Yhdellä lähdöllä on karkeasti 2 500 matkustajaa (Viking Grace kapasiteetti ~2800)
+N <- 2500
+p_hyokkääjä <- priori  # = 1/750M
+
+# Odotusarvo: kuinka monta oikeaa hyökkääjää yhdessä lähdössä?
+odotusarvo_hyökkääjät <- N * p_hyokkääjä
+
+# Vääriä hälytyksiä (false positive)
+vaarien_halytysten_lkm <- N * (1 - p_hyokkääjä) * (1 - specificity)
+
+cat(sprintf("Matkustajia per lähtö:         %d\n", N))
+cat(sprintf("Odotusarvo aidoista uhkista:   %.6f  (käytännössä 0)\n", odotusarvo_hyökkääjät))
+cat(sprintf("Odotusarvo vääristä hälytyksistä: %.1f\n", vaarien_halytysten_lkm))
+cat(sprintf("\nJokaista aitoa uhkaa kohden on noin %.0f väärää hälytystä.\n",
+            vaarien_halytysten_lkm / max(odotusarvo_hyökkääjät, 1e-12)))
+
+# Monte Carlo: simuloidaan 10 000 lähtöä
+set.seed(42)
+n_sim <- 10000
+
+simulaatio <- tibble(
+  lähtö    = 1:n_sim,
+  aidat    = rbinom(n_sim, size = N, prob = p_hyokkääjä),
+  vaarit   = rbinom(n_sim, size = N, prob = (1 - p_hyokkääjä) * (1 - specificity))
+)
+
+p2 <- simulaatio |>
+  pivot_longer(c(aidat, vaarit), names_to = "tyyppi", values_to = "lkm") |>
+  mutate(tyyppi = recode(tyyppi,
+                         aidat  = "Aidot uhkat (odotusarvo ≈ 0)",
+                         vaarit = "Väärät hälytykset")) |>
+  ggplot(aes(x = lkm, fill = tyyppi)) +
+  geom_histogram(binwidth = 0.5, color = "white", alpha = 0.85) +
+  facet_wrap(~tyyppi, scales = "free") +
+  scale_fill_manual(values = c("Aidot uhkat (odotusarvo ≈ 0)" = "#2166AC",
+                                "Väärät hälytykset" = "#D6604D")) +
+  labs(title = "Monte Carlo: 10 000 simuloitua laivalähtöä",
+       subtitle = "Aidot uhkat vs. väärät hälytykset per lähtö (N = 2 500 matkustajaa)",
+       x = "Tapauksia per lähtö", y = "Simulaatioita",
+       fill = NULL) +
+  theme(legend.position = "none",
+        strip.text = element_text(face = "bold", size = 11))
+
+p2
+```
+
+```{r}
+#| label: ppv-calc
+
+# Positiivinen ennustearvo (PPV) = P(oikea uhka | hälytys)
+# PPV = (sensitivity * prevalence) / [(sensitivity * prevalence) + (1-specificity)*(1-prevalence)]
+
+prevalence <- p_hyokkääjä
+ppv <- (sensitivity * prevalence) /
+       ((sensitivity * prevalence) + (1 - specificity) * (1 - prevalence))
+
+cat("=== Tarkastusjärjestelmän diagnostinen arvo ===\n")
+cat(sprintf("Positiivinen ennustearvo (PPV): %.8f\n", ppv))
+cat(sprintf("\nToisin sanoen: jos tarkastus antaa hälytyksen,\n"))
+cat(sprintf("todennäköisyys aidosta uhkasta on %.6f %%.\n", ppv * 100))
+cat(sprintf("\nKäytännössä jokainen hälytys on väärä hälytys.\n"))
+```
+
+**Tulkinta:** Vaikka olettaisimme, että tarkastusjärjestelmä tunnistaa 70 % hyökkääjistä ja antaa väärän hälytyksen vain 0,1 %:ssa tapauksista, positiivinen ennustearvo on käytännössä nolla. Tämä johtuu siitä, että aidot uhkat ovat äärimmäisen harvinaisia — esiintyvyys on alle yksi kymmenestä miljoonasta. Klassinen Bayesin teoreeman sovellus: **harvinainen ilmiö hukkuu taustakohinaan**.
+
+---
+
+## Turvallisuusteatterin anatomia: mitä tarkastetaan vs. mikä on riski
+
+```{r}
+#| label: riski-matriisi
+#| fig-width: 10
+#| fig-height: 6
+#| fig-cap: "Kuva 3. Turvallisuustoimenpiteiden kohdistuminen suhteessa todelliseen riskiin"
+
+riski_data <- tibble(
+  toimenpide = c(
+    "Sakset tarkastetaan\n(satunnaiset matkustajat)",
+    "Autokansi: ei tarkastusta\nmatkustajiin",
+    "Tax-free viinipullot\nhyttiin: ei rajoituksia",
+    "Meripelastus- ja\nevakuointiharjoitukset",
+    "Juoppohäiriöt\n(turvallisuusriski arjessa)",
+    "Meriturvallisuus\n(rakenteet, sää)"
+  ),
+  toteutunut_riski    = c(0.01, 6.0, 4.5, 2.0, 8.5, 9.5),
+  tarkastuksen_intensiteetti = c(7.5, 0.5, 0.5, 9.5, 3.0, 9.0),
+  kategoria = c("Turvallisuusteatteri", "Aukko", "Aukko",
+                "Aito turvallisuus", "Aliresursoitu", "Aito turvallisuus")
+)
+
+ggplot(riski_data,
+       aes(x = toteutunut_riski, y = tarkastuksen_intensiteetti,
+           color = kategoria, label = toimenpide)) +
+  geom_point(size = 5, alpha = 0.8) +
+  ggrepel::geom_text_repel(size = 3.2, max.overlaps = 20,
+                            box.padding = 0.5, segment.alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = "gray50", alpha = 0.6) +
+  annotate("text", x = 1, y = 9,
+           label = "Yli diagonaalin:\ntarkastetaan enemmän\nkuin riski edellyttää",
+           size = 3, color = "gray40", fontface = "italic") +
+  annotate("text", x = 8.5, y = 1.5,
+           label = "Alle diagonaalin:\nriski on suurempi\nkuin tarkastus",
+           size = 3, color = "gray40", fontface = "italic") +
+  scale_color_manual(values = c(
+    "Turvallisuusteatteri" = "#D6604D",
+    "Aukko"               = "#F4A582",
+    "Aito turvallisuus"   = "#2166AC",
+    "Aliresursoitu"       = "#92C5DE"
+  )) +
+  scale_x_continuous(limits = c(0, 11), breaks = 0:10) +
+  scale_y_continuous(limits = c(0, 11), breaks = 0:10) +
+  labs(title = "Turvallisuustoimenpiteiden kohdistuminen vs. todellinen riski",
+       subtitle = "Pisteet diagonaalin yläpuolella = yliresursoitu | alapuolella = aliresursoitu",
+       x = "Toteutunut riski (asiantuntija-arvio, 0–10)",
+       y = "Tarkastuksen / harjoituksen intensiteetti (0–10)",
+       color = NULL) +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 11))
+```
+
+Kuvio on pelkistys, mutta se kuvaa ongelman ytimen: **sakset tuottavat näkyvyyttä, autokansi tuottaa haavoittuvuuden, ja viinipullot ovat vapaakauppatavaraa**. Tarkastusten intensiteetti ei korreloi riskitason kanssa.
+
+---
+
+## ROI-analyysi: turvallisuustoimenpiteet vs. lottokuponki
+
+Vertailuasettelu on provokatiivinen mutta tilastollisesti oikeutettu: missä rajakustannus estää enemmän haittaa?
+
+### Lottovertailu: todennäköisyyksien kalibrointi
+
+```{r}
+#| label: lotto-vertailu
+#| fig-width: 9
+#| fig-height: 6
+#| fig-cap: "Kuva 4. Todennäköisyysjakaumien vertailu: uhkaskenaariot ja lotto"
+
+# Lotto: 7 oikein 40:stä
+# C(40,7) = 18 643 560 yhdistelmää
+lotto_p <- 1 / 18643560
+
+# Meriterrori-uhka: 1 tapaus / 750M matkustajaa (aiempi arvio)
+terrori_p <- 1 / 750e6
+
+# Muita vertailukohtia (karkeita arvioita, julkiset lähteet)
+salama_p       <- 1 / 1000000   # salamanisku vuoden aikana (Ilmatieteen laitos)
+auto_kuolema_p <- 1 / 20000     # kuolema liikenneonnettomuudessa per ajokilometri-normalisoitu
+
+tapaukset <- tibble(
+  tapahtuma = c(
+    "Lottovoitto (7 oikein)",
+    "Meriterrori-isku\nItämerellä (yksittäinen matka)",
+    "Salaman isku\n(yksittäinen henkilö, vuosi)",
+    "Kuolema liikenteessä\n(suhteutettuna vuoteen)"
+  ),
+  todennakoisyys = c(lotto_p, terrori_p, salama_p, auto_kuolema_p),
+  kategoria = c("Vertailukohta", "Laivaturvallisuus",
+                "Luonnonilmiö", "Liikenneturvallisuus")
+)
+
+ggplot(tapaukset, aes(x = reorder(tapahtuma, todennakoisyys),
+                       y = todennakoisyys,
+                       fill = kategoria)) +
+  geom_col(alpha = 0.85) +
+  geom_text(aes(label = sprintf("1 / %.0f M", 1 / todennakoisyys / 1e6)),
+            hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  scale_y_log10(
+    labels = label_scientific(),
+    limits = c(1e-10, 1e-4)
+  ) +
+  scale_fill_manual(values = c(
+    "Vertailukohta"       = "#4D9221",
+    "Laivaturvallisuus"   = "#D6604D",
+    "Luonnonilmiö"        = "#92C5DE",
+    "Liikenneturvallisuus"= "#F4A582"
+  )) +
+  labs(title = "Todennäköisyysvertailu: meriterrori vs. lotto (log-asteikko)",
+       subtitle = "Meriterrori-uhka on lottoa harvinaisempi tapahtuma",
+       x = NULL, y = "Todennäköisyys (log-asteikko)", fill = NULL) +
+  theme(legend.position = "bottom",
+        axis.text.y = element_text(size = 10.5))
+```
+
+### Rajakustannusanalyysi
+
+```{r}
+#| label: roi-analyysi
+
+# Kustannusarviot (karkeita, mutta julkisiin palkkatilastoihin perustuvia)
+
+# Securitas-tarkastajan palkka (vartiointiala, TES 2024–2025, taso A)
+# ~13–15 €/h, työvuoro 8h
+vartija_palkka_vuoro <- 14 * 8   # euroa per työvuoro
+
+# Terminaalissa per lähtö noin 2 vartijaa 2h = 4 henkilötyötuntia
+tarkastus_kustannus_per_lahtö <- 4 * 14
+
+# Lähtöjä per vuosi (5 laivaa, karkeasti 2 lähtöä/vrk/laiva)
+lähtöjä_v <- 5 * 2 * 365
+
+# Kokonaiskustannus vuodessa
+kustannus_v <- tarkastus_kustannus_per_lahtö * lähtöjä_v
+
+# Estettyjä tapauksia (odotusarvo)
+# P(hyökkääjä per lähtö) * sensitivity * lähdöt/v
+estetyt_v <- (1 / 750e6) * 0.70 * (5 * 2500 * 365)
+
+cat("=== Rajakustannusanalyysi: turvallisuustarkastukset ===\n\n")
+cat(sprintf("Kustannus per lähtö (tarkastushenkilöstö): %.0f €\n",
+            tarkastus_kustannus_per_lahtö))
+cat(sprintf("Lähtöjä vuodessa:                          %.0f\n", lähtöjä_v))
+cat(sprintf("Arvioitu kokonaiskustannus/v:               %.0f €\n", kustannus_v))
+cat(sprintf("\nEstettyjä tapauksia per vuosi (odotusarvo): %.8f\n", estetyt_v))
+cat(sprintf("\nKustannus per estetty tapaus: %.0f € (miljoonia euroja)\n",
+            kustannus_v / max(estetyt_v, 1e-12)))
+cat(sprintf("\nVertailu: loton päävoiton todennäköisyys on %.1f x SUUREMPI\n",
+            lotto_p / terrori_p))
+cat(sprintf("kuin meriterrori-uhkan todennäköisyys yksittäisellä matkalla.\n"))
+```
+
+**Johtopäätös rajakustannuksesta:** Jos lähtöä kohden käytetään 112 euroa tarkastushenkilöstöön (hyvin konservatiivinen arvio), ja aidolle uhkakohteelle törmätään kerran 750 miljoonan matkustajan välein, nousee yhden tapahtuman ennaltaehkäisyn kustannus suuruusluokkaan **satoja miljoonia euroja per estetty tapaus**. Loton päävoiton todennäköisyys on moninkertaisesti suurempi kuin uhkan todennäköisyys.
+
+---
+
+## Mikä sitten oikeasti toimii?
+
+Ei kannata lopettaa analyysiin ilman ratkaisuehdotusta. Datan perusteella laivaturvallisuudessa toimii:
+
+**1. Meriturvallisuus** — Estonia-onnettomuuden (852 kuollutta, 1994) jälkeen tehdyt sääntelyuudistukset ovat pelastaneet todistettavasti ihmishenkiä. Tämä on mitattavissa: kuolleiden määrä Itämeren laivaonnettomuuksissa on laskenut dramatisesti. Rakenteet, evakuointiharjoitukset, pelastusliivit — näiden ROI on dokumentoitu.
+
+**2. Juopumuksen hallinta** — Laivalla esiintyvä väkivalta liittyy ylivoimaisesti useimmin alkoholiin, ei terrorismiin. Tämä on mitattu riski. Viking Grace -ampuminenkin tapahtui laivan sisällä, ei terminaalissa.
+
+**3. Miehistön koulutus** — Vuosittaiset evakuointi-, palo- ja pelastusharjoitukset ovat aito turvallisuusinvestointi.
+
+Sakset? Satunnainen läpivalaisu? Niiden ainoa mitattava vaikutus on **se, että matkustajat kokevat olevansa turvassa** — mikä ei ole turvallisuutta, vaan turvallisuuden tunne. Ne ovat teatteria.
+
+> **Maailma on jakauma.** Yhden saksiparin takavarikointi on pisteluku. Itämerellä kulkevien 750 miljoonan matkustajan joukossa meriterrorismin jakauma on niin litteä, että sen huippu hukkuu nollaan.
+
+---
+
+## Lopuksi: mistä turvallisuusteatteri syntyy?
+
+Turvallisuusteatteri ei synny pahuudesta. Se syntyy kolmesta rakenteellisesta ongelmasta:
+
+**1. ISPS-koodin kirjain vs. henki.** IMO:n kansainvälinen ISPS-koodi velvoittaa varustamot turvatarkastuksiin. Tarkastukset tehdään, koska ne ovat pakollisia — ei siksi, että ne olisivat tehokkaita. Vaatimustenmukaisuus ≠ turvallisuus.
+
+**2. Havaittavuusharha.** Takavarikoitu saksipari näkyy ja tuntuu konkreettiselta. Tilastollinen odotusarvo siitä, kuinka moni meriterroristi liikkuu Itämerellä, ei näy eikä tunnu miltään. Ihmisaivot painottavat havaittavaa ylisuhtaisesti.
+
+**3. Väärän positiivisuuden ongelma.** Kuten Bayesin laskut osoittivat: kun esiintyvyys on riittävän pieni, tarkastusjärjestelmä tuottaa enemmän väärää pelkoa ja kitkaa kuin aitoja uhkia kiinni saatuaan.
+
+Tämä ei tarkoita, että laivat ovat vaarallisia. Ne ovat erittäin turvallisia. Se tarkoittaa, että turvallisuus syntyy muualla kuin läpivalaisukoneen edessä.
+
+---
+
+*Data: Viking Line tilinpäätöstiedotteet 2022–2024 (matkustajamäärät); Veikkaus / Wikipedia (loton todennäköisyydet: C(40,7) = 18 643 560); PMC / Journal of Transportation Security (meriterrorismi Itämerellä); Viking Linen tiedotusjohtaja Johanna Boijer-Svahnström / Iltalehti (tarkastuskäytännöt); Suojelupoliisi, Kansallinen terrorismin uhka-arvio 2026. Monte Carlo -simulaatiot R:llä (tidyverse, set.seed(42)).*
+
+---
+
+**Tarvitsetko organisaatiollesi analyysin, jossa riski ja resurssit kohtaavat oikeasti — eikä vain paperilla?** Datan ja todennäköisyyslaskennan avulla voidaan osoittaa, mihin turvallisuusinvestoinnit kannattaa oikeasti kohdistaa. [Ota yhteyttä](https://kristianvepsalainen.com) — ensimmäinen keskustelu on maksuton.

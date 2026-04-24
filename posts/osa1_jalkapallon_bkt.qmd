@@ -1,0 +1,621 @@
+---
+title: "Jalkapallon talous, osa 1: Jalkapallon BKT – suurempi kuin moni valtio, yritys tai kunta"
+author: "Kristian Vepsäläinen"
+date: today
+format: html
+lang: fi
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(scales)
+library(treemapify)
+
+theme_jalkapallo <- theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(color = "gray40", size = 13),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+theme_set(theme_jalkapallo)
+
+eur_usd <- 1.08
+```
+
+## Aidosti globaali ilmiö
+
+Ennen kuin puhumme rahasta, puhutaan levinneisyydestä. Jalkapallo on ainoa urheilulaji, joka on aidosti läsnä **jokaisessa maanosassa, jokaisessa maassa**. FIFA:lla on 211 jäsenliittoa – enemmän kuin YK:lla on jäsenvaltioita (193). Maailmassa on yli 300 000 rekisteröityä seuraa, noin 5 000 ammattilaisseuraa ja arviolta **270 miljoonaa pelaajaa** (rekisteröidyt + rekisteröimättömät).
+
+```{r}
+#| label: fig-fifa-konfederaatiot
+#| fig-cap: "FIFA:n jäsenliitot konfederaatioittain (2024)"
+#| fig-width: 9
+#| fig-height: 5
+
+konfederaatiot <- tibble(
+  konfederaatio = c("UEFA\n(Eurooppa)", "CAF\n(Afrikka)", "AFC\n(Aasia)",
+                     "CONCACAF\n(Pohjois/Keski-Am.)", "CONMEBOL\n(Etelä-Am.)", 
+                     "OFC\n(Oseania)"),
+  jasenliitot = c(55, 54, 47, 35, 10, 11),
+  vari = c("#1565C0", "#E53935", "#F57C00", "#2E7D32", "#7B1FA2", "#00897B")
+) |> 
+  mutate(konfederaatio = fct_reorder(konfederaatio, jasenliitot))
+
+ggplot(konfederaatiot, aes(x = konfederaatio, y = jasenliitot, fill = konfederaatio)) +
+  geom_col(width = 0.6, alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = jasenliitot), hjust = -0.2, size = 5, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = setNames(konfederaatiot$vari, konfederaatiot$konfederaatio)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "FIFA:n 211 jäsenliittoa konfederaatioittain",
+    subtitle = "Jalkapallo on läsnä kaikissa maanosissa – enemmän jäseniä kuin YK:lla",
+    x = NULL, y = "Jäsenliittoja"
+  )
+```
+
+### Ammattilaisseurat maittain
+
+FIFA:n Professional Football Report (2023) mukaan maailmassa on noin **3 986 ammattilaisseuraa**. Niiden jakauma on yllättävä: Meksikossa on enemmän ammattilaisseuroja kuin Englannissa.
+
+```{r}
+#| label: fig-seurat-maittain
+#| fig-cap: "Ammattilaisseurojen määrä maittain (top 10, 2023)"
+#| fig-width: 10
+#| fig-height: 6
+
+seurat_maat <- tibble(
+  maa = c("Meksiko", "Turkki", "Argentiina", "Thaimaa", "Saudi-Arabia",
+          "Englanti", "Ranska", "Espanja", "Brasilia", "Etelä-Afrikka"),
+  seurat = c(244, 136, 118, 110, 108, 102, 96, 94, 92, 90),
+  maanosa = c("Pohjois-Amerikka", "Eurooppa", "Etelä-Amerikka", "Aasia", "Aasia",
+              "Eurooppa", "Eurooppa", "Eurooppa", "Etelä-Amerikka", "Afrikka")
+) |> 
+  mutate(maa = fct_reorder(maa, seurat))
+
+ggplot(seurat_maat, aes(x = maa, y = seurat, fill = maanosa)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = seurat), hjust = -0.15, size = 4, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Eurooppa" = "#1565C0", "Etelä-Amerikka" = "#7B1FA2",
+                                "Pohjois-Amerikka" = "#2E7D32", "Aasia" = "#F57C00",
+                                "Afrikka" = "#E53935")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Top 10 maat ammattilaisseurojen määrässä (2023)",
+    subtitle = "Yhteensä ~3 986 ammattilaisseuraa maailmassa. Lähde: FIFA Professional Football Report.",
+    x = NULL, y = "Ammattilaisseuroja", fill = "Maanosa"
+  )
+```
+
+### Pelaajat: miehet, naiset ja nuoret
+
+FIFA arvioi ammattilaispelaajien kokonaismääräksi noin **123 700** (2023). Mutta rekisteröityjä pelaajia kaikilla tasoilla on yli 240 miljoonaa. Naisten jalkapallon kasvu on ollut räjähdysmäistä: rekisteröityjä naispelaajia on jo yli 30 miljoonaa, ja FIFA tavoittelee 60 miljoonaa vuoteen 2026 mennessä.
+
+```{r}
+#| label: fig-pelaajat-jakauma
+#| fig-cap: "Rekisteröidyt jalkapalloilijat globaalisti (arvio)"
+#| fig-width: 10
+#| fig-height: 6
+
+pelaajat <- tibble(
+  kategoria = c("Miehet (aikuiset)", "Naiset (aikuiset)", 
+                "Nuoret (alle 18, pojat)", "Nuoret (alle 18, tytöt)"),
+  miljoonia = c(120, 30, 70, 20),
+  sukupuoli = c("Miehet/pojat", "Naiset/tytöt", "Miehet/pojat", "Naiset/tytöt")
+) |> 
+  mutate(kategoria = fct_reorder(kategoria, miljoonia))
+
+ggplot(pelaajat, aes(x = kategoria, y = miljoonia, fill = sukupuoli)) +
+  geom_col(width = 0.6, alpha = 0.85) +
+  geom_text(aes(label = paste0(miljoonia, " milj.")), hjust = -0.1, size = 4.5,
+            fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Miehet/pojat" = "#1565C0", "Naiset/tytöt" = "#E91E63")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Rekisteröidyt jalkapalloilijat globaalisti (~240 milj.)",
+    subtitle = "Naiset: +34% kasvu 2020–2024. FIFA tavoite: 60 milj. naispelaajaa vuoteen 2026.",
+    x = NULL, y = "Miljoonia pelaajia", fill = NULL
+  )
+```
+
+### Euroopan seurainfrastruktuuri
+
+UEFA:n alueella on yli **650 000 rekisteröityä seuraa** – sisältäen ammattilais-, harrastaja- ja nuorisoseurat. Saksa johtaa yli 25 000 seurallaan. Suomessakin on noin 1 000 Palloliiton jäsenseuraa.
+
+```{r}
+#| label: fig-eurooppa-seurat
+#| fig-cap: "Rekisteröityjen seurojen määrä valikoiduissa Euroopan maissa"
+#| fig-width: 10
+#| fig-height: 6
+
+eurooppa <- tibble(
+  maa = c("Saksa", "Englanti", "Ranska", "Italia", "Espanja",
+          "Alankomaat", "Ruotsi", "Norja", "Suomi"),
+  seurat_tuhat = c(25, 11, 15, 12, 10, 3.2, 3.1, 1.8, 1.0),
+  korostus = maa == "Suomi"
+) |> 
+  mutate(maa = fct_reorder(maa, seurat_tuhat))
+
+ggplot(eurooppa, aes(x = maa, y = seurat_tuhat, fill = korostus)) +
+  geom_col(width = 0.7, alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = paste0(seurat_tuhat, " t")), hjust = -0.15, size = 4) +
+  coord_flip() +
+  scale_fill_manual(values = c("FALSE" = "#1565C0", "TRUE" = "#2E7D32")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Rekisteröidyt jalkapalloseurat Euroopassa (tuhatta)",
+    subtitle = "Saksa: 25 000 seuraa. Suomi: ~1 000 seuraa.",
+    x = NULL, y = "Tuhatta seuraa"
+  )
+```
+
+Nämä luvut kertovat, miksi jalkapallo on taloudellisesti niin merkittävä: se ei ole niche-laji – se on **maailman suurin osallistumisurheilulaji**, jolla on pelaajia, seuroja ja faneja jokaisessa maassa.
+
+---
+
+## Maailma on jakauma – myös jalkapallossa
+
+Nyt kun tiedämme jalkapallon levinneisyyden, siirrytään rahaan. Harva ymmärtää jalkapallon todellista taloudellista mittakaavaa. Tässä blogisarjassa pureudumme siihen data-analyytikon silmin: lukujen, jakaumien ja visualisointien kautta.
+
+**Jalkapallon globaalin teollisuuden arvo on noin 56 miljardia dollaria (2024).** Se on enemmän kuin monen YK:n jäsenvaltion bruttokansantuote – ja enemmän kuin useiden suomalaisten suuryritysten liikevaihto yhteenlaskettuna.
+
+## Jalkapallo vs. valtiot: BKT-vertailu
+
+```{r}
+#| label: fig-gdp-vertailu
+#| fig-cap: "Jalkapallon vuositulot verrattuna valikoitujen maiden BKT:hen (mrd USD)"
+#| fig-width: 10
+#| fig-height: 7
+
+data_bkt <- tibble(
+  nimi = c(
+    "Jalkapallo\n(koko teollisuus)", 
+    "Luxemburg", "Uganda", "El Salvador",
+    "Nepal", "Kambodza", "Honduras",
+    "Paraguay", "Bolivia", "Senegal",
+    "Trinidad & Tobago",
+    "Top 20 -seurat\n(Deloitte)"
+  ),
+  bkt_mrd = c(56, 52.1, 49.3, 33.0, 40.0, 31.8, 33.5, 41.7, 45.5, 27.6, 28.0, 12.2),
+  tyyppi = c("Jalkapallo", rep("Valtio", 10), "Jalkapallo")
+) |> 
+  mutate(nimi = fct_reorder(nimi, bkt_mrd))
+
+ggplot(data_bkt, aes(x = nimi, y = bkt_mrd, fill = tyyppi)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = paste0("$", round(bkt_mrd, 1), " mrd")), 
+            hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  scale_fill_manual(values = c("Jalkapallo" = "#2E7D32", "Valtio" = "#1565C0")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  labs(
+    title = "Jalkapallon 'BKT' vs. valtioiden BKT",
+    subtitle = "Jalkapalloteollisuus (~56 mrd $) on suurempi kuin monen YK-valtion koko talous",
+    x = NULL, y = "Miljardia USD", fill = NULL
+  )
+```
+
+## Huippuseurat vs. Suomen suurimmat yritykset
+
+Suomalaiselle lukijalle mittakaava konkretisoituu parhaiten tuttujen yritysten kautta. Real Madridin liikevaihto (€1,046 mrd) ylittää monen tunnetun suomalaisen pörssiyrityksen liikevaihdon.
+
+```{r}
+#| label: fig-suomi-yritykset
+#| fig-cap: "Jalkapalloseurojen liikevaihto vs. suomalaiset yritykset (milj. €)"
+#| fig-width: 12
+#| fig-height: 10
+
+vertailu <- tibble(
+  nimi = c(
+    "Real Madrid", "Bayern München", "Man City", "PSG",
+    "Liverpool", "Arsenal", "Juventus",
+    "Wärtsilä", "Kone", "Elisa", "Supercell",
+    "Outokumpu", "Valmet", "Finnair"
+  ),
+  liikevaihto_me = c(
+    1046, 861, 838, 837, 836, 717, 450,
+    6010, 11000, 2170, 1900, 7800, 5500, 3060
+  ),
+  tyyppi = c(rep("Jalkapalloseura", 7), rep("Suomalainen yritys", 7))
+) |> 
+  mutate(nimi = fct_reorder(nimi, liikevaihto_me))
+
+ggplot(vertailu, aes(x = nimi, y = liikevaihto_me, fill = tyyppi)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = ifelse(liikevaihto_me >= 1000, 
+                                paste0("€", round(liikevaihto_me/1000, 1), " mrd"),
+                                paste0("€", liikevaihto_me, "m"))), 
+            hjust = -0.05, size = 3.2) +
+  coord_flip() +
+  scale_fill_manual(values = c("Jalkapalloseura" = "#2E7D32", 
+                                "Suomalainen yritys" = "#1565C0")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25)), 
+                     labels = function(x) paste0("€", x/1000, " mrd")) +
+  labs(
+    title = "Jalkapalloseurat vs. suomalaiset yritykset",
+    subtitle = "Real Madrid (€1,05 mrd) on liikevaihdoltaan suurempi kuin Supercell, Elisa tai Finnair",
+    x = NULL, y = "Liikevaihto", fill = NULL
+  )
+```
+
+Real Madridin liikevaihto on puhtaasti jalkapallotoiminnasta. Kone tai Outokumpu ovat globaaleja teollisuusjättejä suuremmalla liikevaihdolla – mutta ne eivät kerää miljoonia faneja stadionille viikoittain. **Jalkapalloseura on samanaikaisesti urheiluorganisaatio, mediayritys, kuluttajabrändi ja viihdekoneisto.**
+
+## Jos Real Madrid olisi suomalainen kunta
+
+Real Madridin liikevaihto (€1,046 mrd) on lähes sama kuin Tampereen kaupungin koko toimintabudjetti (€1,09 mrd vuonna 2025). Miten se vertautuu muihin kuntiin?
+
+```{r}
+#| label: fig-kunnat
+#| fig-cap: "Real Madridin liikevaihto vs. suomalaisten kuntien budjetit (milj. €)"
+#| fig-width: 10
+#| fig-height: 7
+
+kunnat <- tibble(
+  nimi = c("Helsinki\n(koko budjetti)", "Helsinki\n(kunnallinen)", 
+           "Real Madrid", "Tampere", "Oulu", "Turku", 
+           "Jyväskylä", "Kuopio", "Lahti", "Siilinjärvi"),
+  budjetti_me = c(6500, 3000, 1046, 1090, 850, 800, 550, 500, 380, 75),
+  tyyppi = c(rep("Kunta", 2), "Jalkapallo", rep("Kunta", 7))
+) |> 
+  mutate(nimi = fct_reorder(nimi, budjetti_me))
+
+ggplot(kunnat, aes(x = nimi, y = budjetti_me, fill = tyyppi)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = ifelse(budjetti_me >= 1000,
+                                paste0("€", round(budjetti_me/1000, 2), " mrd"),
+                                paste0("€", budjetti_me, "m"))),
+            hjust = -0.05, size = 3.5) +
+  coord_flip() +
+  scale_fill_manual(values = c("Jalkapallo" = "#2E7D32", "Kunta" = "#1565C0")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  labs(
+    title = "Jos Real Madrid olisi suomalainen kunta...",
+    subtitle = "Sen budjetti olisi Tampereen luokkaa – ja 14× Siilinjärvi",
+    x = NULL, y = "Milj. €", fill = NULL
+  )
+```
+
+Real Madridin liikevaihto on **noin 14 kertaa Siilinjärven kunnan budjetti**. Yksi jalkapalloseura tuottaa enemmän rahaa vuodessa kuin moni Pohjois-Savon kunta käyttää kaikkiin palveluihinsa. Ja toisin kuin kunta, Real Madrid ei saa valtionosuuksia – sen tulot tulevat markkinoilta.
+
+## Jalkapallo vs. muut viihteen muodot
+
+Jalkapallo ei kilpaile vain muiden urheilulajien kanssa – se kilpailee kaikesta vapaa-ajan kulutuksesta: elokuvista, musiikista, peleistä ja podcasteista.
+
+```{r}
+#| label: fig-viihde
+#| fig-cap: "Jalkapallo vs. globaalit viihdetoimialat (mrd USD)"
+#| fig-width: 11
+#| fig-height: 8
+
+viihde <- tibble(
+  ala = c(
+    "Videopelit", "Jalkapallo (koko ekosysteemi)",
+    "Elokuvateollisuus\n(box office + streaming)",
+    "Live-musiikki (konsertit)",
+    "Äänitetty musiikki", 
+    "NFL", "NBA", "NHL", "Formula 1",
+    "Podcastit", "E-sports"
+  ),
+  arvo_mrd = c(187, 56, 42, 32, 28, 18.6, 11.6, 6.4, 3.5, 4, 1.9),
+  kategoria = c("Viihde", "Jalkapallo", "Viihde", "Viihde", "Viihde",
+                "Urheilu", "Urheilu", "Urheilu", "Urheilu", "Viihde", "Urheilu")
+) |> 
+  mutate(ala = fct_reorder(ala, arvo_mrd))
+
+ggplot(viihde, aes(x = ala, y = arvo_mrd, fill = kategoria)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = paste0("$", arvo_mrd, " mrd")), hjust = -0.1, size = 3.3) +
+  coord_flip() +
+  scale_fill_manual(values = c("Jalkapallo" = "#2E7D32", 
+                                "Urheilu" = "#F57C00", 
+                                "Viihde" = "#7B1FA2")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  labs(
+    title = "Jalkapallo vs. globaalit viihdetoimialat",
+    subtitle = "Jalkapallo on suurempi kuin musiikki + elokuvat, mutta häviää videopeleille",
+    x = NULL, y = "Miljardia USD", fill = NULL
+  )
+```
+
+Jalkapallo on **suurempi kuin äänitetty musiikki ja live-konsertit yhteensä** ($56 mrd vs. $60 mrd). Se on myös kolme kertaa suurempi kuin NFL, maailman rahakkain yksittäinen urheilusarja.
+
+Ainoa viihdemuoto, joka selvästi päihittää jalkapallon, on videopeliteollisuus ($187 mrd). Mielenkiintoista kyllä, EA Sports FC (entinen FIFA) -pelisarja on yksi peliteollisuuden suurimmista tulonlähteistä – eli jalkapallo ruokkii myös pelimarkkinoita.
+
+```{r}
+#| label: fig-viihde-treemap
+#| fig-cap: "Viihdemarkkinoiden suhteelliset koot"
+#| fig-width: 10
+#| fig-height: 7
+
+ggplot(viihde, aes(area = arvo_mrd, fill = kategoria, 
+                    label = paste0(ala, "\n$", arvo_mrd, " mrd"))) +
+  geom_treemap(alpha = 0.85) +
+  geom_treemap_text(colour = "white", place = "centre", size = 10,
+                    fontface = "bold", min.size = 6) +
+  scale_fill_manual(values = c("Jalkapallo" = "#2E7D32", 
+                                "Urheilu" = "#F57C00", 
+                                "Viihde" = "#7B1FA2")) +
+  labs(
+    title = "Viihdemarkkinoiden suhteelliset koot (treemap)",
+    subtitle = "Pinta-ala ∝ markkina-arvo. Videopelit dominoivat, jalkapallo on #2 kokonaisviihteessä."
+  ) +
+  theme(legend.position = "none")
+```
+
+## Jalkapallo vs. S&P 500
+
+S&P 500 -indeksin yritysten kokonaisliikevaihto on noin $17,9 biljoonaa. Mediaaniyrityksen liikevaihto on noin $35 miljardia ja pienimmätkin yritykset tuottavat yli $3 miljardia.
+
+```{r}
+#| label: fig-sp500
+#| fig-cap: "Jalkapalloseurat vs. S&P 500 -yritykset (log-asteikko)"
+#| fig-width: 11
+#| fig-height: 8
+
+sp500_vertailu <- tibble(
+  nimi = c(
+    "Apple", "S&P 500 mediaani",
+    "S&P 500 pienin ~10%",
+    "Koko jalkapalloteollisuus",
+    "Top 20 -seurat yhteensä",
+    "Real Madrid", "Man City",
+    "Aston Villa", "Lyon"
+  ),
+  liikevaihto_mrd_usd = c(
+    383, 35, 3.5,
+    56, 12.2,
+    1.046 * eur_usd, 0.838 * eur_usd,
+    0.356 * eur_usd, 0.303 * eur_usd
+  ),
+  tyyppi = c("S&P 500", "S&P 500", "S&P 500",
+             "Jalkapallo", "Jalkapallo",
+             "Jalkapallo", "Jalkapallo",
+             "Jalkapallo", "Jalkapallo")
+) |> 
+  mutate(nimi = fct_reorder(nimi, liikevaihto_mrd_usd))
+
+ggplot(sp500_vertailu, aes(x = nimi, y = liikevaihto_mrd_usd, fill = tyyppi)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = ifelse(liikevaihto_mrd_usd >= 1,
+                                paste0("$", round(liikevaihto_mrd_usd, 1), " mrd"),
+                                paste0("$", round(liikevaihto_mrd_usd * 1000), "m"))),
+            hjust = -0.05, size = 3.3) +
+  coord_flip() +
+  scale_fill_manual(values = c("Jalkapallo" = "#2E7D32", "S&P 500" = "#E53935")) +
+  scale_y_log10(labels = function(x) paste0("$", x, " mrd"),
+                breaks = c(0.3, 1, 3, 10, 30, 100, 300)) +
+  labs(
+    title = "Jalkapalloseurat vs. S&P 500 -yritykset (log-asteikko)",
+    subtitle = "Yksikään jalkapalloseura ei pääsisi S&P 500:een liikevaihdoltaan",
+    x = NULL, y = "Liikevaihto (log-asteikko)", fill = NULL
+  )
+```
+
+**Yksikään jalkapalloseura ei olisi S&P 500 -listalla liikevaihdoltaan.** Pienimpienkin S&P-yritysten liikevaihto (~$3,5 mrd) on yli kolminkertainen Real Madridiin verrattuna. Mutta jalkapallon todellinen arvo ei ole pelkässä liikevaihdossa – se on **huomiotaloudessa**.
+
+## Huomiotalous: jalkapallon ajankäyttö ja sen arvo
+
+Premier League tavoittaa potentiaalisesti 4,7 miljardia katsojaa 643 miljoonassa kodissa 212 maassa. Pelkästään Yhdysvalloissa PL-kaudella 2024/25 kulutettiin **17,14 miljardia minuuttia** jalkapalloa NBCUniversal-alustoilla. FIFA World Cup 2022 tavoitti 5 miljardia katsojaa – enemmän kuin mikään muu yksittäinen tapahtuma ikinä.
+
+```{r}
+#| label: fig-ajankaytto
+#| fig-cap: "Jalkapallon katsojamäärät: huomiotalouden jättiläinen"
+#| fig-width: 10
+#| fig-height: 7
+
+ajankaytto <- tibble(
+  mittari = c(
+    "FIFA WC 2022:\nkokonaisyleisö",
+    "PL: kumulatiivinen\nTV-yleisö (vuosi)",
+    "PL: viikoittainen\nglobaali yleisö",
+    "CL-finaali:\nyleisö",
+    "Super Bowl:\nyleisö"
+  ),
+  katsojat_mrd = c(5.0, 4.7, 1.87, 0.145, 0.0625),
+  tyyppi = c("Jalkapallo", "Jalkapallo", "Jalkapallo", 
+             "Jalkapallo", "Muu urheilu")
+) |> 
+  mutate(mittari = fct_reorder(mittari, katsojat_mrd))
+
+ggplot(ajankaytto, aes(x = mittari, y = katsojat_mrd, fill = tyyppi)) +
+  geom_col(width = 0.5, alpha = 0.85, show.legend = TRUE) +
+  geom_text(aes(label = ifelse(katsojat_mrd >= 1, 
+                                paste0(katsojat_mrd, " mrd"),
+                                paste0(katsojat_mrd * 1000, " milj."))), 
+            hjust = -0.1, size = 4, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Jalkapallo" = "#2E7D32", "Muu urheilu" = "#F57C00")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+  labs(
+    title = "Jalkapallon katsojamäärät vs. Super Bowl",
+    subtitle = "FIFA WC 2022 tavoitti 5 miljardia katsojaa. Super Bowl: 62,5 miljoonaa.",
+    x = NULL, y = "Katsojia (miljardia)", fill = NULL
+  )
+```
+
+## Ajan arvon estimointi
+
+Mikä on kaiken tämän katselun taloudellinen arvo? Rakennetaan yksinkertainen vaihtoehtoiskustannusmalli:
+
+```{r}
+#| label: fig-ajan-arvo
+#| fig-cap: "Jalkapallo-katselun vaihtoehtoiskustannus eri skenaarioissa"
+#| fig-width: 10
+#| fig-height: 6
+
+# PL USA: 17.14 miljardia minuuttia = 285.7 miljoonaa tuntia
+# Globaalisti: arvioidaan 3.5 mrd fania, ~30% aktiivisia, ~100h/vuosi
+
+skenaariot <- tibble(
+  skenaario = c(
+    "PL, vain USA\n(17,1 mrd min, $30/h)",
+    "PL, globaali\n(arvio 50 mrd min, $10/h)",
+    "Koko jalkapallo, globaali\n(arvio 200 mrd h, $5/h)"
+  ),
+  arvo_mrd = c(
+    17.14e9 / 60 * 30 / 1e9,   # ~8.6 mrd
+    50e9 / 60 * 10 / 1e9,       # ~8.3 mrd
+    200e9 * 5 / 1e9              # 1000 mrd
+  )
+) |> 
+  mutate(skenaario = fct_reorder(skenaario, arvo_mrd))
+
+ggplot(skenaariot, aes(x = skenaario, y = arvo_mrd, fill = skenaario)) +
+  geom_col(width = 0.5, alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = paste0("$", round(arvo_mrd), " mrd")), 
+            hjust = -0.1, size = 5, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("#2E7D32", "#1565C0", "#F57C00")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+  labs(
+    title = "Jalkapallo-katselun vaihtoehtoiskustannus",
+    subtitle = "Katseluun käytetyn ajan arvo mediaanipalkkojen perusteella. Karkeita arvioita!",
+    x = NULL, y = "Miljardia USD"
+  )
+```
+
+Nämä luvut ovat karkeita arvioita, mutta ne paljastavat jotain olennaista: jalkapallon **todellinen taloudellinen jalanjälki** – kun mukaan lasketaan ihmisten ajan arvo – on kertaluokkia suurempi kuin sen suora liikevaihto ($56 mrd). **Juuri tämä tekee jalkapallosta houkuttelevan sponsoreille ja mediajäteille:** yksikään muu tuote maailmassa ei pidä satoja miljoonia ihmisiä ruudun ääressä 90 minuuttia viikoittain.
+
+## Eurooppalaisten huippuseurojen tulojen jakauma
+
+"Maailma on jakauma" – ja jalkapallossa se jakauma on äärimmäisen vino.
+
+```{r}
+#| label: fig-deloitte-top20
+#| fig-cap: "Deloitte Football Money League – Top 20 seurojen tulot (milj. €)"
+#| fig-width: 10
+#| fig-height: 8
+
+top20 <- tibble(
+  seura = c("Real Madrid", "FC Barcelona", "Bayern München",
+            "Paris Saint-Germain", "Liverpool", "Manchester City",
+            "Manchester United", "Arsenal", "Tottenham Hotspur",
+            "Chelsea", "Borussia Dortmund", "Atletico Madrid",
+            "AC Milan", "Inter Milan", "Newcastle United",
+            "Juventus", "West Ham United", "Aston Villa",
+            "Marseille", "Lyon"),
+  tulot_me = c(1046, 975, 861, 837, 836, 838, 771, 717, 615, 
+               580, 514, 435, 420, 415, 427, 450, 342, 356, 330, 303),
+  maa = c("ESP", "ESP", "GER", "FRA", "ENG", "ENG", "ENG", "ENG", "ENG",
+           "ENG", "GER", "ESP", "ITA", "ITA", "ENG", "ITA", "ENG", "ENG",
+           "FRA", "FRA")
+) |> 
+  mutate(seura = fct_reorder(seura, tulot_me))
+
+maa_varit <- c("ENG" = "#E53935", "ESP" = "#FB8C00", 
+               "GER" = "#212121", "FRA" = "#1E88E5", "ITA" = "#43A047")
+
+ggplot(top20, aes(x = seura, y = tulot_me, fill = maa)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = paste0("€", tulot_me, "m")), hjust = -0.05, size = 3.2) +
+  coord_flip() +
+  scale_fill_manual(values = maa_varit,
+                    labels = c("ENG" = "Englanti", "ESP" = "Espanja", 
+                               "GER" = "Saksa", "FRA" = "Ranska", "ITA" = "Italia")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Top 20 -seurojen liikevaihto (Deloitte Money League 2025–2026)",
+    subtitle = "Yhdistelmä kausien 2023/24 ja 2024/25 datasta. Lähde: Deloitte.",
+    x = NULL, y = "Milj. €", fill = "Maa"
+  )
+```
+
+## Tulojen Gini-kerroin
+
+```{r}
+#| label: fig-gini
+#| fig-cap: "Top 20 -seurojen tulojen Lorenz-käyrä"
+#| fig-width: 8
+#| fig-height: 6
+
+tulot_jarjestetty <- sort(top20$tulot_me)
+n <- length(tulot_jarjestetty)
+kumulatiivinen <- cumsum(tulot_jarjestetty) / sum(tulot_jarjestetty)
+osuus_seuroista <- seq_len(n) / n
+
+lorenz <- tibble(
+  x = c(0, osuus_seuroista),
+  y = c(0, kumulatiivinen)
+)
+
+gini <- 1 - 2 * sum(kumulatiivinen) / n
+gini_teksti <- paste0("Gini = ", round(gini, 3))
+
+ggplot(lorenz, aes(x, y)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray60") +
+  geom_line(color = "#2E7D32", linewidth = 1.2) +
+  geom_ribbon(aes(ymin = x, ymax = y), fill = "#2E7D32", alpha = 0.15) +
+  annotate("text", x = 0.65, y = 0.25, label = gini_teksti, size = 6, 
+           fontface = "bold", color = "#2E7D32") +
+  labs(
+    title = "Lorenz-käyrä: Top 20 -seurojen tulojakauma",
+    subtitle = "Mitä kauempana diagonaalista, sitä epätasaisempi jakauma",
+    x = "Osuus seuroista (köyhimmästä rikkaimpaan)",
+    y = "Kumulatiivinen osuus kokonaistuloista"
+  )
+```
+
+## Kasvu ja ennustemalli
+
+```{r}
+#| label: fig-ennuste
+#| fig-cap: "Jalkapallon markkinakoon kasvu ja CAGR-ennuste vuoteen 2030"
+#| fig-width: 9
+#| fig-height: 6
+
+vuodet <- 2019:2030
+toteutunut <- c(45, 37, 39, 47, 54.3, 56, rep(NA, 6))
+cagr <- 0.039
+ennuste <- 56 * (1 + cagr)^(0:5)
+ennuste_kaikki <- c(rep(NA, 6), ennuste)
+
+kasvu <- tibble(
+  vuosi = vuodet,
+  toteutunut = toteutunut,
+  ennuste = ennuste_kaikki
+)
+
+ggplot(kasvu, aes(x = vuosi)) +
+  geom_line(aes(y = toteutunut), color = "#2E7D32", linewidth = 1.2, na.rm = TRUE) +
+  geom_point(aes(y = toteutunut), color = "#2E7D32", size = 3, na.rm = TRUE) +
+  geom_line(aes(y = ennuste), color = "#F57C00", linewidth = 1.2, 
+            linetype = "dashed", na.rm = TRUE) +
+  geom_point(aes(y = ennuste), color = "#F57C00", size = 3, na.rm = TRUE) +
+  geom_ribbon(aes(ymin = ennuste * 0.92, ymax = ennuste * 1.08), 
+              fill = "#F57C00", alpha = 0.15, na.rm = TRUE) +
+  annotate("text", x = 2028, y = 72, label = "CAGR ≈ 3.9%", 
+           color = "#F57C00", fontface = "bold", size = 5) +
+  scale_x_continuous(breaks = 2019:2030) +
+  labs(
+    title = "Jalkapallon globaalin markkinan kasvu ja ennuste",
+    subtitle = "Toteutunut (vihreä) ja CAGR-ennuste (oranssi, ±8% luottamusväli)",
+    x = "Vuosi", y = "Miljardia USD"
+  )
+```
+
+## Yhteenveto: jalkapallon mittakaava yhdellä silmäyksellä
+
+| Vertailukohde | Jalkapallon mittakaava |
+|---|---|
+| **Valtiot** | Suurempi kuin Luxemburgin BKT |
+| **Suomalaiset yritykset** | Real Madrid > Supercell, Elisa, Finnair |
+| **Suomalaiset kunnat** | Real Madrid ≈ Tampereen budjetti, 14× Siilinjärvi |
+| **Viihde** | Suurempi kuin musiikki + elokuvat; pienempi kuin pelit |
+| **S&P 500** | Yksikään seura ei pääsisi listalle liikevaihdolla |
+| **Huomiotalous** | 5 mrd katsojaa (WC), biljoonien dollarien ajan arvo |
+| **Muut urheilulajit** | 3× NFL, 5× NBA, 16× F1 |
+
+Jalkapallo ei ole vain urheilua – se on valtava globaali talous, mediatuote ja huomiotalouden moottori. Ja kuten kaikissa talouksissa, myös jalkapallossa **jakauma ratkaisee**: muutama huippuseura kerää valtaosan tuloista, kun taas tuhannet seurat kamppailevat murusia.
+
+Seuraavassa osassa puretaan nämä tulot osiin: mistä raha tulee ja mihin se menee?
+
+---
+
+**Tarvitsetko vastaavaa data-analyysiä omaan liiketoimintaasi?** Autan yrityksiä ja tutkijoita ymmärtämään datansa jakaumia, rakentamaan ennustemalleja ja tekemään parempia päätöksiä. Olitpa kiinnostunut markkinakokovertailuista, asiakassegmenttien jakaumista tai tulovirtojen mallintamisesta – [ota yhteyttä →](https://www.kristianvepsalainen.com)

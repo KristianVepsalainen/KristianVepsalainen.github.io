@@ -94,6 +94,7 @@ jobs:
             "acledR",
             "modelsummary",
             "zoo",
+            "treemapify",
             "brms",
             "stan-dev/cmdstanr"
           ))

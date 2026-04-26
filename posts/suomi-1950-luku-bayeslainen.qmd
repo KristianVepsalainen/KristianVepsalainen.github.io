@@ -23,9 +23,9 @@ Data scientist ei tee niin. Hän kysyy: **missä jakaumassa tämä väite elää
 
 ---
 
-## Data ensin: haetaan todellisuus StatFinistä
+## Data ensin: haetaan todellisuus Tilastokeskukselta.
 
-Kaikki tämän postauksen luvut pohjautuvat Tilastokeskuksen StatFin-tietokantaan, taulukkoon
+Kaikki tämän postauksen luvut pohjautuvat Tilastokeskuksen Tilastokeskuksen-tietokantaan, taulukkoon
 `statfin_vtp_pxt_123x.px` — kansantalouden tilinpidon BKT- ja tulotiedot henkeä kohden
 vuodesta 1975 lähtien.
 

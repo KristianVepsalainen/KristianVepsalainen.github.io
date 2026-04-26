@@ -29,8 +29,6 @@ Kaikki tämän postauksen luvut pohjautuvat Tilastokeskuksen StatFin-tietokantaa
 `statfin_vtp_pxt_123x.px` — kansantalouden tilinpidon BKT- ja tulotiedot henkeä kohden
 vuodesta 1975 lähtien.
 
-Ennen varsinaista datahakua luetaan taulukon **metadata** automaattisesti, jotta koodit
-— ei nimiä — varmistuvat oikeiksi. Tämä on se kohta, jossa naiivikoodi kaatuu 400-virheeseen.
 
 ```{r}
 #| label: setup

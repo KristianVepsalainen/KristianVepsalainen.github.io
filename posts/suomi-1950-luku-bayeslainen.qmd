@@ -23,14 +23,12 @@ Data scientist ei tee niin. Hän kysyy: **missä jakaumassa tämä väite elää
 
 ---
 
-## Data ensin: haetaan todellisuus StatFinistä
+## Data ensin: haetaan todellisuus Tilastokeskukselta.
 
-Kaikki tämän postauksen luvut pohjautuvat Tilastokeskuksen StatFin-tietokantaan, taulukkoon
+Kaikki tämän postauksen luvut pohjautuvat Tilastokeskuksen Tilastokeskuksen-tietokantaan, taulukkoon
 `statfin_vtp_pxt_123x.px` — kansantalouden tilinpidon BKT- ja tulotiedot henkeä kohden
 vuodesta 1975 lähtien.
 
-Ennen varsinaista datahakua luetaan taulukon **metadata** automaattisesti, jotta koodit
-— ei nimiä — varmistuvat oikeiksi. Tämä on se kohta, jossa naiivikoodi kaatuu 400-virheeseen.
 
 ```{r}
 #| label: setup
@@ -228,8 +226,7 @@ cat("  Mediaani: ", round(median(df_post2008$log_kasvu) * 100, 2), "%/v\n")
 cat("  Sd:       ", round(sd(df_post2008$log_kasvu) * 100, 2), "pp\n")
 ```
 
-StatFin-data on nyt käsissä ja kasvuastejakaumat laskettu kahdelta aikakaudelta. Luetaan
-numerot ääneen ennen mallinnusta:
+
 
 - **1976–2007**: Suomi kasvoi keskimäärin noin **2 % vuodessa**, hajonta oli noin 3–4 pp.
   Mukana 1990-luvun lama, IT-buumi ja niiden välinen elpyminen.

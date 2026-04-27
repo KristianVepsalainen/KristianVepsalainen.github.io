@@ -1,0 +1,268 @@
+---
+title: "Jalkapallon talous, osa 2: Mistä rahat tulevat ja mihin ne menevät?"
+author: "Kristian Vepsäläinen"
+date: today
+format: html
+lang: fi
+draft: TRUE
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(scales)
+library(treemapify)
+
+theme_jalkapallo <- theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(color = "gray40", size = 13),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+theme_set(theme_jalkapallo)
+```
+
+## Tulovirtojen anatomia
+
+Edellisessä osassa näimme, että jalkapallon talous on valtava. Mutta **mistä rahat oikeastaan tulevat?** Tässä osassa puramme tulovirrat osiinsa – ja katsomme, miten ne jakautuvat (koska maailma on jakauma).
+
+## Top 20 -seurojen tulot tulolajeittain
+
+Deloitte Football Money League 2025 -raportin mukaan huippuseurojen yhteistulot €11,2 miljardia jakautuvat kolmeen päälähteeseen:
+
+```{r}
+#| label: fig-tulojakauma-agg
+#| fig-cap: "Top 20 -seurojen kokonaistulot tulolajeittain (kausi 2023/24)"
+#| fig-width: 9
+#| fig-height: 6
+
+tulolajit <- tibble(
+  laji = c("Kaupalliset tulot\n(sponsorit, merchandise, tapahtumat)",
+           "TV- ja mediaoikeudet",
+           "Ottelupäivätulot\n(liput, VIP, hospitality)"),
+  milj_eur = c(4900, 4200, 2100),
+  osuus = milj_eur / sum(milj_eur)
+) |> 
+  mutate(label = paste0(laji, "\n€", milj_eur/1000, " mrd\n(", 
+                        round(osuus*100), "%)"))
+
+ggplot(tulolajit, aes(area = milj_eur, fill = laji, label = label)) +
+  geom_treemap(alpha = 0.85) +
+  geom_treemap_text(colour = "white", place = "centre", size = 12, 
+                    fontface = "bold") +
+  scale_fill_manual(values = c("#2E7D32", "#1565C0", "#F57C00")) +
+  labs(
+    title = "Mistä €11,2 miljardia tulee? (Top 20 -seurat, 2023/24)",
+    subtitle = "Lähde: Deloitte Football Money League 2025"
+  ) +
+  theme(legend.position = "none")
+```
+
+## Tulorakenne seurakohtaisesti
+
+```{r}
+#| label: fig-tulorakenne-seurat
+#| fig-cap: "Valikoitujen seurojen tulorakenne (kausi 2023/24, milj. €)"
+#| fig-width: 12
+#| fig-height: 8
+
+# Arviot perustuen Deloitte-raporttiin ja Sportico-dataan
+seurat_tulot <- tibble(
+  seura = rep(c("Real Madrid", "Man City", "PSG", "Man United", 
+                "Bayern", "Barcelona", "Arsenal", "Liverpool",
+                "Juventus", "Dortmund"), each = 3),
+  tulolaji = rep(c("Kaupalliset", "TV/media", "Ottelupäivä"), 10),
+  arvo = c(
+    462, 316, 248,   # Real Madrid
+    380, 371, 87,    # Man City
+    350, 280, 176,   # PSG
+    330, 310, 131,   # Man United
+    455, 200, 110,   # Bayern
+    310, 280, 170,   # Barcelona
+    300, 300, 117,   # Arsenal
+    280, 320, 115,   # Liverpool
+    180, 200, 70,    # Juventus
+    200, 230, 84     # Dortmund
+  )
+)
+
+seurat_tulot <- seurat_tulot |> 
+  mutate(
+    seura = fct_reorder(seura, arvo, .fun = sum, .desc = FALSE),
+    tulolaji = factor(tulolaji, levels = c("Ottelupäivä", "TV/media", "Kaupalliset"))
+  )
+
+ggplot(seurat_tulot, aes(x = seura, y = arvo, fill = tulolaji)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  coord_flip() +
+  scale_fill_manual(values = c("Kaupalliset" = "#2E7D32", 
+                                "TV/media" = "#1565C0", 
+                                "Ottelupäivä" = "#F57C00")) +
+  labs(
+    title = "Seurojen tulorakenne – eri strategiat, eri painotukset",
+    subtitle = "Bayern nojaa kaupallisiin tuloihin, Englannin seurat TV-rahaan",
+    x = NULL, y = "Milj. €", fill = "Tulolaji"
+  )
+```
+
+## Siirtomarkkinat: €8,59 miljardia vuodessa
+
+FIFA:n Global Transfer Report 2024 -raportin mukaan siirtomarkkinoiden kokonaisarvo oli **8,59 miljardia dollaria** – toiseksi suurin summa kautta aikojen.
+
+```{r}
+#| label: fig-siirtomarkkinat
+#| fig-cap: "Kansainvälisten pelaajasiirtojen kokonaisarvo (mrd USD)"
+#| fig-width: 9
+#| fig-height: 6
+
+siirrot <- tibble(
+  vuosi = 2015:2024,
+  arvo_mrd = c(4.1, 4.8, 6.0, 7.0, 7.33, 4.6, 4.9, 6.5, 9.66, 8.59)
+)
+
+ggplot(siirrot, aes(x = vuosi, y = arvo_mrd)) +
+  geom_area(fill = "#2E7D32", alpha = 0.2) +
+  geom_line(color = "#2E7D32", linewidth = 1.3) +
+  geom_point(color = "#2E7D32", size = 3) +
+  geom_text(aes(label = paste0("$", arvo_mrd)), vjust = -1, size = 3.5) +
+  annotate("rect", xmin = 2019.5, xmax = 2021.5, ymin = 0, ymax = 10.5,
+           fill = "red", alpha = 0.08) +
+  annotate("text", x = 2020.5, y = 10, label = "COVID-19", 
+           color = "red", fontface = "italic", size = 4) +
+  scale_x_continuous(breaks = 2015:2024) +
+  scale_y_continuous(limits = c(0, 11)) +
+  labs(
+    title = "Pelaajasiirtojen kokonaisarvo 2015–2024",
+    subtitle = "Lähde: FIFA Global Transfer Report 2024",
+    x = "Vuosi", y = "Miljardia USD"
+  )
+```
+
+## Kuka käyttää ja kuka tienaa siirroilla?
+
+```{r}
+#| label: fig-siirto-maat
+#| fig-cap: "Suurimmat kuluttajat ja myyjät siirtomarkkinoilla (2024)"
+#| fig-width: 10
+#| fig-height: 7
+
+siirto_maat <- tibble(
+  maa = c("Englanti", "Ranska", "Italia", "Saksa", "Espanja",
+          "Portugali", "Alankomaat", "Brasilia", "Argentiina", "Belgia"),
+  ostettu_mrd = c(1.88, 0.72, 0.65, 0.62, 0.55, 0.35, 0.30, 0.25, 0.15, 0.18),
+  myyty_mrd  = c(1.34, 0.87, 0.60, 0.55, 0.50, 0.55, 0.45, 0.59, 0.35, 0.35)
+) |> 
+  mutate(
+    netto = ostettu_mrd - myyty_mrd,
+    maa = fct_reorder(maa, netto)
+  )
+
+ggplot(siirto_maat, aes(x = maa, y = netto, 
+                         fill = ifelse(netto > 0, "Netto-ostaja", "Netto-myyjä"))) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_hline(yintercept = 0, linewidth = 0.5) +
+  geom_text(aes(label = paste0(ifelse(netto > 0, "+", ""), 
+                                round(netto * 1000), "m $")),
+            hjust = ifelse(siirto_maat$netto > 0, -0.1, 1.1), size = 3.5) +
+  coord_flip() +
+  scale_fill_manual(values = c("Netto-ostaja" = "#E53935", "Netto-myyjä" = "#2E7D32")) +
+  labs(
+    title = "Kuka ostaa, kuka myy? Siirtomarkkinoiden nettotase (2024)",
+    subtitle = "Englanti ostaa eniten, Ranska ja Brasilia myyvät pelaajia nettona",
+    x = NULL, y = "Netto (mrd USD): positiivinen = ostaa enemmän", fill = NULL
+  )
+```
+
+## Agenttien palkkiot
+
+FIFA:n raportin mukaan agenttien palkkiot olivat vuonna 2024 yhteensä **709,6 miljoonaa dollaria**. Englantilaiset seurat maksoivat yksinään yli 193 miljoonaa.
+
+```{r}
+#| label: fig-agentit
+#| fig-cap: "Agenttipalkkiot maittain (2024, milj. USD)"
+#| fig-width: 8
+#| fig-height: 5
+
+agentit <- tibble(
+  maa = c("Englanti", "Italia", "Ranska", "Saksa", "Espanja", "Muut"),
+  palkkio = c(193, 66, 60, 55, 50, 285.6)
+) |> 
+  mutate(maa = fct_reorder(maa, palkkio))
+
+ggplot(agentit, aes(x = maa, y = palkkio, fill = maa == "Englanti")) +
+  geom_col(width = 0.7, alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = paste0("$", palkkio, "m")), hjust = -0.1, size = 4) +
+  coord_flip() +
+  scale_fill_manual(values = c("TRUE" = "#E53935", "FALSE" = "#1565C0")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Agenttipalkkiot maittain (2024)",
+    subtitle = "Yhteensä $709,6m – Lähde: FIFA Football Agents Report 2024",
+    x = NULL, y = "Milj. USD"
+  )
+```
+
+## TV-oikeuksien ennustemalli
+
+```{r}
+#| label: fig-tv-ennuste
+#| fig-cap: "TV/media-tulojen kasvu ja lineaarinen ennuste"
+#| fig-width: 9
+#| fig-height: 6
+
+# Arvio Deloitte-datan pohjalta (Top 20 seurat, mrd €)
+tv_data <- tibble(
+  kausi = 2018:2024,
+  tv_mrd = c(3.2, 3.4, 3.0, 3.1, 3.6, 4.0, 4.2)
+)
+
+malli <- lm(tv_mrd ~ kausi, data = tv_data)
+ennuste_vuodet <- tibble(kausi = 2025:2030)
+ennuste_vuodet$tv_mrd <- predict(malli, newdata = ennuste_vuodet)
+ennuste_vuodet$tyyppi <- "Ennuste"
+tv_data$tyyppi <- "Toteutunut"
+
+tv_kaikki <- bind_rows(tv_data, ennuste_vuodet)
+
+# Luottamusväli
+pred <- predict(malli, newdata = tibble(kausi = 2018:2030), 
+                interval = "prediction", level = 0.90)
+ci <- tibble(
+  kausi = 2018:2030,
+  lower = pred[, "lwr"],
+  upper = pred[, "upr"]
+)
+
+ggplot(tv_kaikki, aes(x = kausi, y = tv_mrd)) +
+  geom_ribbon(data = ci |> filter(kausi >= 2024), 
+              aes(x = kausi, ymin = lower, ymax = upper), 
+              inherit.aes = FALSE, fill = "#F57C00", alpha = 0.15) +
+  geom_line(aes(color = tyyppi, linetype = tyyppi), linewidth = 1.2) +
+  geom_point(aes(color = tyyppi), size = 3) +
+  scale_color_manual(values = c("Toteutunut" = "#1565C0", "Ennuste" = "#F57C00")) +
+  scale_linetype_manual(values = c("Toteutunut" = "solid", "Ennuste" = "dashed")) +
+  labs(
+    title = "TV/media-tulot: historiallinen kehitys ja lineaarinen ennuste",
+    subtitle = "Top 20 -seurat, 90% ennusteväli (oranssi alue)",
+    x = "Kausi", y = "Miljardia €", color = NULL, linetype = NULL
+  )
+```
+
+## Yhteenveto
+
+Jalkapallon tulovirrat ovat monimuotoisia, mutta niiden **jakauma** on epätasainen:
+
+- Kaupalliset tulot (44%) ovat nykyisin suurin lähde – ja kasvavat nopeimmin
+- TV-oikeudet (38%) tuovat vakautta, mutta niiden kasvu on hidastunut
+- Ottelupäivätulot (18%) ovat kasvussa stadionremonttien myötä
+- Siirtomarkkinat ovat oma €8,6 miljardin ekosysteeminsä
+
+Seuraavassa osassa katsomme, kuinka monta ihmistä tämä kaikki työllistää.
+
+---
+
+**Haluatko ymmärtää oman liiketoimintasi tulovirtojen jakaumaa?** Teen data-analyysejä, joissa visualisoinnit ja tilastolliset mallit auttavat näkemään metsän puilta. [Ota yhteyttä →](https://www.kristianvepsalainen.com)

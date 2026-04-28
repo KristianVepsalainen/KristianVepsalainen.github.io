@@ -357,11 +357,11 @@ kokonaiskulu   <- asennus + vuosimaksu * sopimus_vuosia
 # Suuremmassa asennuksessa hyöty olisi merkittävä
 
 cat("=== SECTOR ALARM KUSTANNUKSET (5 VUOTTA) ===\n")
-cat(sprintf("Asennusmaksu (kampanja):    %7.0f €\n", asennus))
-cat(sprintf("Kuukausimaksu:              %7.2f €/kk\n", kuukausimaksu))
-cat(sprintf("Vuosimaksu:                 %7.2f €/v\n", vuosimaksu))
-cat(sprintf("Yhteensä 5 vuodessa:        %7.0f €\n", kokonaiskulu))
-cat(sprintf("Kuukausitasolla:            %7.2f €/kk (sis. asennuksen)\n",
+cat(sprintf("Asennusmaksu (kampanja: %7.0f €\n", asennus))
+cat(sprintf("Kuukausimaksu: %7.2f €/kk\n", kuukausimaksu))
+cat(sprintf("Vuosimaksu: %7.2f €/v\n", vuosimaksu))
+cat(sprintf("Yhteensä 5 vuodessa: %7.0f €\n", kokonaiskulu))
+cat(sprintf("Kuukausitasolla: %7.2f €/kk (sis. asennuksen)\n",
             kokonaiskulu / (sopimus_vuosia * 12)))
 ```
 

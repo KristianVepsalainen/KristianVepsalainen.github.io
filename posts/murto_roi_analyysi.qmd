@@ -1,0 +1,642 @@
+---
+title: "Kannattaako hälytysjärjestelmä? Bayesilainen ROI-analyysi Siilinjärven datalla"
+author: "Kristian Vepsäläinen"
+date: "2026-04-28"
+categories: [data science, bayesilainen analyysi, riskianalyysi, avoin data]
+description: "Sector Alarm kävi ovellani. Sen sijaan että olisin kuunnellut myyntipuheen, tein asiasta oman analyysin: Tilastokeskuksen rikosdata + bayesilainen malli + ROI-laskenta. Maailma on jakauma – myös murtoriski."
+image: "murto_jakauma.png"
+format:
+  html:
+    toc: true
+    code-fold: true
+    fig-width: 9
+    fig-height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+
+# Yhteinen teema
+theme_kv <- function() {
+  theme_minimal(base_size = 13) +
+    theme(
+      plot.title    = element_text(face = "bold", size = 15),
+      plot.subtitle = element_text(color = "grey40", size = 11),
+      plot.caption  = element_text(color = "grey50", size = 9),
+      panel.grid.minor = element_blank(),
+      plot.background  = element_rect(fill = "white", color = NA)
+    )
+}
+```
+
+## Tausta: myyjä ovella, analyytikko kotona
+
+Sector Alarmin edustaja kävi tänään ovellani Siilinjärvellä. Myyntipuhe oli tutun kaavamainen: "Asuntomurtoja tapahtuu, naapureille on käynyt, turvajärjestelmä maksaa itsensä takaisin."
+
+Myyjä ei esittänyt yhtään lukua. Minä sen sijaan tein.
+
+Tässä postauksessa:
+
+1. **Selvitän**, kuinka tarkkaa julkista rikostilastodataa Suomesta on saatavilla
+2. **Rakennan** bayesilaisen mallin murron todennäköisyydelle omalle kotiosoitteelleni
+3. **Lasken** hälytysjärjestelmän ROI:n – ei yhtenä pistearvona vaan **jakaumana**
+4. **Teen päätöksen** datan perusteella
+
+> *Maailma on jakauma. Myös murtoriski on jakauma – ei yksittäinen prosenttiluku.*
+
+---
+
+## Mitä julkista rikostilastodataa on saatavilla?
+
+Tämä on ensimmäinen asia, jota myyjä ei kertonut: **Suomen rikostilastot ovat julkista dataa**, ja ne kattavat useita eritasoisia tarkasteluja.
+
+| Lähde | Tarkkuus | Saatavuus | Kommentti |
+|---|---|---|---|
+| Tilastokeskus StatFin | Kuntatasolla | Ilmainen API | Paras kattavuus, viive ~6 kk |
+| Poliisi.fi tilastot | Kunta + poliisilaitosalueet | Avoin, kuukausittain | Nopein päivitys |
+| Poliisibarometri | Kansallinen | Raportti | Koettu turvallisuus |
+| PAAVO-postinumerodata | Postinumeroalue | Avoin API | Ei rikostietoja, mutta sosioekonominen profiili |
+
+**Kriittinen havainto:** Postinumeroaluetason rikostilastoja **ei ole julkisesti saatavilla** Suomessa. Tarkin julkinen taso on kunta. Tämä on merkittävä tietovaje – ja samalla myyjien käyttämä harhaanjohtamisen väline: he eivät pysty osoittamaan, että juuri postinumerosni 71800 on erityisen riskialtis.
+
+---
+
+## Priori: mitä tiedämme ennen omaa analyysiä?
+
+### Kansalliset perustilastot
+
+```{r kansalliset_luvut}
+# Tilastokeskus 2024: asuntomurtoja vakinaisiin asuntoihin ~3 200 kpl
+# Vapaa-ajan asuntomurtoja 838 kpl
+# Lähde: Tilastokeskus, Rikos- ja pakkokeinotilasto 2024
+
+luvut <- tibble(
+  kategoria = c("Vakinaiset asunnot", "Vapaa-ajan asunnot", "Myymälävarkaudet"),
+  maara_2024 = c(3200, 838, 63000),
+  muutos_pct = c(-5, +11.4, +5.1)
+)
+
+# Suomen asuntokunnat ~2024: n. 2 730 000
+asuntokuntia_fi <- 2730000
+
+# Perusriski koko Suomessa
+p_fi <- luvut$maara_2024[1] / asuntokuntia_fi
+
+cat(sprintf("Perusriski (koko Suomi): %.4f eli %.2f‰ asuntoa kohden vuodessa\n",
+            p_fi, p_fi * 1000))
+cat(sprintf("Tai: 1 murto per %.0f vuotta keskimääräisessä asunnossa\n", 1/p_fi))
+```
+
+Kansallinen perusriski on noin **1,2 murtoa tuhatta asuntoa kohden vuodessa**, eli keskimääräiseen asuntoon murtaudutaan kerran noin 850 vuodessa. Kuulostaa pieneltä – mutta tämä on vain lähtökohta.
+
+### Riskikertoimet: en ole keskimääräinen
+
+Bayesilainen analyysi alkaa priorista, jota päivitetään kohdekohtaisella tiedolla. Kertoimet perustuvat tutkimuskirjallisuuteen ja Poliisiammattikorkeakoulun tilastoihin:
+
+```{r riskikertoimet}
+riskitekijat <- tibble(
+  tekija = c(
+    "Aluetyyppi (maaseutumainen pikkukaupunki vs. Helsinki)",
+    "Talotyyppi (paritalo vs. kerrostalo)",
+    "Asuinalue (rauhallinen omakotialue)",
+    "Etätyö: ainakin joku kotona useimpina arkipäivinä",
+    "Kaksi etätyöläistä taloudessa",
+    "Ei kalliita ajoneuvoja pihassa näkyvillä",
+    "Vauva taloudessa (satunnainen pimeys/valot)"
+  ),
+  kerroin = c(0.55, 0.70, 0.80, 0.60, 0.85, 0.90, 1.05),
+  lahde = c(
+    "Poliisi.fi aluedata, Itä-Suomi vs. pääkaupunkiseutu",
+    "Poliisiammattikorkeakoulu 2016: kerrostalo 36% murroista",
+    "Verisure/tutkimuskirjallisuus: 'awareness space'",
+    "Kriminologinen tutkimus: tyhjillään olo = riski",
+    "Kaksi etätyöläistä = harvoin täysin tyhjä",
+    "Arvioperusteinen",
+    "Ennustamaton asumistila = pieni lisä"
+  )
+)
+
+riskitekijat |>
+  mutate(kerroin_fmt = sprintf("× %.2f", kerroin)) |>
+  select(tekija, kerroin_fmt, lahde) |>
+  knitr::kable(
+    col.names = c("Riskitekijä", "Kerroin", "Lähde/perustelu"),
+    caption = "Kohdekohtaiset riskikertoimet suhteessa kansalliseen keskiarvoon"
+  )
+```
+
+```{r yhdistetty_priori}
+# Kokonaiskertoimien tulo
+kertoimet <- riskitekijat$kerroin
+k_tulo <- prod(kertoimet)
+
+p_kohde_base <- p_fi * k_tulo
+
+cat(sprintf("Kansallinen perusriski: %.5f\n", p_fi))
+cat(sprintf("Riskikertoimien tulo: %.3f\n", k_tulo))
+cat(sprintf("Kohdekohtainen estimaatti: %.5f\n", p_kohde_base))
+cat(sprintf("= %.3f‰ per vuosi\n", p_kohde_base * 1000))
+cat(sprintf("= 1 murto per %.0f vuotta\n", 1/p_kohde_base))
+```
+
+---
+
+## Bayesilainen malli: murtoriski jakaumana
+
+Yksittäinen pisteluku on huono päätöksenteon pohja. **Oikea kysymys on: mikä on riski epävarmuuden kanssa?**
+
+Käytän Beta-Binomial -mallia, jossa:
+
+- **Priori**: Beta(α, β) – perustuu Tilastokeskuksen kuntadataan ja riskikertoimiin
+- **Likelihood**: Binomial – binäärinen tapahtuma (murto / ei murtoa)
+- **Posteriori**: Beta(α + havaitut murrot, β + havaitut ei-murrot)
+
+```{r bayesilainen_malli, fig.width=10, fig.height=6}
+# Beta-priori parametrit Siilinjärven kontekstissa
+# Siilinjärvi: n. 21 000 asukasta, ~9 000 asuntokuntaa
+# Itä-Suomen poliisilaitosalueen suhteellinen riski n. 0.55 × kansallinen
+# Käyttäen "pseudo-count" -lähestymistapaa
+
+# Kuntatasolla: oletetaan n. 5-10 murtoa/vuosi Siilinjärvellä
+# (9000 asuntokuntaa × 1.2‰ × 0.55 ≈ 6 murtoa/vuosi)
+n_total_kunta <- 9000       # asuntokuntia Siilinjärvellä
+expected_murrot <- n_total_kunta * p_fi * 0.55  # ~6 murtoa/vuosi
+expected_ei_murrot <- n_total_kunta - expected_murrot
+
+# Beta-priori: α = odottetut murrot, β = odotetut ei-murrot
+# Skaalataan niin että priori vastaa ~5 vuoden dataa
+vuosia_priori <- 5
+alpha_prior <- expected_murrot * vuosia_priori * k_tulo / (1 - k_tulo + k_tulo)
+beta_prior  <- n_total_kunta * vuosia_priori - alpha_prior
+
+# Varmistetaan järkevät luvut
+alpha_prior <- max(alpha_prior, 0.5)
+beta_prior  <- max(beta_prior, 100)
+
+# Posteriori: ei ole havaittu murtoja omassa talossa (uusi havainto)
+# → posteriori = priori (ei uutta dataa kohdekiinteistöstä)
+alpha_post <- alpha_prior
+beta_post  <- beta_prior
+
+p_seq <- seq(0, 0.02, length.out = 2000)
+
+df_bayes <- tibble(
+  p = p_seq,
+  priori = dbeta(p, alpha_prior, beta_prior),
+  posteriori = dbeta(p, alpha_post, beta_post)
+) |>
+  pivot_longer(-p, names_to = "jakauma", values_to = "tiheys") |>
+  mutate(jakauma = factor(jakauma,
+    levels = c("priori", "posteriori"),
+    labels = c("Priori (ennen havaintoja)", "Posteriori (tämänhetkinen uskomus)")
+  ))
+
+p_mean  <- alpha_post / (alpha_post + beta_post)
+p_lower <- qbeta(0.025, alpha_post, beta_post)
+p_upper <- qbeta(0.975, alpha_post, beta_post)
+
+ggplot(df_bayes, aes(x = p * 1000, y = tiheys, color = jakauma, fill = jakauma)) +
+  geom_line(linewidth = 1.2) +
+  geom_ribbon(aes(ymin = 0, ymax = tiheys), alpha = 0.15) +
+  geom_vline(xintercept = p_mean * 1000, linetype = "dashed", color = "#E63946", linewidth = 0.9) +
+  annotate("text",
+    x = p_mean * 1000 + 0.03,
+    y = max(dbeta(p_seq, alpha_post, beta_post)) * 0.9,
+    label = sprintf("Mediaani: %.3f‰\n95%% CI: [%.3f‰, %.3f‰]",
+                    p_mean * 1000, p_lower * 1000, p_upper * 1000),
+    hjust = 0, size = 3.5, color = "#E63946"
+  ) +
+  scale_color_manual(values = c("#457B9D", "#E63946")) +
+  scale_fill_manual(values  = c("#457B9D", "#E63946")) +
+  scale_x_continuous(labels = function(x) paste0(x, "‰")) +
+  labs(
+    title    = "Bayesilainen posteriorijakauma: murron vuosittainen todennäköisyys",
+    subtitle = "Paritalo, Siilinjärvi 71800 | Kaksi etätyöläistä | Beta-Binomial -malli",
+    x        = "Vuosittainen murtoriski (‰ asuntoa kohden)",
+    y        = "Todennäköisyystiheys",
+    color    = NULL, fill = NULL,
+    caption  = "Data: Tilastokeskus 2024, Poliisiammattikorkeakoulu | Malli: Beta-Binomial | Kristian Vepsäläinen"
+  ) +
+  theme_kv() +
+  theme(legend.position = "top")
+```
+
+**Keskeinen tulos:** Kohteeni vuosittainen murtoriski on todennäköisimmin noin **`r sprintf("%.3f‰", p_mean * 1000)`**, mutta 95 %:n luottamusväli ulottuu `r sprintf("%.3f‰:stä %.3f‰:iin", p_lower * 1000, p_upper * 1000)`. Tämä epävarmuus on olennainen osa päätöksentekoa.
+
+### Montako vuotta odottaa seuraavaan murtoon?
+
+Murtoriski noudattaa geometrista jakaumaa: joka vuosi on itsenäinen "kolikonheitto". Odotusarvo on `1/p`.
+
+```{r odotusaika, fig.width=9, fig.height=5}
+# Geometrinen jakauma odotusajalle
+n_sim <- 50000
+set.seed(42)
+
+# Simuloi odotusaika posteriorista
+p_draws <- rbeta(n_sim, alpha_post, beta_post)
+odotusaika_draws <- 1 / p_draws  # vuotta
+
+df_odotus <- tibble(vuotta = odotusaika_draws) |>
+  filter(vuotta < 5000)  # rajaa äärihäntiä visualisoinnissa
+
+q50 <- median(df_odotus$vuotta)
+q10 <- quantile(df_odotus$vuotta, 0.10)
+q90 <- quantile(df_odotus$vuotta, 0.90)
+
+ggplot(df_odotus, aes(x = vuotta)) +
+  geom_histogram(bins = 80, fill = "#457B9D", color = "white", alpha = 0.8) +
+  geom_vline(xintercept = q50, color = "#E63946", linewidth = 1.1, linetype = "dashed") +
+  geom_vline(xintercept = q10, color = "#F4A261", linewidth = 0.8, linetype = "dotted") +
+  geom_vline(xintercept = q90, color = "#F4A261", linewidth = 0.8, linetype = "dotted") +
+  annotate("text", x = q50 + 80, y = Inf, vjust = 2,
+           label = sprintf("Mediaani: %.0f v.", q50),
+           color = "#E63946", size = 3.5, fontface = "bold") +
+  annotate("text", x = q10 - 50, y = Inf, vjust = 3.5, hjust = 1,
+           label = sprintf("P10: %.0f v.", q10),
+           color = "#F4A261", size = 3.2) +
+  annotate("text", x = q90 + 80, y = Inf, vjust = 3.5,
+           label = sprintf("P90: %.0f v.", q90),
+           color = "#F4A261", size = 3.2) +
+  scale_x_continuous(limits = c(0, 5000)) +
+  labs(
+    title    = "Kuinka monen vuoden päästä murtoon todennäköisimmin?",
+    subtitle = "Posteriorijakauman simulaatio (n = 50 000) | Geometrinen odotusaika",
+    x        = "Vuotta seuraavaan murtoon",
+    y        = "Simulointeja",
+    caption  = "Kristian Vepsäläinen | kristianvepsalainen.com"
+  ) +
+  theme_kv()
+```
+
+Mediaaniodotus on **`r sprintf("%.0f vuotta", q50)`** – mutta jakaumassa on raskas häntä. 10 %:n todennäköisyydellä murto tapahtuu alle `r sprintf("%.0f vuodessa", q10)`.
+
+---
+
+## Mitä murto maksaa? – Myös tämä on jakauma
+
+Myyjä puhuu yleensä yhdestä euromäärästä. Todellisuudessa murron kustannusrakenne on monikasvoinen.
+
+```{r kustannusjakauma, fig.width=10, fig.height=6}
+set.seed(123)
+n <- 100000
+
+# Anastettu omaisuus: lognormaali
+# Tyypillinen tapaus ~1 500–4 000 €, mutta pitkä häntä (joskus yli 10 000 €)
+anastettu <- rlnorm(n, meanlog = log(2500), sdlog = 0.8)
+
+# Rakenteelliset vahingot (rikottu ovi/ikkuna): normaali
+rakenne <- rnorm(n, mean = 800, sd = 300) |> pmax(200)
+
+# Psyykkinen haitta (menetetty turvallisuudentunne, aika jne.): 
+# vaikeasti mitattavissa, käytän konservatiivista arviota
+psyykkinen <- rlnorm(n, meanlog = log(1000), sdlog = 0.6)
+
+# Kotivakuutuksen omavastuu (ei palaudu)
+omavastuu <- 200  # tyypillinen
+
+# Nettokustannus omistajalle (vakuutus korvaa anastetun ja rakennuksen)
+# Mutta psyykkinen haitta ja omavastuu jäävät
+netto_kustannus <- anastettu + rakenne + psyykkinen - (anastettu + rakenne - omavastuu) |>
+  pmax(omavastuu)  # jos alle omavastuun, kaikki jää omaksi
+
+# Yksinkertaistettu: kaikki kulut yhteensä omistajalle
+kokonais <- omavastuu + psyykkinen  # vakuutus korvaa loput
+
+df_kust <- tibble(
+  anastettu   = anastettu,
+  rakenne     = rakenne,
+  psyykkinen  = psyykkinen,
+  kokonais_omistaja = kokonais
+)
+
+q_kust <- quantile(kokonais, c(0.1, 0.25, 0.5, 0.75, 0.9, 0.95))
+
+p_anastettu <- ggplot(tibble(x = anastettu[anastettu < 15000]), aes(x = x)) +
+  geom_histogram(bins = 60, fill = "#E63946", alpha = 0.8, color = "white") +
+  scale_x_continuous() +
+  labs(title = "Anastetun omaisuuden arvo", x = "", y = "Simulaatioita",
+       subtitle = sprintf("Mediaani: %.0f €", median(anastettu))) +
+  theme_kv()
+
+p_psyyk <- ggplot(tibble(x = psyykkinen[psyykkinen < 5000]), aes(x = x)) +
+  geom_histogram(bins = 60, fill = "#F4A261", alpha = 0.8, color = "white") +
+  scale_x_continuous() +
+  labs(title = "Psyykkinen haitta & aika", x = "€", y = "",
+       subtitle = sprintf("Mediaani: %.0f €", median(psyykkinen))) +
+  theme_kv()
+
+p_anastettu + p_psyyk +
+  plot_annotation(
+    title   = "Murron kustannusrakenne on jakauma – ei yksittäinen luku",
+    caption = "Simuloitu lognormaali. Lähde: FINE, Rikosuhripäivystys, kirjallinen aineisto | Kristian Vepsäläinen"
+  )
+```
+
+**Keskeinen havainto:** Anastetun omaisuuden mediaani on noin **`r sprintf("%.0f €", median(anastettu))`**, mutta 90. persentiili ylittää `r sprintf("%.0f €", quantile(anastettu, 0.9))`. Kotivakuutus kattaa suuren osan tästä – **mutta psyykkinen haitta jää korvaamatta**.
+
+---
+
+## ROI-analyysi: kannattaako Sector Alarm?
+
+### Kustannukset
+
+```{r roi_kustannukset}
+# Sector Alarm -hinnat (lähde: sectoralarm.fi, huhtikuu 2026)
+asennus        <- 49      # kampanjahinta (norm. 399 €)
+kuukausimaksu  <- 49.90   # €/kk
+vuosimaksu     <- kuukausimaksu * 12
+
+# Sopimus tyypillisesti 3–5 vuotta, lasketaan 5 v.
+sopimus_vuosia <- 5
+kokonaiskulu   <- asennus + vuosimaksu * sopimus_vuosia
+
+# Kotitalousvähennys asennuksesta (35% × (49 - 150 omavastuu)) → ei sovellu, alle omavastuun
+# Suuremmassa asennuksessa hyöty olisi merkittävä
+
+cat("=== SECTOR ALARM KUSTANNUKSET (5 VUOTTA) ===\n")
+cat(sprintf("Asennusmaksu (kampanja):    %7.0f €\n", asennus))
+cat(sprintf("Kuukausimaksu:              %7.2f €/kk\n", kuukausimaksu))
+cat(sprintf("Vuosimaksu:                 %7.2f €/v\n", vuosimaksu))
+cat(sprintf("Yhteensä 5 vuodessa:        %7.0f €\n", kokonaiskulu))
+cat(sprintf("Kuukausitasolla:            %7.2f €/kk (sis. asennuksen)\n",
+            kokonaiskulu / (sopimus_vuosia * 12)))
+```
+
+### Hyödyt – hälytysjärjestelmän murto-vähennys
+
+Tutkimusnäyttö hälytysjärjestelmien murtojen ehkäisevyydestä on hajanainen. Verisure väittää "lähes 100 %", mikä on selvästi yrityksen oma markkinointiväite. Akateemisessa kirjallisuudessa (belgialainen ja hollantilainen kriminologiatutkimus) reduktio on **konservatiivisesti 40–70 %**.
+
+```{r roi_jakauma, fig.width=10, fig.height=7}
+set.seed(2024)
+n_sim <- 100000
+
+# Parametrit (posteriori)
+alpha_p <- alpha_post
+beta_p  <- beta_post
+
+# --- SKENAARIO: ilman hälytysjärjestelmää ---
+p_vuosi_noalarm <- rbeta(n_sim, alpha_p, beta_p)
+
+# 5 vuoden murtotodennäköisyys (vähintään 1 murto)
+p5_noalarm <- 1 - (1 - p_vuosi_noalarm)^5
+
+# Murron kokonaiskustannus (simuloitu)
+murto_kust <- rlnorm(n_sim, meanlog = log(3500), sdlog = 0.9) + 200
+# (anastettu + rakenne; vakuutus korvaa, mutta omavastuu 200 €)
+# Lisätään psyykkinen haitta
+psyk <- rlnorm(n_sim, meanlog = log(1000), sdlog = 0.6)
+murto_kust_total <- murto_kust + psyk
+
+# Odotettu kustannus 5 v ilman hälytysjärjestelmää
+ekust_noalarm <- p5_noalarm * murto_kust_total
+
+# --- SKENAARIO: Sector Alarm ---
+# Reduktio: Beta(8, 5) → mediaani ~60%, mutta epävarmuus
+reduktio <- rbeta(n_sim, shape1 = 8, shape2 = 5)  # mediaani ~60%
+
+p_vuosi_alarm <- p_vuosi_noalarm * (1 - reduktio)
+p5_alarm <- 1 - (1 - p_vuosi_alarm)^5
+
+ekust_alarm <- p5_alarm * murto_kust_total + kokonaiskulu
+
+# --- ROI = säästö - kustannus ---
+roi_abs <- ekust_noalarm - ekust_alarm  # positiivinen = kannattaa
+
+df_roi <- tibble(
+  roi = roi_abs,
+  p5_noalarm = p5_noalarm,
+  reduktio = reduktio
+)
+
+p_pos <- mean(roi_abs > 0) * 100
+
+# Visualisointi
+p1 <- ggplot(df_roi |> filter(abs(roi) < 2000), aes(x = roi)) +
+  geom_histogram(bins = 80,
+    aes(fill = after_stat(x > 0)),
+    color = "white", alpha = 0.85) +
+  scale_fill_manual(values = c("#E63946", "#2A9D8F"),
+    labels = c("Hälytysjärjestelmä tappiollinen", "Hälytysjärjestelmä kannattava"),
+    guide  = guide_legend(title = NULL)) +
+  geom_vline(xintercept = 0, linewidth = 1.1, linetype = "dashed") +
+  geom_vline(xintercept = median(roi_abs), color = "#E76F51", linewidth = 1.0) +
+  annotate("text", x = median(roi_abs) + 30, y = Inf, vjust = 2,
+           label = sprintf("Mediaani: %.0f €", median(roi_abs)),
+           color = "#E76F51", size = 3.5, fontface = "bold") +
+  labs(
+    title = sprintf("ROI-jakauma: %.1f %% simulaatioista hälytysjärjestelmä on tappiollinen",
+                    100 - p_pos),
+    subtitle = "5 vuoden aikahorisontti | n = 100 000 simulaatiota | Rajattu ±2 000 €",
+    x = "ROI (€) – positiivinen = hälytysjärjestelmä kannattaa taloudellisesti",
+    y = "Simulaatioita"
+  ) +
+  theme_kv() +
+  theme(legend.position = "top")
+
+# Kumulatiivinen todennäköisyys murrolle 5 vuodessa
+p2 <- ggplot(tibble(p = p5_noalarm * 100), aes(x = p)) +
+  geom_histogram(bins = 60, fill = "#457B9D", color = "white", alpha = 0.8) +
+  geom_vline(xintercept = median(p5_noalarm) * 100,
+             color = "#E63946", linewidth = 1.1, linetype = "dashed") +
+  annotate("text",
+    x = median(p5_noalarm) * 100 + 0.05,
+    y = Inf, vjust = 2,
+    label = sprintf("Mediaani: %.2f%%", median(p5_noalarm) * 100),
+    color = "#E63946", size = 3.5, fontface = "bold") +
+  labs(
+    title = "Murron kumulatiivinen todennäköisyys 5 vuodessa",
+    subtitle = "Ilman hälytysjärjestelmää | Posterioriepävarmuus mukana",
+    x = "Todennäköisyys saada murto 5 v. aikana (%)",
+    y = "Simulaatioita"
+  ) +
+  theme_kv()
+
+p1 / p2 +
+  plot_annotation(
+    caption = "Data: Tilastokeskus 2024 | Malli: Beta-Binomial + Monte Carlo | Kristian Vepsäläinen"
+  )
+```
+
+```{r roi_yhteenveto}
+cat("=== ROI-YHTEENVETO ===\n\n")
+cat(sprintf("5 v. murtotodennäköisyys (mediaani):   %.3f%%\n",
+            median(p5_noalarm) * 100))
+cat(sprintf("5 v. murtotodennäköisyys (P90):        %.3f%%\n",
+            quantile(p5_noalarm, 0.9) * 100))
+cat(sprintf("\nHälytysjärjestelmän kustannus 5 v.:   %.0f €\n", kokonaiskulu))
+cat(sprintf("Mediaanireduktio (murtoriski):         %.0f%%\n",
+            median(reduktio) * 100))
+cat(sprintf("\nROI mediaani:                          %.0f €\n", median(roi_abs)))
+cat(sprintf("ROI P10 (pessimistinen):               %.0f €\n",
+            quantile(roi_abs, 0.10)))
+cat(sprintf("ROI P90 (optimistinen):                %.0f €\n",
+            quantile(roi_abs, 0.90)))
+cat(sprintf("\nTodennäköisyys että hälytysjärj. kannattaa taloudellisesti: %.1f%%\n",
+            p_pos))
+```
+
+---
+
+## Päätöskriteerit: pelkkä ROI ei riitä
+
+Puhdas odotusarvolaskenta kertoo, että **taloudellisesti hälytysjärjestelmä on enemmän vakuutus kuin investointi**: mediaani-ROI on negatiivinen. Tämä on oikea tulos. Mutta päätöstä ei pidä tehdä pelkän odotusarvon perusteella.
+
+### Miksi hälytysjärjestelmä voi silti kannattaa?
+
+```{r paatoskriteerit}
+paatokset <- tibble(
+  kriteeri = c(
+    "Odotusarvo (taloudellinen ROI)",
+    "Riskin häntä (P90-skenaario)",
+    "Psyykkinen arvo (turvallisuudentunne)",
+    "Palo- ja vesivahinkohälytys (sivuhyöty)",
+    "Lakisääteinen palovaroitin (jo olemassa)",
+    "Halvat vesivahdit (jo olemassa, ei kuukausimaksua)",
+    "Palolaitos 3,4 km:n päässä (~5 min vasteaika)",
+    "Vakuutusmaksun alennus (mahdollinen)"
+  ),
+  arvio = c(
+    "Negatiivinen mediaani – ei puolla",
+    "Murron kustannus voi olla 5 000–15 000 € → häntäriski todellinen",
+    "Vaikeasti mitattavissa, mutta reaalinen arvo",
+    "Sector Alarmin palovaroitin on REDUNDANTTI – Suomen laki vaatii palovaroittimen jokaiseen asuntoon. Tämä 'lisäarvo' on nolla.",
+    "Pakollinen lakisääteinen vaatimus – ei lisäarvoa hälytysjärjestelmästä",
+    "Erilliset vesivahdit (esim. Fibaro, ~50 € kertamaksu) ilman sopimusta – korvaa tämän toiminnon murto-osalla hinnasta",
+    "Lähellä oleva palolaitos heikentää Sector Alarmin paloturvallisuushyötyä entisestään",
+    "Osa vakuutusyhtiöistä antaa 5–15% alennuksen – tarkistettava erikseen"
+  ),
+  suositus = c("✗", "△", "✓", "✗✗", "✗", "✗", "✗", "△")
+)
+
+paatokset |>
+  knitr::kable(
+    col.names = c("Päätöskriteeri", "Arvio", "Puoltaa?"),
+    caption   = "Kokonaisharkinta hälytysjärjestelmäpäätöksessä – päivitetty versio"
+  )
+```
+
+### Redundantin hyödyn rahallinen arvo
+
+```{r redundanssi}
+# Palovaroitin: jo pakollinen Suomessa (Pelastuslaki 379/2011, 17§)
+# → Sector Alarmin palovaroitin tuo nolla lisäarvoa
+
+# Vesivahtilähetin: markkinahinta
+vesivahti_kertamaksu <- 50  # esim. Fibaro Flood Sensor, ilman sopimusta
+
+# Sector Alarmin "vesivahti-hyöty" verrattuna vaihtoehtoon
+sector_alarm_5v     <- 49.90 * 12 * 5 + 49  # 3 043 €
+vaihtoehto_5v       <- vesivahti_kertamaksu  # 50 € kertamaksu, ei kuukausimaksua
+
+ylilasku <- sector_alarm_5v - vaihtoehto_5v
+
+cat("=== REDUNDANSSIEN KUSTANNUSLASKENTA ===\n\n")
+cat("Jos ainut motivaatio on palo- ja vesivahinkohälytys:\n\n")
+cat(sprintf("Sector Alarm 5 vuodessa:          %6.0f €\n", sector_alarm_5v))
+cat(sprintf("Lakisääteinen palovaroitin:            0 € (jo pakollinen)\n"))
+cat(sprintf("Erillinen vesivahti (kertamaksu): %6.0f €\n", vesivahti_kertamaksu))
+cat(sprintf("Ylilasku palo/vesi-skenaariosssa: %6.0f €\n", ylilasku))
+cat(sprintf("\nSiis: hälytysjärjestelmä maksaa %.0f× enemmän kuin vaihtoehto,\n",
+            sector_alarm_5v / vesivahti_kertamaksu))
+cat("jos murtosuojaus ei tuo merkittävää lisäarvoa.\n")
+```
+
+### Mikä muuttaisi päätöksen?
+
+Tein herkkyysanalyysin: missä tilanteissa hälytysjärjestelmä olisi **mediaani-ROI:ltaan positiivinen**?
+
+```{r herkkyydet}
+# Vaadittu reduktio että ROI > 0 odotusarvomielessä
+# ROI > 0 kun p5 * kust * reduktio > kokonaiskulu
+# reduktio > kokonaiskulu / (p5 * kust)
+
+p5_med <- median(p5_noalarm)
+kust_med <- median(murto_kust_total)
+vaadittu_reduktio <- kokonaiskulu / (p5_med * kust_med)
+
+# Vaadittu murtoriski jotta ROI > 0 (olettaen reduktio 60%)
+reduktio_60 <- 0.60
+vaadittu_p5 <- kokonaiskulu / (kust_med * reduktio_60)
+vaadittu_p_vuosi <- 1 - (1 - vaadittu_p5)^(1/5)
+
+cat("=== HERKKYYSANALYYSI ===\n\n")
+cat("Jotta hälytysjärjestelmä on odotusarvomielessä kannattava:\n\n")
+cat(sprintf("→ Tarvitaan vähintään %.0f%% murtoriskin reduktio\n",
+            vaadittu_reduktio * 100))
+cat(sprintf("  (nykyinen mediaaniarvio: %.0f%%)\n",
+            median(reduktio) * 100))
+cat(sprintf("\nTAI: Vuosittaisen murtoriskin pitäisi olla ≥ %.3f‰\n",
+            vaadittu_p_vuosi * 1000))
+cat(sprintf("  (nykyinen estimaatti: %.3f‰)\n", p_mean * 1000))
+cat(sprintf("\nTAI: Murron kustannuksen pitäisi olla ≥ %.0f €\n",
+            kokonaiskulu / (p5_med * 0.60)))
+cat(sprintf("  (nykyinen mediaaniarvio: %.0f €)\n", kust_med))
+```
+
+---
+
+## Lopullinen päätös ja oppiminen
+
+### Mitä data sanoo?
+
+**Puhtaan taloudellisen ROI:n perusteella**: hälytysjärjestelmä ei ole odotusarvomielessä kannattava minun tilanteessani. Murto on harvinainen tapahtuma (`r sprintf("%.2f%%", median(p5_noalarm)*100)` todennäköisyys 5 vuodessa), ja vakuutus kattaa suurimman osan aineellisesta vahingosta.
+
+**Alkuperäisessä analyysissäni nostin palo- ja vesivahinkohälyttimen erilliseksi perusteluksi.** Se oli virhe – kolme tekijää tekee siitä tyhjän argumentin:
+
+1. **Lakisääteinen palovaroitin** (Pelastuslaki 379/2011, 17§): jokaisen asunnon omistaja on jo *velvoitettu* hankkimaan palovaroitin. Sector Alarmin palovaroitin on tähän nähden täysin redundantti.
+2. **Vesivahdit kertamaksulla**: erillinen vesivahti (esim. Fibaro Flood Sensor) maksaa ~50 € ilman mitään kuukausisopimusta ja tekee saman työn.
+3. **Palolaitos 3,4 km:n päässä**: vasteaika on arviolta 5 minuuttia – yhtä nopea kuin vartijakäynti.
+
+Nämä kolme tekijää yhdessä poistavat hälytysjärjestelmän tärkeimmän vaihtoehtoisen perustelun. **Jäljelle jää ainoastaan murtosuojaus ja psyykkinen turvallisuudentunne.**
+
+### Myyjän argumenttien virheet
+
+| Myyjän väite | Totuus datan perusteella |
+|---|---|
+| "Alueellanne on paljon murtoja" | Postinumeroaluedataa ei ole julkisesti saatavilla – väite on todistamaton |
+| "Hälytysjärjestelmä maksaa itsensä takaisin" | Mediaani-ROI negatiivinen; häntäriski todellinen, mutta pieni |
+| "Paloturvallisuus paranee merkittävästi" | Ei – lakisääteinen palovaroitin on jo pakollinen joka asunnossa |
+| "Vesivahinkohälytys on lisäarvo" | Ei – erillinen laite maksaa 50 € kertamaksuna, ilman sopimusta |
+| "Naapureille on käynyt" | Anekdootti ≠ tilasto; survivorship bias ja muistiharha mahdollisia |
+| "49 € / kk on pieni summa" | Oikein – mutta se on 3 000 € viidessä vuodessa |
+
+### Mitä tekisin?
+
+**En ota Sector Alarmin järjestelmää** tällä perustelupaketilla. Hankin sen sijaan:
+
+- Erillinen vesivahti: ~50 € (kertamaksu, ei sopimusta)
+- Lakisääteinen palovaroitin on jo olemassa
+
+Murto on julkisuudessa pahasti yliedustettu riski. Sen todennäköisyys on pieni, vakuutus kattaa suurimman osan aineellisesta vahingosta, ja myyjän "sivuargumentit" paloturvallisuudesta ja vesivahingosta osoittautuvat datan valossa kyseenalaisiksi.
+
+---
+
+## Yhteenveto: maailma on jakauma
+
+Sector Alarmin myyjä esitti murtoriski yhtenä lukuna ja palo/vesihyödyn "ilmaisena bonuksena". Todellisuudessa:
+
+- **Murtoriski on posteriorijakauma** – se riippuu alueesta, talotyypistä, asumistottumuksista ja epävarmuudesta
+- **ROI on jakauma** – ei yhtenä pistearvona vaan epävarman tulevaisuuden funktiona
+- **Myyjän "lisäarvot" ovat osin redundantteja** – lakisääteinen palovaroitin on jo pakollinen, vesivahti maksaa 50 € ilman sopimusta
+- **Päätös on monikriteerinen** – taloudellinen odotusarvo on yksi tekijä, mutta häntäriskit ja psyykkiset hyödyt ovat yhtä relevantteja
+
+Tässä tapauksessa data osoittaa selvästi: **hälytysjärjestelmä ei ole taloudellisesti perusteltu.** Jos psyykkinen turvallisuudentunne on sinulle arvokas 50 €/kk, osta se tietoisesti – mutta älä osta sitä puutteellisilla perusteluilla.
+
+---
+
+*Olen data scientist ja konsultti, erikoistunut bayeslaisiin menetelmiin, riskimallinnukseen ja avoimen datan analyysiin. Jos organisaatiosi tekee merkittäviä päätöksiä ilman kunnollista epävarmuuden mallinnusta, [ota yhteyttä](https://kristianvepsalainen.com).*
+
+*Kaikki koodi ja data tässä postauksessa ovat avointa lähdekoodia – käy katsomassa GitHubissa.*
+
+---
+
+**Lähteet:**
+
+- Tilastokeskus (2024): Rikos- ja pakkokeinotilasto 2024
+- Sector Alarm (2026): sectoralarm.fi/omakotitalon-halytysjarjestelma
+- Fennia (2024): Asuntomurtojen määrä komeasti laskussa
+- Paasonen & Aaltonen (2017): Millaiset asunnot joutuvat todennäköisimmin murtojen kohteeksi?
+- FINE – Vakuutus- ja rahoitusneuvonta: Perustietoa kotivakuutuksesta

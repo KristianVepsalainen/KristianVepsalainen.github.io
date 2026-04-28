@@ -26,7 +26,7 @@ slug: suomen-tyovoimapula-osa4
 
 Kansantaloustieteen peruslaki on yksinkertainen. Jos jostain on pulaa, hinta nousee. Jos työvoimasta on pulaa, palkkojen pitäisi nousta.
 
-[Osissa 2 ja 3](../2026-04-22-osa2-kohtaanto-ammatit/blog.html) osoitimme, että kohtaanto-ongelma on ammatti- ja aluekohtainen. Tässä osassa testaamme saman ilmiön talousteoreettisesti: nousevatko palkat siellä, missä väitetään olevan työvoimapulaa?
+[Osissa 2 ja 3](../2026-04-22-osa2-kohtaanto-ammatit) osoitimme, että kohtaanto-ongelma on ammatti- ja aluekohtainen. Tässä osassa testaamme saman ilmiön talousteoreettisesti: nousevatko palkat siellä, missä väitetään olevan työvoimapulaa?
 
 Keskeinen tulos: palkkojen nimellinen kasvu on ollut maltillista avoimien työpaikkojen noususta huolimatta. Tämä viittaa joko (a) palkkajäykkyyksiin tai (b) siihen, että raportoitu "työvoimapula" ei ole yhtä voimakas kuin keskustelussa annetaan ymmärtää.
 

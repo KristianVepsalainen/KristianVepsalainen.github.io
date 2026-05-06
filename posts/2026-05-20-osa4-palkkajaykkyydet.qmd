@@ -2,7 +2,7 @@
 title: "Jos työvoimapula on todellinen, palkkojen pitäisi nousta"
 subtitle: "Osa 4 – Palkkajäykkyydet"
 author: "Kristian Vepsäläinen"
-date: 2026-05-20
+date: 2026-04-28
 categories:
   - data science
   - työmarkkinat

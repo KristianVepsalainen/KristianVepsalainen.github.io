@@ -1,0 +1,216 @@
+---
+title: "Jalkapallon talous, osa 3: Jalkapallo työllistäjänä – enemmän kuin pelaajia"
+author: "Kristian Vepsäläinen"
+date: today
+format: html
+lang: fi
+draft: TRUE
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(scales)
+
+theme_jalkapallo <- theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(color = "gray40", size = 13),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+theme_set(theme_jalkapallo)
+```
+
+## Jalkapallo ei ole vain 22 pelaajaa kentällä
+
+Kun ajattelemme jalkapalloa, näemme pelaajat. Mutta jokaisen ottelun taustalla toimii valtava koneisto: valmentajat, lääkärit, analyytikot, turvallisuushenkilöstö, mediatiimi, ravintola-alan ammattilaiset, siivoojat, lipunmyyjät – ja paljon muuta.
+
+## Suorat ja epäsuorat työpaikat
+
+UEFA:n ja FIFA:n arvioiden mukaan ammattilaisjalkapallo työllistää Euroopassa suoraan ja epäsuorasti satoja tuhansia ihmisiä. FIFA:n ja WTO:n tuore tutkimus arvioi, että pelkästään FIFA Club World Cup 2025 ja FIFA World Cup 2026 luovat **290 000 työpaikkaa Yhdysvalloissa**.
+
+```{r}
+#| label: fig-tyollistaminen
+#| fig-cap: "Jalkapallon työllistävä vaikutus eri tasoilla"
+#| fig-width: 10
+#| fig-height: 7
+
+tyopaikat <- tibble(
+  kategoria = c(
+    "Pelaajat (ammattilaiset, Eurooppa)",
+    "Valmentajat ja tukihenkilöstö",
+    "Seurahallinto ja toimisto",
+    "Stadionhenkilöstö (ottelupäivä)",
+    "Media ja lähetystoiminta",
+    "Sponsorit ja markkinointi",
+    "Agentit ja lakimiehet",
+    "Ruohonjuuritason valmentajat\n(vapaaehtoiset, Eurooppa)",
+    "FIFA CWC 2025 + WC 2026\n(tilapäiset, USA)"
+  ),
+  tyopaikat_tuhat = c(130, 50, 40, 120, 60, 35, 20, 400, 290),
+  tyyppi = c(rep("Pysyvä", 7), "Vapaaehtois", "Tilapäinen")
+) |> 
+  mutate(kategoria = fct_reorder(kategoria, tyopaikat_tuhat))
+
+ggplot(tyopaikat, aes(x = kategoria, y = tyopaikat_tuhat, fill = tyyppi)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = paste0(tyopaikat_tuhat, " t")), hjust = -0.1, size = 3.5) +
+  coord_flip() +
+  scale_fill_manual(values = c("Pysyvä" = "#2E7D32", 
+                                "Vapaaehtois" = "#1565C0", 
+                                "Tilapäinen" = "#F57C00")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Jalkapallon työllistävä vaikutus (tuhatta henkilöä)",
+    subtitle = "Pelaajat ovat vain jäävuoren huippu",
+    x = NULL, y = "Tuhatta henkilöä", fill = "Työn tyyppi"
+  )
+```
+
+## UEFA:n arvio ruohonjuuritason taloudellisesta vaikutuksesta
+
+UEFA:n SROI-mallin (Social Return on Investment) mukaan 25 Euroopan maan 8,6 miljoonaa rekisteröityä jalkapalloilijaa tuottavat yhteensä **€39,5 miljardin** taloudelliset, sosiaaliset ja terveyshyödyt.
+
+```{r}
+#| label: fig-sroi
+#| fig-cap: "UEFA SROI: jalkapallon taloudelliset ja sosiaaliset hyödyt (25 maata)"
+#| fig-width: 9
+#| fig-height: 6
+
+sroi <- tibble(
+  hyoty = c("Suora taloudellinen vaikutus\n(jäsenmaksut, investoinnit, työpaikat)",
+            "Yhteiskunnalliset säästöt\n(koulutus, rikollisuuden väheneminen)",
+            "Terveyssäästöt\n(diabetes, sydänsairaudet, mielenterveys)"),
+  mrd_eur = c(10.8, 12.3, 16.3)
+) |> 
+  mutate(hyoty = fct_reorder(hyoty, mrd_eur))
+
+ggplot(sroi, aes(x = hyoty, y = mrd_eur, fill = hyoty)) +
+  geom_col(width = 0.6, alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = paste0("€", mrd_eur, " mrd")), hjust = -0.1, size = 4.5,
+            fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("#2E7D32", "#1565C0", "#F57C00")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  labs(
+    title = "Jalkapallon kokonaisarvo yhteiskunnalle: €39,5 miljardia",
+    subtitle = "UEFA SROI -malli, 25 Euroopan maata, 8,6 milj. rekisteröityä pelaajaa",
+    x = NULL, y = "Miljardia euroa"
+  )
+```
+
+## Vertailu: jalkapallo vs. muut työllistäjät
+
+```{r}
+#| label: fig-vertailu-tyollistajat
+#| fig-cap: "Jalkapallon suora työllistävä vaikutus verrattuna muihin aloihin (Eurooppa)"
+#| fig-width: 10
+#| fig-height: 6
+
+# Karkeat arviot / suuruusluokat Euroopassa
+vertailu <- tibble(
+  ala = c("Autoteollisuus (EU)", "Lentoliikenne (EU)", 
+          "Jalkapallo (suora + epäsuora, Eurooppa)",
+          "Elokuvateollisuus (EU)", "Merenkulku (EU)"),
+  tyontekijat_tuhat = c(2600, 1700, 500, 370, 590),
+  korostus = c(FALSE, FALSE, TRUE, FALSE, FALSE)
+) |> 
+  mutate(ala = fct_reorder(ala, tyontekijat_tuhat))
+
+ggplot(vertailu, aes(x = ala, y = tyontekijat_tuhat, fill = korostus)) +
+  geom_col(width = 0.6, alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = paste0(tyontekijat_tuhat, " t")), hjust = -0.1, size = 4) +
+  coord_flip() +
+  scale_fill_manual(values = c("TRUE" = "#2E7D32", "FALSE" = "#78909C")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Jalkapallo vs. muut teollisuudenalat työllistäjänä",
+    subtitle = "Suora + epäsuora työllistävyys Euroopassa (tuhatta henkilöä)",
+    x = NULL, y = "Tuhatta henkilöä"
+  )
+```
+
+## Palkkajakauma: maailma on jakauma
+
+Jalkapallon palkat ovat ääriesimerkki vinoista jakaumista. Huippupelaajat tienaavat kymmeniä miljoonia, mutta suurin osa ammattilaisista tienaa vaatimattomasti.
+
+```{r}
+#| label: fig-palkkajakauma
+#| fig-cap: "Simuloitu ammattilaispelaajien palkkajakauma (log-normaali)"
+#| fig-width: 9
+#| fig-height: 6
+
+set.seed(42)
+# Log-normaali jakauma: mediaani ~120k €, pitkä häntä
+palkat <- tibble(
+  palkka = rlnorm(5000, meanlog = log(120000), sdlog = 1.3)
+) |> 
+  filter(palkka < 30000000)
+
+mediaani <- median(palkat$palkka)
+keskiarvo <- mean(palkat$palkka)
+
+ggplot(palkat, aes(x = palkka / 1000)) +
+  geom_histogram(bins = 80, fill = "#2E7D32", alpha = 0.7, color = "white") +
+  geom_vline(xintercept = mediaani / 1000, color = "#F57C00", 
+             linewidth = 1.2, linetype = "dashed") +
+  geom_vline(xintercept = keskiarvo / 1000, color = "#E53935", 
+             linewidth = 1.2, linetype = "dashed") +
+  annotate("text", x = mediaani / 1000 + 100, y = 350, 
+           label = paste0("Mediaani: €", round(mediaani/1000), "k"),
+           color = "#F57C00", fontface = "bold", hjust = 0) +
+  annotate("text", x = keskiarvo / 1000 + 100, y = 300,
+           label = paste0("Keskiarvo: €", round(keskiarvo/1000), "k"),
+           color = "#E53935", fontface = "bold", hjust = 0) +
+  scale_x_continuous(labels = function(x) paste0("€", x, "k")) +
+  labs(
+    title = "Ammattilaispelaajien palkkajakauma (simuloitu)",
+    subtitle = "Keskiarvo >> mediaani → voimakkaasti oikealle vino jakauma",
+    x = "Vuosipalkka (tuhatta euroa)", y = "Pelaajia"
+  )
+```
+
+Tämä on klassinen esimerkki siitä, miksi **keskiarvo valehtelee**: jalkapallon keskipalkkaa nostaa muutama kymmeniä miljoonia tienaava tähti, vaikka tyypillinen ammattilainen tienaa murto-osan siitä.
+
+## Saksan esimerkki: amatöörijalkapallo vs. Bundesliga
+
+UEFA:n SROI-tutkimuksessa Saksan amatöörijalkapallo tuotti **kolminkertaisesti** enemmän taloudellista arvoa kuin Bundesliga-seurojen liikevaihto. Tämä on tärkeä muistutus siitä, että jalkapallon todellinen arvo yhteiskunnalle ei ole huipulla – vaan ruohonjuuritasolla.
+
+```{r}
+#| label: fig-saksa
+#| fig-cap: "Saksa: amatöörijalkapallon SROI vs. Bundesliga-tulot"
+#| fig-width: 8
+#| fig-height: 5
+
+saksa <- tibble(
+  kategoria = c("Amatöörijalkapallon\nkokonaisvaikutus (SROI)", "Bundesliga-seurojen\nliikevaihto"),
+  arvo_mrd = c(13.9, 4.11)
+) |> 
+  mutate(kategoria = fct_reorder(kategoria, arvo_mrd))
+
+ggplot(saksa, aes(x = kategoria, y = arvo_mrd, fill = kategoria)) +
+  geom_col(width = 0.5, alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = paste0("€", arvo_mrd, " mrd")), vjust = -0.5, 
+            size = 5, fontface = "bold") +
+  scale_fill_manual(values = c("#2E7D32", "#1565C0")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Saksan jalkapallon arvo: amatöörit vs. ammattilaiset",
+    subtitle = "Ruohonjuuritason jalkapallo tuottaa 3x enemmän kokonaisarvoa kuin Bundesliga",
+    x = NULL, y = "Miljardia euroa"
+  )
+```
+
+## Yhteenveto
+
+Jalkapallo on paljon enemmän kuin urheilua – se on merkittävä työllistäjä ja yhteiskunnallinen vaikuttaja. Pelaajat ovat vain jäävuoren huippu: taustalla toimivat sadat tuhannet ihmiset, ja ruohonjuuritason vaikutus on moninkertainen huippujalkapalloon verrattuna.
+
+Seuraavassa ja viimeisessä osassa käsittelemme jalkapallon suurinta paradoksia: **epätasa-arvoa globaalin Etelän ja Euroopan välillä**.
+
+---
+
+**Tarvitsetko data-analyysiä työllistävyyden, SROI:n tai taloudellisen vaikuttavuuden arviointiin?** Rakennan malleja, jotka kertovat tarinan lukujen takaa. [Ota yhteyttä →](https://www.kristianvepsalainen.com)

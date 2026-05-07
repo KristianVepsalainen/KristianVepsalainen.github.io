@@ -75,6 +75,7 @@ jobs:
             "ggalluvial",
             "ggraph",
             "igraph",
+            "ggtext",
             "tidybayes",
             "broom",
             "data.table",
@@ -95,6 +96,7 @@ jobs:
             "modelsummary",
             "zoo",
             "treemapify",
+            "eurlex",
             "brms",
             "stan-dev/cmdstanr"
           ))

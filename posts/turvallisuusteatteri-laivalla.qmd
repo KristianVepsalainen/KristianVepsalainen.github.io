@@ -2,7 +2,7 @@
 title: "Turvallisuusteatteri Itämerellä: kun sakset ovat uhka mutta viinipullot eivät"
 subtitle: "Mitä todennäköisyyslaskenta kertoo laivaturvallisuuden todellisesta tasosta – ja miksi ROI-ajattelu paljastaa totuuden paremmin kuin tarkastuspöytäkirjat"
 author: "Kristian Vepsäläinen"
-date: today
+date: 2026-04-25
 categories: [turvallisuus, tilastot, todennäköisyys, simulointi]
 format:
   html:

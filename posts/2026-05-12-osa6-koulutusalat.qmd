@@ -136,7 +136,7 @@ vipunen |>
     fill     = NULL,
     caption  = "Lähde: Vipunen.fi"
   ) +
-  theme(legend.position = "top")
+  theme(legend.position = "left")
 ```
 
 Jos alat ovat tehokkaasti kohdennettuja, sinisen ja punaisen palkin pitäisi olla lähes yhtä suuret. Poikkeamat kertovat mihin suuntaan koulutuksen rakenne on epätasapainossa.
@@ -227,7 +227,7 @@ vipunen |>
     y        = NULL,
     fill     = NULL
   ) +
-  theme(legend.position = "top")
+  theme(legend.position = "left")
 ```
 
 Huomaa kuitenkin: tämä ei mittaa työmarkkinoiden avoimia työpaikkoja vaan **valmistuneiden suhteellista työllistymistä**. Jos lähes kaikki valmistuneet työllistyvät, kohtaantosuhde asettuu lähelle yhtä — vaikka absoluuttinen tuotanto poikkeaisi kysynnästä.

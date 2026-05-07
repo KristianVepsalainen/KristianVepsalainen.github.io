@@ -1,0 +1,287 @@
+---
+title: "Jalkapallon talous, osa 4: Kenen peli? Jalkapallon globaali epätasa-arvo"
+author: "Kristian Vepsäläinen"
+date: 2026-05-14
+format: html
+lang: fi
+draft: TRUE
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(scales)
+
+theme_jalkapallo <- theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18),
+    plot.subtitle = element_text(color = "gray40", size = 13),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom"
+  )
+theme_set(theme_jalkapallo)
+```
+
+## Globaalin Etelän paradoksi
+
+Jalkapallo on maailman suosituin laji, erityisesti Etelä-Amerikassa, Afrikassa ja Aasiassa. Mutta raha, media ja valta keskittyvät Eurooppaan. Tämä on jalkapallon suurin rakenteellinen epätasa-arvo.
+
+Euroopan osuus jalkapallon globaalista markkina-arvosta on **yli 56%**, vaikka maanosa edustaa vain murto-osaa maailman jalkapalloilijoista.
+
+## Rahan jakauma konfederaatioittain
+
+```{r}
+#| label: fig-konfederaatio-tulot
+#| fig-cap: "Jalkapallon tulojen jakautuminen konfederaatioittain (arvio)"
+#| fig-width: 10
+#| fig-height: 7
+
+# Perustuu Deloitte-, FIFA- ja Futuredatastats-raportteihin
+konf <- tibble(
+  konfederaatio = c("UEFA (Eurooppa)", "CONMEBOL (Etelä-Amerikka)",
+                     "CONCACAF (Pohjois/Keski-Amerikka)", 
+                     "AFC (Aasia)", "CAF (Afrikka)", "OFC (Oseania)"),
+  tulot_mrd = c(31.6, 5.0, 8.5, 6.5, 2.0, 0.3),
+  fanit_mrd = c(1.0, 0.8, 0.5, 1.2, 0.5, 0.02)
+)
+
+konf <- konf |> 
+  mutate(
+    osuus_tuloista = tulot_mrd / sum(tulot_mrd),
+    osuus_faneista = fanit_mrd / sum(fanit_mrd),
+    tulot_per_fani = tulot_mrd / fanit_mrd,
+    konfederaatio = fct_reorder(konfederaatio, tulot_mrd)
+  )
+
+# Pinottu pylväskaavio: tulot vs. fanit
+konf_long <- konf |> 
+  select(konfederaatio, osuus_tuloista, osuus_faneista) |> 
+  pivot_longer(-konfederaatio, names_to = "mittari", values_to = "osuus") |> 
+  mutate(mittari = recode(mittari, 
+                           "osuus_tuloista" = "Osuus globaaleista tuloista",
+                           "osuus_faneista" = "Osuus globaaleista faneista"))
+
+ggplot(konf_long, aes(x = konfederaatio, y = osuus, fill = mittari)) +
+  geom_col(position = "dodge", width = 0.7, alpha = 0.85) +
+  geom_text(aes(label = percent(osuus, accuracy = 1)), 
+            position = position_dodge(width = 0.7), hjust = -0.1, size = 3.2) +
+  coord_flip() +
+  scale_y_continuous(labels = percent, expand = expansion(mult = c(0, 0.2))) +
+  scale_fill_manual(values = c("Osuus globaaleista tuloista" = "#2E7D32",
+                                "Osuus globaaleista faneista" = "#1565C0")) +
+  labs(
+    title = "Tulojen ja fanien epäsuhta",
+    subtitle = "Eurooppa: ~25% faneista, ~58% tuloista. Aasia: ~30% faneista, ~12% tuloista.",
+    x = NULL, y = NULL, fill = NULL
+  )
+```
+
+## Siirtomarkkinoiden rahavirta: Etelästä Pohjoiseen
+
+FIFA:n Global Transfer Report 2024 kertoo selvän tarinan: Brasilia vie eniten pelaajia maailmalle (2 350 kansainvälistä siirtoa), mutta Englanti kerää eniten siirtorahaa ($1,34 miljardia myynneistä).
+
+```{r}
+#| label: fig-siirtovirrat
+#| fig-cap: "Siirtomarkkinoiden rahavirta: pelaajien vienti vs. tulojen kerääminen"
+#| fig-width: 10
+#| fig-height: 7
+
+siirto <- tibble(
+  maa = c("Brasilia", "Argentiina", "Kolumbia", "Uruguay",
+          "Nigeria", "Ghana", "Kamerun", "Senegal",
+          "Englanti", "Ranska", "Saksa", "Italia", "Espanja", "Portugali"),
+  siirtoja = c(2350, 1217, 650, 380, 450, 280, 250, 220,
+               800, 1052, 700, 680, 650, 500),
+  tulot_milj = c(591, 320, 110, 95, 80, 50, 40, 45,
+                 1340, 868, 550, 600, 500, 550),
+  alue = c(rep("Etelä-Amerikka", 4), rep("Afrikka", 4), rep("Eurooppa", 6))
+)
+
+siirto <- siirto |> 
+  mutate(tulo_per_siirto = tulot_milj / siirtoja)
+
+ggplot(siirto, aes(x = siirtoja, y = tulot_milj, color = alue, size = tulo_per_siirto)) +
+  geom_point(alpha = 0.7) +
+  geom_text(aes(label = maa), vjust = -1, size = 3.5, show.legend = FALSE) +
+  scale_color_manual(values = c("Etelä-Amerikka" = "#F57C00", 
+                                 "Afrikka" = "#E53935",
+                                 "Eurooppa" = "#1565C0")) +
+  scale_size_continuous(range = c(3, 15), guide = "none") +
+  labs(
+    title = "Pelaajien liikkuvuus vs. siirtotulot maittain (2024)",
+    subtitle = "Pisteen koko = keskimääräinen siirtohinta. Eurooppa saa suuremmat siirtohinnat.",
+    x = "Kansainvälisiä siirtoja", y = "Siirtotulot (milj. USD)", color = "Alue"
+  )
+```
+
+## Hinta-ero: eurooppalaisen vs. eteläamerikkalaisen pelaajan keskisiirto
+
+```{r}
+#| label: fig-siirtohinta
+#| fig-cap: "Keskimääräinen siirtohinta alueittain (tuhatta USD per siirto)"
+#| fig-width: 9
+#| fig-height: 5
+
+hinta <- siirto |> 
+  group_by(alue) |> 
+  summarise(
+    siirtoja_yht = sum(siirtoja),
+    tulot_yht = sum(tulot_milj),
+    ka_hinta = tulot_yht / siirtoja_yht * 1000,  # tuhatta USD
+    .groups = "drop"
+  ) |> 
+  mutate(alue = fct_reorder(alue, ka_hinta))
+
+ggplot(hinta, aes(x = alue, y = ka_hinta, fill = alue)) +
+  geom_col(width = 0.5, alpha = 0.85, show.legend = FALSE) +
+  geom_text(aes(label = paste0("$", round(ka_hinta), "k")), vjust = -0.5, 
+            size = 5, fontface = "bold") +
+  scale_fill_manual(values = c("Eurooppa" = "#1565C0", 
+                                "Etelä-Amerikka" = "#F57C00",
+                                "Afrikka" = "#E53935")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(
+    title = "Keskimääräinen siirtohinta alueittain (2024)",
+    subtitle = "Eurooppalaisen pelaajan siirto on moninkertaisesti arvokkaampi",
+    x = NULL, y = "Tuhatta USD per siirto"
+  )
+```
+
+## Kuka hyötyy eniten? Nettotase-analyysi
+
+```{r}
+#| label: fig-nettotase
+#| fig-cap: "Siirtomarkkinoiden nettotase: hyötyjät ja häviäjät"
+#| fig-width: 10
+#| fig-height: 7
+
+# Nettotase = paljonko maa tienaa siirroilla vs. käyttää
+nettotase <- tibble(
+  maa = c("Englanti", "Saudi-Arabia", "Kiina",
+          "Ranska", "Portugali", "Alankomaat", "Brasilia",
+          "Argentiina", "Kolumbia", "Nigeria"),
+  netto_milj = c(-540, -400, -200, 
+                  150, 200, 150, -100,
+                  100, 60, 30),
+  alue = c("Eurooppa", "Muu", "Muu",
+           "Eurooppa", "Eurooppa", "Eurooppa", "Etelä-Amerikka",
+           "Etelä-Amerikka", "Etelä-Amerikka", "Afrikka")
+) |> 
+  mutate(
+    maa = fct_reorder(maa, netto_milj),
+    rooli = ifelse(netto_milj > 0, "Netto-myyjä (hyötyy)", "Netto-ostaja (investoi)")
+  )
+
+ggplot(nettotase, aes(x = maa, y = netto_milj, fill = rooli)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_hline(yintercept = 0, linewidth = 0.5) +
+  geom_text(aes(label = paste0(ifelse(netto_milj > 0, "+", ""), netto_milj, "m")),
+            hjust = ifelse(nettotase$netto_milj > 0, -0.1, 1.1), size = 3.5) +
+  coord_flip() +
+  scale_fill_manual(values = c("Netto-myyjä (hyötyy)" = "#2E7D32", 
+                                "Netto-ostaja (investoi)" = "#E53935")) +
+  labs(
+    title = "Kuka hyötyy siirtomarkkinoista?",
+    subtitle = "Ranska ja Portugali myyvät nettona, Englanti ja Saudi-Arabia ostavat",
+    x = NULL, y = "Nettotase (milj. USD)", fill = NULL
+  )
+```
+
+## TV-katsojien virtaus: Etelä katsoo Pohjoiseen
+
+Globaalin Etelän fanit katsovat Englannin Valioliigaa, Espajan La Ligaa ja Saksan Bundesligaa tuottaen valtavat TV-tulot eurooppalaisille seuroille, kun taas paikalliset sarjat saavat murusia.
+
+```{r}
+#| label: fig-tv-virta
+#| fig-cap: "Kansainvälisten TV-oikeuksien arvo vs. kotimaiset oikeudet"
+#| fig-width: 10
+#| fig-height: 6
+
+tv_oikeudet <- tibble(
+  sarja = c("Valioliiga", "La Liga", "Bundesliga", "Serie A", "Ligue 1",
+            "Brasileirão", "Copa Libertadores", "MLS"),
+  kotimainen_mrd = c(2.5, 1.1, 1.1, 0.9, 0.5, 0.15, 0.05, 0.3),
+  kansainvalinen_mrd = c(3.2, 1.0, 0.6, 0.5, 0.15, 0.05, 0.08, 0.1)
+) |> 
+  mutate(
+    yhteensa = kotimainen_mrd + kansainvalinen_mrd,
+    sarja = fct_reorder(sarja, yhteensa)
+  )
+
+tv_long <- tv_oikeudet |> 
+  pivot_longer(c(kotimainen_mrd, kansainvalinen_mrd), 
+               names_to = "tyyppi", values_to = "arvo") |> 
+  mutate(tyyppi = recode(tyyppi,
+                          "kotimainen_mrd" = "Kotimaiset TV-oikeudet",
+                          "kansainvalinen_mrd" = "Kansainväliset TV-oikeudet"))
+
+ggplot(tv_long, aes(x = sarja, y = arvo, fill = tyyppi)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  coord_flip() +
+  scale_fill_manual(values = c("Kotimaiset TV-oikeudet" = "#1565C0",
+                                "Kansainväliset TV-oikeudet" = "#F57C00")) +
+  labs(
+    title = "TV-oikeuksien arvo sarjoittain (mrd €, arvio/kausi)",
+    subtitle = "Premier League kerää valtaosan, Etelä-Amerikan sarjat saavat murusia",
+    x = NULL, y = "Miljardia € per kausi", fill = NULL
+  )
+```
+
+## Ennustemalli: Euroopan dominanssin kehitys
+
+```{r}
+#| label: fig-ennuste-dominanssi
+#| fig-cap: "Euroopan osuus jalkapallon globaalista markkinasta – ennuste"
+#| fig-width: 9
+#| fig-height: 6
+
+# Euroopan osuus on pysynyt korkeana ja jopa kasvanut
+eurooppa_osuus <- tibble(
+  vuosi = 2015:2024,
+  osuus = c(0.52, 0.53, 0.54, 0.55, 0.55, 0.54, 0.54, 0.55, 0.56, 0.565)
+)
+
+malli <- lm(osuus ~ vuosi, data = eurooppa_osuus)
+ennuste_df <- tibble(vuosi = 2025:2030)
+pred <- predict(malli, newdata = ennuste_df, interval = "prediction", level = 0.90)
+ennuste_df$osuus <- pred[, "fit"]
+ennuste_df$lower <- pred[, "lwr"]
+ennuste_df$upper <- pred[, "upr"]
+
+ggplot() +
+  geom_ribbon(data = ennuste_df, aes(x = vuosi, ymin = lower, ymax = upper),
+              fill = "#F57C00", alpha = 0.15) +
+  geom_line(data = eurooppa_osuus, aes(x = vuosi, y = osuus), 
+            color = "#1565C0", linewidth = 1.2) +
+  geom_point(data = eurooppa_osuus, aes(x = vuosi, y = osuus), 
+             color = "#1565C0", size = 3) +
+  geom_line(data = ennuste_df, aes(x = vuosi, y = osuus), 
+            color = "#F57C00", linewidth = 1.2, linetype = "dashed") +
+  geom_point(data = ennuste_df, aes(x = vuosi, y = osuus), 
+             color = "#F57C00", size = 3) +
+  scale_y_continuous(labels = percent, limits = c(0.45, 0.65)) +
+  scale_x_continuous(breaks = seq(2015, 2030, 2)) +
+  labs(
+    title = "Euroopan osuus jalkapallon globaalista markkinasta",
+    subtitle = "Dominanssi näyttää kasvavan hitaasti – 90% ennusteväli (oranssi)",
+    x = "Vuosi", y = "Osuus globaalista markkinasta"
+  )
+```
+
+## Johtopäätökset
+
+Jalkapallon globaali talous on rakenteellisesti epätasa-arvoinen:
+
+1. **Raha virtaa Eurooppaan**: Kansainväliset TV-oikeudet, sponsorisopimukset ja siirtorahat keskittyvät muutamalle eurooppalaiselle sarjalle
+2. **Pelaajat virtaavat Eurooppaan**: Brasilia, Argentiina ja Afrikan maat kouluttavat pelaajia, jotka myydään halvalla Eurooppaan
+3. **Fanit katsovat Eurooppaan**: Globaalin Etelän fanit katsovat Premier Leaguea, mikä tuottaa TV-tuloja Eurooppaan
+4. **Ennustemalli** viittaa siihen, että tämä trendi jatkuu – ilman merkittäviä rakenteellisia muutoksia
+
+Maailma on jakauma – ja jalkapallon jakauma on voimakkaasti Euroopan hyväksi vinoutunut.
+
+---
+
+**Haluatko ymmärtää epätasa-arvon dynamiikkaa omalla toimialallasi?** Rakennan data-analyysejä, jotka paljastavat piilossa olevat rakenteet ja trendit. Ennustemallit, jakaumien analyysi ja visuaaliset raportit – kaikki räätälöitynä sinun tarpeisiisi. [Ota yhteyttä →](https://www.kristianvepsalainen.com)

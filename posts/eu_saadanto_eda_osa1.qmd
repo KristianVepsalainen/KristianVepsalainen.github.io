@@ -1,0 +1,416 @@
+---
+title: "EU:n lainsäädäntö jakaumana — Osa 1: Eksploratiivinen data-analyysi"
+subtitle: "Mitä eurlex-paketti paljastaa, kun kohtelet säädöskorpusta tilastollisena ilmiönä?"
+author: "Kristian Vepsäläinen"
+date: today
+draft: true
+lang: fi
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5.5
+    fig-dpi: 150
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: true
+---
+
+```{r setup}
+library(tidyverse)
+library(eurlex)
+library(lubridate)
+library(scales)
+library(patchwork)
+library(ggtext)
+
+col_red    <- "#e63946"
+col_green  <- "#2a9d8f"
+col_orange <- "#f4a261"
+col_navy   <- "#1d3557"
+col_blue   <- "#457b9d"
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title    = element_markdown(face = "bold", size = 15),
+      plot.subtitle = element_markdown(color = "grey40"),
+      plot.caption  = element_text(color = "grey55", size = 9),
+      axis.title    = element_text(color = "grey30"),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+## Miksi EU-lainsäädäntö on kiinnostavaa datana?
+
+Useimmat ihmiset kohtaavat EU:n lainsäädännön yksittäisinä säädöksinä — direktiiveinä,
+asetuksina, päätöksinä — joita kommentoidaan julkisessa keskustelussa pistearvoina:
+*"direktiivi X astuu voimaan"*, *"asetus Y muuttaa käytäntöä Z"*.
+
+Tämä on vähän kuin yrittäisi ymmärtää suomalaista säätä katsomalla yksittäistä
+lämpötilamittausta.
+
+**Maailma on jakauma.** Myös EU:n lainsäädäntö on jakauma — itse asiassa monta
+päällekkäistä jakaumaa:
+
+- Säädösten **tuotantonopeus** vaihtelee ajan myötä (poliittinen aktiivisuus, kriisit,
+  laajentuminen)
+- Säädösten **pituus** ja kompleksisuus jakautuvat epätasaisesti säädöstyypin ja
+  toimialan mukaan
+- **Voimassaoloaika** ennen kumoamista tai muuttamista on stokastinen prosessi, ei
+  deterministinen
+- Direktiivien **implementointiviive** jäsenvaltioissa on jakauma, jolla on poliittinen
+  ja juridinen merkitys
+
+Tässä postauksessa teen eksploratiivisen data-analyysin (EDA) käyttäen R:n
+[`eurlex`-pakettia](https://michalovadek.github.io/eurlex/), joka tarjoaa suoran pääsyn
+EUR-Lex:in SPARQL-rajapintaan. Tulokset ovat todellista dataa — ei simuloitua.
+
+---
+
+## Datan haku: `eurlex`-paketti ja sen mahdollisuudet
+
+`eurlex` hakee metadatan suoraan EUR-Lex:in Cellar-tietokannasta SPARQL-rajapinnan kautta.
+Perusyksikkö on **CELEX-numero**, EU:n säädösten yksilöivä tunniste — rakenne kertoo jo
+paljon: `32024R0903` = sektori 3 (lainsäädäntö), vuosi 2024, asetus (R), järjestysnumero 903.
+
+### Mitä kaikkea paketilla voi hakea?
+
+Paketti tukee yhdeksää asiakirjatyyppiä, jotka avaavat EU:n toimintaan täysin erilaisia
+näkökulmia:
+
+| Tyyppi | Kuvaus | Analyyttinen potentiaali |
+|---|---|---|
+| `regulation` | Asetukset | Suoraan sovellettava lainsäädäntö, volyymianalyysi |
+| `directive` | Direktiivit | Implementointiviiveet jäsenvaltioittain |
+| `decision` | Päätökset | Komission päätöksenteon rakenne ja rytmi |
+| `recommendation` | Suositukset | Pehmeän sääntelyn kasvu suhteessa kovaan |
+| `intagr` | Kansainväliset sopimukset | EU:n ulkosuhdeaktiivisuus ajan myötä |
+| `caselaw` | Oikeustapaukset (EUT, EGT) | Tuomioistuinten työmäärä, oikeuskäytännön kehitys |
+| `proposal` | Komission lainsäädäntöehdotukset | Ehdotusten läpimenoaika ja "kuolleisuus" |
+| `national_impl` | Kansalliset implementointidokumentit | Jäsenvaltioiden nopeus direktiivien toimeenpanossa |
+| `manual` | Muut asiakirjat (SWD, vaikutusarviot) | Komission valmistelutyön volyymi |
+
+Erityisesti **oikeustapausdata** (`caselaw`) on analyyttisesti kiinnostava: tuomareiden
+nimet, asianosaisvaltiot, menettelytyypit ja viittaukset ovat kaikki saatavilla — täysi
+verkostoanalyysi EU-oikeuden kehityksestä on periaatteessa muutaman SPARQL-kyselyn päässä.
+Samoin **ehdotusdata** (`proposal`) yhdistettynä lopulta hyväksyttyihin säädöksiin
+mahdollistaa lainsäädäntöprosessin keston ja pullonkaulojen kvantifioinnin.
+
+### Mitä tässä analyysissa käytetään?
+
+Tässä EDA-osassa rajaudutaan neljään **sitovaan lainsäädäntötyyppiin**, jotka muodostavat
+EU:n varsinaisen normiston. Rajaus on tietoinen: `caselaw`, `proposal` ja `national_impl`
+ansaitsevat kukin oman analyysinsä — ne käsitellään sarjan tulevissa osissa.
+
+Käytännön syy erillisille hauille on tekninen: `any`-haku ilman rajausta osuu SPARQL-rajapinnan
+miljoonan rivin oletusrajaan ja tuottaa katkaistun otoksen. Hakemalla neljä tyyppiä erikseen
+voidaan varmistaa, että jokainen on kokonainen.
+
+Tarkastelu rajataan vuoteen 2024, koska voidaan olettaa, että kyseinä vuonna annetut säädökset ovat ehtineet mennä koko prosessin läpi. Vuosien 2025 ja 2026 mukaan ottaaminen johtaisi siihen, että kaikki kuvaajat tekisivät voimakkaan piikin alaspäin, koska näiden osalta prosessit ovat vielä kesken. Näiden vuosien mukanaolo antaisi lukijalle väärän kuvan datasta.
+
+```{r hae_data}
+tyypit <- c("regulation", "directive", "decision", "recommendation")
+
+hae_tyyppi <- function(tyyppi) {
+  message("Haetaan: ", tyyppi)
+  tulos <- elx_make_query(
+    resource_type = tyyppi,
+    include_date  = TRUE,
+    include_force = TRUE,
+    include_celex = TRUE
+  ) |> elx_run_query()
+
+  cat(tyyppi, ":", nrow(tulos), "riviä —",
+      if (nrow(tulos) == 1e6) "*** RAJA OSUI — DATA KATKAISTUA ***\n"
+      else "ok\n")
+
+  tulos |> mutate(resource_type = tyyppi)
+}
+
+raw_list <- map(tyypit, hae_tyyppi)
+raw      <- bind_rows(raw_list)
+
+#cat("\nYhteensä:", nrow(raw), "riviä neljästä asiakirjatyypistä\n")
+```
+
+```{r siivoa_data}
+df <- raw |>
+  filter(!is.na(celex), !is.na(date)) |>
+  mutate(
+    date        = as.Date(date),
+    vuosi       = year(date),
+    vuosikymmen = floor(vuosi / 10) * 10,
+    saadostyyppi = case_when(
+      resource_type == "regulation"     ~ "Asetus",
+      resource_type == "directive"      ~ "Direktiivi",
+      resource_type == "decision"       ~ "Päätös",
+      resource_type == "recommendation" ~ "Suositus"
+    ),
+    voimassa = case_when(
+      force == "true"  ~ "Voimassa",
+      force == "false" ~ "Kumottu / vanhentunut",
+      TRUE             ~ "Tuntematon"
+    )
+  ) |>
+  filter(vuosi >= 1952, vuosi <= 2024)
+
+cat("Analyysissa mukana:\n")
+count(df, saadostyyppi, sort = TRUE) |>
+  mutate(osuus = percent(n / sum(n), 0.1)) |>
+  print()
+```
+
+---
+
+## EDA 1: Tuotantonopeus — kuinka paljon EU lainsäätää?
+
+Ensimmäinen kysymys: onko EU:n lainsäädäntötehdas kiihtynyt vai hidastunut ajan mittaan?
+Pistemäinen vastaus (*"EU säätää paljon"*) on hyödytön. Jakauma kertoo enemmän.
+
+```{r fig_vuosituotanto}
+#| fig-cap: "EU:n säädöstuotanto vuosittain 1952–2024. Pystyviivat merkitsevät keskeisiä institutionaalisia muutoksia."
+
+vuosi_df <- df |>
+  filter(saadostyyppi %in% c("Asetus", "Direktiivi", "Päätös")) |>
+  count(vuosi, saadostyyppi)
+
+ggplot(vuosi_df, aes(vuosi, n, color = saadostyyppi)) +
+  geom_line(linewidth = 0.8, alpha = 0.85) +
+  geom_smooth(aes(group = saadostyyppi), method = "loess", span = 0.15,
+              se = FALSE, linetype = "dashed", linewidth = 0.5, alpha = 0.5) +
+  geom_vline(xintercept = c(1957, 1973, 1986, 1993, 2004, 2009),
+             linetype = "dotted", color = "grey60", linewidth = 0.4) +
+  annotate("text", x = c(1957, 1973, 1986, 1993, 2004, 2009),
+           y = Inf, vjust = 1.3, hjust = -0.1, size = 2.8, color = "grey50",
+           label = c("Rooman\nsopimus", "Laaj.\n(UK)", "Yhtenäis-\nakt", "Maastricht",
+                     "Itä-Eu.\nlaaj.", "Lissabon")) +
+  scale_color_manual(values = c(col_red, col_green, col_blue)) +
+  scale_x_continuous(breaks = seq(1955, 2024, 10)) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "EU:n **vuosittainen säädöstuotanto** ei ole stabiili prosessi",
+    subtitle = "Asetusten piikki 1990-luvulla",
+    x = NULL, y = "Säädösten lukumäärä", color = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+```{r fig_kumulatiivinen}
+#| fig-cap: "Kumulatiivinen säädöskanta osoittaa lainsäädäntömassan kasvun."
+
+kumul <- df |>
+  filter(saadostyyppi %in% c("Asetus", "Direktiivi", "Päätös")) |>
+  count(vuosi, saadostyyppi) |>
+  group_by(saadostyyppi) |>
+  arrange(vuosi) |>
+  mutate(kumulatiivinen = cumsum(n))
+
+ggplot(kumul, aes(vuosi, kumulatiivinen, fill = saadostyyppi)) +
+  geom_area(alpha = 0.75, position = "stack") +
+  scale_fill_manual(values = c(col_red, col_green, col_blue)) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  scale_x_continuous(breaks = seq(1955, 2024, 10)) +
+  labs(
+    title    = "**Kumulatiivinen EU-säädöskanta** 1952–2024",
+    subtitle = "Yli 200 000 säädöstä — mutta jakauma ajassa ei ole tasainen",
+    x = NULL, y = "Kumulatiivinen lukumäärä", fill = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+---
+
+## EDA 2: Voimassaolo — eloonjäämisanalyysin perusteet
+
+Kuinka kauan säädös pysyy voimassa ennen kumoamista tai muuttamista?
+Tämä on **eloonjäämisanalyysin** kysymys — ei pistemäinen vastaus vaan jakauma.
+
+```{r eloo_prep}
+eloo_df <- df |>
+  filter(
+    saadostyyppi %in% c("Asetus", "Direktiivi", "Päätös"),
+    voimassa %in% c("Voimassa", "Kumottu / vanhentunut"),
+    vuosi >= 1970
+  ) |>
+  mutate(
+    ika_vuotta = if_else(
+      voimassa == "Voimassa",
+      as.numeric(Sys.Date() - date) / 365.25,
+      NA_real_
+    ),
+    kohorttiryhmä = case_when(
+      vuosi < 1980 ~ "1970-luku",
+      vuosi < 1990 ~ "1980-luku",
+      vuosi < 2000 ~ "1990-luku",
+      vuosi < 2010 ~ "2000-luku",
+      TRUE         ~ "2010-luku+"
+    )
+  )
+```
+
+```{r fig_eloossaolo}
+#| fig-cap: "Voimassaolevien säädösten ikäjakauma kohorteittain. Vanhemmat kohortit ovat selektiivisiä — vain kaikkein 'sitkeimmät' säädökset ovat jääneet eloon."
+
+eloo_df |>
+  filter(!is.na(ika_vuotta), ika_vuotta > 0) |>
+  ggplot(aes(ika_vuotta, fill = kohorttiryhmä, color = kohorttiryhmä)) +
+  geom_density(alpha = 0.35, linewidth = 0.7) +
+  scale_fill_manual(values  = c(col_navy, col_blue, col_green, col_orange, col_red)) +
+  scale_color_manual(values = c(col_navy, col_blue, col_green, col_orange, col_red)) +
+  scale_x_continuous(limits = c(0, 55), breaks = seq(0, 55, 10)) +
+  labs(
+    title    = "**Voimassaolevien säädösten ikäjakauma** kohorteittain",
+    subtitle = "Selviytymisharha: vanhoja säädöksiä on jäljellä vain kaikkein sitkeimmät",
+    x = "Ikä vuosina (tähän päivään)", y = "Tiheys",
+    fill = NULL, color = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+::: {.callout-note}
+**Selviytymisharha (survival bias):** Vanhoista kohorteista näemme vain ne säädökset,
+jotka ovat yhä voimassa. Kumottujen säädösten puuttuminen vääristää ikäjakaumaa.
+Seuraavassa osassa korjataan tämä Kaplan-Meier-estimaatilla, joka ottaa poistumisen
+huomioon.
+:::
+
+---
+
+## EDA 3: Säädöstyyppijakauma — EU ei vain "direktiivi"
+
+Julkisessa keskustelussa puhutaan usein vain direktiiveistä, vaikka asetusten lukumäärä
+on moninkertainen — ja päätöksiä on vielä enemmän kuin asetuksia.
+
+```{r fig_tyypit}
+#| fig-cap: "Säädöstyyppien lukumäärät ja osuudet koko korpuksessa."
+
+df |>
+  count(saadostyyppi) |>
+  mutate(
+    osuus        = n / sum(n),
+    saadostyyppi = fct_reorder(saadostyyppi, n)
+  ) |>
+  ggplot(aes(n, saadostyyppi, fill = saadostyyppi)) +
+  geom_col(show.legend = FALSE, width = 0.7) +
+  geom_text(
+    aes(label = paste0(comma(n, big.mark = " "), "  (", percent(osuus, 0.1), ")")),
+    hjust = -0.05, size = 3.5
+  ) +
+  scale_fill_manual(values = c(col_red, col_orange, col_green, col_blue)) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.2)),
+                     labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "**Direktiivi on harvinaisempi kuin luullaan**",
+    subtitle = "Päätösten ja asetusten dominanssi on rakenteellinen piirre EU-oikeudessa",
+    x = "Lukumäärä", y = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+```{r fig_tyyppitrendi}
+#| fig-cap: "Asetusten suhde direktiiveihin ajan myötä — sääntelytyyli on muuttunut."
+
+df |>
+  filter(saadostyyppi %in% c("Asetus", "Direktiivi"), vuosi >= 1960) |>
+  count(vuosi, saadostyyppi) |>
+  pivot_wider(names_from = saadostyyppi, values_from = n, values_fill = 0) |>
+  mutate(suhde = Asetus / (Direktiivi + 1)) |>
+  ggplot(aes(vuosi, suhde)) +
+  geom_line(color = col_navy, linewidth = 0.9) +
+  geom_smooth(method = "loess", span = 0.2, se = TRUE,
+              color = col_red, fill = col_red, alpha = 0.15) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey60") +
+  annotate("text", x = 1963, y = 1.15, label = "Yhtä monta",
+           color = "grey50", size = 3.2) +
+  scale_x_continuous(breaks = seq(1960, 2024, 10)) +
+  labs(
+    title    = "**Asetusten suhde direktiiveihin** 1960–2024",
+    subtitle = "Asetusten ylivalta on kasvanut",
+    x = NULL, y = "Asetusten lkm / direktiivien lkm",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## EDA 4: Vuosikymmenten väliset jakaumat — pistearvot piilottavat kaiken
+
+```{r fig_vuosikymmenet}
+#| fig-cap: "Säädöstuotanto vuosikymmenittäin ja säädöstyypeittäin."
+
+df |>
+  filter(
+    saadostyyppi %in% c("Asetus", "Direktiivi", "Päätös", "Suositus"),
+    vuosikymmen >= 1960,
+    vuosikymmen <= 2020
+  ) |>
+  count(vuosikymmen, saadostyyppi) |>
+  mutate(vuosikymmen = factor(paste0(vuosikymmen, "-luku"))) |>
+  ggplot(aes(vuosikymmen, n, fill = saadostyyppi)) +
+  geom_col(position = "dodge", width = 0.75) +
+  scale_fill_manual(values = c(col_red, col_green, col_blue, col_orange)) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "**EU:n säädöstuotanto vuosikymmenittäin**",
+    subtitle = "1990-luku oli korkeavesimerkki — mutta ei kaikille tyypeille",
+    x = NULL, y = "Säädösten lukumäärä", fill = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+---
+
+## Yhteenveto: Mitä EDA paljasti?
+
+Tämä oli vasta pintaraapaisu — datan perustopografia. Löydökset tiivistettynä:
+
+| Havainto | Mitä se tarkoittaa |
+|---|---|
+| Päätökset ovat lukumäärältään suurin ryhmä | Komissio toimii enemmän päätöksillä kuin julkinen keskustelu antaa ymmärtää |
+| Asetusten dominanssi direktiiveihin nähden on kasvanut | EU on siirtynyt kohti suoraan sovellettavaa oikeutta |
+| 1990-luku oli tuotannon huippu | Itä-laajentumisen valmistelu + sisämarkkinoiden rakentaminen |
+| Voimassaolevien säädösten ikäjakauma on selektiivinen | Selviytymisharha — eloonjäämisanalyysi tarvitaan |
+
+Yksikään näistä ei olisi selvinnyt katsomalla yhtä pistettä. Kaikki paljastui
+katsomalla **jakaumia**.
+
+---
+
+## Mitä seuraavaksi?
+
+**Osa 2 — Direktiivien implementointiviive jäsenvaltioissa**
+Yhdistämällä EUR-Lex + jäsenvaltiokohtainen implementointidata: mikä maa on
+johdonmukaisesti myöhässä? Jakauman muoto itsessään on poliittinen signaali.
+
+**Osa 3 — Bayesilainen muutospiste-analyysi säädöstuotannolle**
+Milloin EU:n lainsäädäntötahti muuttui rakenteellisesti? MCMC-malli kvantifioi
+epävarmuuden muutosajankohdassa — ei pelkkää silmämääräistä arvausta trendistä.
+
+**Osa 4 — Eloonjäämisanalyysi: Kuinka kauan EU-säädös elää?**
+Kaplan-Meier + Cox-regressio: mitkä tekijät ennustavat säädöksen pitkää elinikää?
+Säädöstyyppi, poliittinen toimiala, alkuperäinen pituus?
+
+**Osa 5 — Säädösten viittausverkosto**
+Mitkä säädökset ovat EU-oikeuden "solmupisteitä"? Verkostoanalyysi paljastaa
+juridiset riippuvuudet, joita ei voi nähdä yksittäistä säädöstä lukemalla.
+
+---
+
+*Kaikki analyysi on toistettavissa. Koodi on avoin.*
+
+*Tarvitsetko vastaavan analyysin omasta toimialastasi? Olen erikoistunut
+avoimeen dataan perustuvaan liiketoimintatiedusteluun —
+[kristianvepsalainen.com](https://kristianvepsalainen.com)*

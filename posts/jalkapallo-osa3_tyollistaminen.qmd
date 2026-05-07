@@ -1,10 +1,9 @@
 ---
 title: "Jalkapallon talous, osa 3: Jalkapallo työllistäjänä – enemmän kuin pelaajia"
 author: "Kristian Vepsäläinen"
-date: today
+date: 2026-05-07
 format: html
 lang: fi
-draft: TRUE
 ---
 
 ```{r}

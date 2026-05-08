@@ -1,7 +1,7 @@
 ---
 title: "Helikopterikentät ja turvallisuusbyrokratia: kärpästä tykillä?"
 subtitle: "Bayesilainen riskianalyysi sairaaloiden lentopaikkojen sammutusvaatimuksista"
-date: "2025-05-08"
+date: "2026-05-08"
 author: "Kristian Vepsäläinen"
 categories: [riskianalyysi, bayeslainen päättely, terveydenhuolto, turvallisuus]
 code-fold: true

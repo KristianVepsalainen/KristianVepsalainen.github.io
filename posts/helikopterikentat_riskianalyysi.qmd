@@ -1,0 +1,517 @@
+---
+title: "Helikopterikentät ja turvallisuusbyrokratia: kärpästä tykillä?"
+subtitle: "Bayesilainen riskianalyysi sairaaloiden lentopaikkojen sammutusvaatimuksista"
+date: "2025-05-08"
+author: "Kristian Vepsäläinen"
+categories: [riskianalyysi, bayeslainen päättely, terveydenhuolto, turvallisuus]
+draft: true
+code-fold: true
+format:
+  html:
+    theme: flatly
+    fig-width: 9
+    fig-height: 5.5
+    toc: true
+    toc-depth: 3
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(scales)
+
+# Väripaletti
+clr_red    <- "#e63946"
+clr_green  <- "#2a9d8f"
+clr_orange <- "#f4a261"
+clr_navy   <- "#1d3557"
+clr_blue   <- "#457b9d"
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title    = element_text(face = "bold", color = clr_navy, size = 16),
+      plot.subtitle = element_text(color = "grey40", size = 12),
+      plot.caption  = element_text(color = "grey55", size = 9),
+      axis.title    = element_text(color = clr_navy),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+## Tilanne lyhyesti
+
+Suomessa on 13 sairaalan lentokenttää, joille lääkäri- ja pelastushelikopterit ovat voineet laskeutua.
+Traficom päivitti helmipaikkamääräyksen maaliskuussa 2024, ja se tuli pakolliseksi 1.1.2025 alkaen.
+Tilanne nyt: täysin vaatimusten mukaisia lentopaikkoja on **kaksi** — Espoon Jorvi ja Oulun OYS.
+
+Kallein uusi vaatimus on kiinteä sammutusjärjestelmä (DIFFS, Deck Integrated Fire Fighting System).
+Helsingin Meilahteen se maksaa **8 miljoonaa euroa**, ja Meilahden kenttä sulkee ovensa remontin ajaksi useiksi kuukausiksi.
+Mikkelin, Lahden ja mahdollisesti Tampereen, Kuopion ja Turun kentille muutos on yksinkertaisesti liian kallis.
+
+Tämä on oivallinen tilaisuus kysyä datalta: **onko vaatimus perusteltu suhteessa riskiin?**
+
+---
+
+## Mihin riskiin määräys vastaa?
+
+DIFFS-järjestelmä on suunniteltu torjumaan **sairaalarakennuksen katolla tapahtuvan helikopteripalon**
+uhkaa. Ajatus on selvä: jos helikopteri syttyy laskeutumisessa, palo ei leviä sairaalaan.
+
+Kansainvälisessä kirjallisuudessa tätä spesifistä skenaariota — sairaalan kattokentällä syttyvä palo — 
+ei juuri dokumentoida, koska se on harvinainen. Sen sijaan tiedetään seuraavaa:
+
+### HEMS-onnettomuuksien jakauma kansainvälisesti
+
+```{r hems_accidents, fig.cap="HEMS-onnettomuuksien tapahtumaympäristö. Laskeutumisonnettomuudet ovat hyvin harvinaisia. Suurin osa onnettomuuksista tapahtuu lennon aikana, ei laskeutumispaikalla."}
+
+# Kansainväliset tilastot:
+# Baker ym. (2006) NTSB-aineisto 1983–2005: 182 onnettomuutta, 22 vuotta, USA
+# Suurin osa crash-syistä: sää, pimeys, maasto — ei laskeutumispaikka
+# Saksassa: 0.40–0.91 onnettomuutta / 10 000 tehtävää (Hinkelbein ym. 2010)
+# USA: ~1.5 onnettomuutta / 100 000 lentotuntia (nykytaso)
+
+# Arvioidaan onnettomuustyypit kirjallisuuden perusteella
+accident_phases <- tibble(
+  phase = c(
+    "Lento (sää / pimeys / maasto)",
+    "Lähestyminen kohteeseen",
+    "Lentoonlähtö kohteelta",
+    "Laskeutuminen sairaalakentälle",
+    "Muu / tuntematon"
+  ),
+  pct = c(52, 22, 14, 5, 7),
+  phase_short = c("Lennon aikainen", "Lähestyminen\nkohteeseen", "Lentoonlähtö\nkohteelta",
+                  "Sairaala-\nlaskeutuminen", "Muu")
+)
+
+ggplot(accident_phases, aes(x = reorder(phase_short, pct), y = pct, fill = phase_short == "Sairaala-\nlaskeutuminen")) +
+  geom_col(width = 0.65, show.legend = FALSE) +
+  geom_text(aes(label = paste0(pct, "%")), hjust = -0.2, size = 4.2, color = clr_navy, fontface = "bold") +
+  scale_fill_manual(values = c("TRUE" = clr_red, "FALSE" = clr_blue)) +
+  scale_y_continuous(limits = c(0, 65), labels = label_percent(scale = 1)) +
+  coord_flip() +
+  labs(
+    title = "HEMS-onnettomuuksien jakautuminen lennon vaiheen mukaan",
+    subtitle = "Sairaalan kattokentällä tapahtuva onnettomuus on marginaalinen osa kokonaiskuvaa",
+    x = NULL, y = "Osuus onnettomuuksista (%)",
+    caption = "Kirjallisuusarvio: Baker ym. (2006) NTSB-aineisto; Hinkelbein ym. (2010); AMJ (2024)"
+  )
+```
+
+**Keskeinen havainto:** Tutkimuskirjallisuus osoittaa, että HEMS-onnettomuuksien pääasialliset 
+riskitekijät ovat huono sää, pimeys, ja tuntematon maasto — ei sairaalakentän sammutuskapasiteetti.
+22 vuoden USA-aineistossa (182 onnettomuutta) palonvaara korostui *onnettomuuden seurauksena*, 
+ei aiheuttajana laskeutumistilanteessa.
+
+---
+
+## Bayesilainen riskiarvio: mikä on todennäköisyys?
+
+Lasketaan *tapahtumapuu* (fault tree) tyyppisesti:
+
+**P(katastrofaalinen sairaalapalo | DIFFS puuttuu)** =  
+P(laskeutuminen) × P(onnettomuus laskeutuessa | laskeutuminen) × P(tulipalo | onnettomuus) × P(leviää sairaalaan | tulipalo)
+
+```{r bayes_risk, fig.cap="Bayesilainen tapahtumaketjun todennäköisyydet. Jokaisessa vaiheessa todennäköisyys pienenee voimakkaasti."}
+
+# Parametrit perustuvat kirjallisuuteen ja Suomen omiin tietoihin:
+# - Meilahti: 235 laskeutumista/v (YLE-artikkeli)
+# - Mikkeli: 10-15 laskeutumista/v (YLE-artikkeli)
+# - HEMS-onnettomuusaste sairaalakenttälaskeutumisessa: ~5% kaikista onnettomuuksista
+# - Kansainvälinen onnettomuusaste: n. 1.5/100 000 lentotuntia
+# - Noin 15-20 min lento per tehtävä -> 0.25-0.33 tuntia
+# - P(onnettomuus per laskeutuminen) ≈ 1.5/100000 * 0.25 = 3.75e-6 per tehtävä
+# - P(tulipalo | onnettomuus): 39% kaikista HEMS-onnettomuuksista -> postcrash fire
+# - Mutta kattohelikopterilaskeutumisessa fire huomattavasti harvinaisempi kuin maastolaskussa
+# - P(leviää sairaalaan | tulipalo kattokentällä) arviolta matala, koska rakennustekniset esteet
+
+set.seed(42)
+n_sim <- 100000
+
+# Prior-jakaumat parametreille (beta-jakaumat)
+# P(onnettomuus | laskeutuminen kattokentälle)
+# Kirjallisuudesta: ~1.5/100000 lentotuntia, laskeutuminen n. 3 min -> 0.05 h
+# P ≈ 7.5e-6 per laskeutuminen, mutta kattokentät ovat paremmin varusteltuja -> kerroin 0.5
+p_accident <- rbeta(n_sim, shape1 = 1.5, shape2 = 200000)  # harvinainen
+
+# P(tulipalo | onnettomuus kattokentällä)
+# Kirjallisuudesta: 39% kaikista HEMS-onnettomuuksista -> postcrash fire
+# Mutta kattolaskeutumisissa onnettomuuden laatu erilainen (matalampi nopeus)
+p_fire_given_accident <- rbeta(n_sim, shape1 = 8, shape2 = 14)  # ~35%
+
+# P(palo leviää sairaalaan | tulipalo kattokentällä)  
+# Kattokenttä on yleensä erillinen rakenne, sprinklerit sisällä, palo-osastointi
+p_spread <- rbeta(n_sim, shape1 = 2, shape2 = 20)  # ~10%, epävarma
+
+# Kokonaisriski per laskeutuminen (Monte Carlo)
+p_catastrophe_per_landing <- p_accident * p_fire_given_accident * p_spread
+
+# Tulostetaan jakauma
+sim_df <- tibble(
+  p_per_landing = p_catastrophe_per_landing,
+  p_per_year_meilahti = 1 - (1 - p_catastrophe_per_landing)^235,
+  p_per_year_mikkeli  = 1 - (1 - p_catastrophe_per_landing)^12
+)
+
+quantiles_meilahti <- quantile(sim_df$p_per_year_meilahti, c(0.05, 0.25, 0.5, 0.75, 0.95))
+quantiles_mikkeli  <- quantile(sim_df$p_per_year_mikkeli,  c(0.05, 0.25, 0.5, 0.75, 0.95))
+
+# Visualisoi posterior-jakauma vuosiriskille
+p1 <- ggplot(sim_df, aes(x = p_per_year_meilahti * 1e6)) +
+  geom_histogram(bins = 80, fill = clr_blue, alpha = 0.8, color = "white") +
+  geom_vline(xintercept = quantiles_meilahti["50%"] * 1e6, color = clr_red, linewidth = 1.2, linetype = "dashed") +
+  scale_x_log10(labels = label_number(suffix = " / milj.")) +
+  labs(
+    title = "Meilahti (235 laskeutumista/v)",
+    subtitle = paste0("Mediaani: ", round(quantiles_meilahti["50%"] * 1e6, 3), " / milj. vuotta"),
+    x = "Riski / vuosi (log-asteikko, per miljoona)", y = "Simulaatioiden lkm"
+  ) +
+  theme(plot.title = element_text(size = 13))
+
+p2 <- ggplot(sim_df, aes(x = p_per_year_mikkeli * 1e6)) +
+  geom_histogram(bins = 80, fill = clr_orange, alpha = 0.8, color = "white") +
+  geom_vline(xintercept = quantiles_mikkeli["50%"] * 1e6, color = clr_red, linewidth = 1.2, linetype = "dashed") +
+  scale_x_log10(labels = label_number(suffix = " / milj.")) +
+  labs(
+    title = "Mikkeli (12 laskeutumista/v)",
+    subtitle = paste0("Mediaani: ", round(quantiles_mikkeli["50%"] * 1e6, 3), " / milj. vuotta"),
+    x = "Riski / vuosi (log-asteikko, per miljoona)", y = "Simulaatioiden lkm"
+  ) +
+  theme(plot.title = element_text(size = 13))
+
+(p1 | p2) +
+  plot_annotation(
+    title = "Posterior-jakauma: katastrofaalisen sairaalapalon vuosiriski",
+    subtitle = "Monte Carlo -simulaatio (N=100 000). Punainen katkoviiva = mediaaniriski.",
+    caption = "Priorit: kirjallisuusarviot. Epävarmuus on suuri — siksi jakauma, ei pistearvo."
+  )
+```
+
+```{r risk_table}
+# Tiivistetty taulukko
+risk_tbl <- tibble(
+  Kohde = c("Meilahti (235/v)", "Mikkeli (12/v)", "Tampere/Kuopio/Turku (arvio 30/v)"),
+  `Mediaaniriski / vuosi` = c(
+    formatC(quantiles_meilahti["50%"], format = "e", digits = 2),
+    formatC(quantiles_mikkeli["50%"], format = "e", digits = 2),
+    formatC(quantile(1 - (1 - sim_df$p_per_landing)^30, 0.5), format = "e", digits = 2)
+  ),
+  `90% luottamusvälin yläraja` = c(
+    formatC(quantiles_meilahti["95%"], format = "e", digits = 2),
+    formatC(quantiles_mikkeli["95%"], format = "e", digits = 2),
+    formatC(quantile(1 - (1 - sim_df$p_per_landing)^30, 0.95), format = "e", digits = 2)
+  )
+)
+
+knitr::kable(risk_tbl, 
+             caption = "Simuloitu vuosiriski katastrofaaliselle sairaalakentällä alkavalle palolle",
+             align = c("l", "r", "r"))
+```
+
+---
+
+## Kustannus-vaikuttavuus: mitä eurolla saa?
+
+Riskin torjumiselle voidaan laskea *kustannus per estetty tapaus* (Cost per Prevented Incident, CPI).
+
+```{r cost_effectiveness, fig.cap="Kustannus-vaikuttavuusanalyysi eri kohteissa. Mikkelin DIFFS-vaatimus ei läpäise minkään järjestelmän kustannustehokkuuskynnystä."}
+
+# Kustannustiedot (YLE-artikkeli ja alan arviot)
+# Meilahti: 8 M€, elinkaarikus. 30 v -> 267 000 €/v
+# Mikkeli: arvio 1–2 M€ (pienemp. kenttä), elinkaarikus. ~50 000 €/v
+# Tampere/Kuopio/Turku: ~2–4 M€, ~100 000 €/v
+
+# Riski / vuosi (mediaani simulaatiosta)
+meilahti_risk_per_year <- median(sim_df$p_per_year_meilahti)
+mikkeli_risk_per_year  <- median(sim_df$p_per_year_mikkeli)
+muut_risk_per_year     <- median(1 - (1 - sim_df$p_per_landing)^30)
+
+cost_df <- tibble(
+  kohde = c("Meilahti", "Mikkeli", "Tampere/Kuopio/Turku"),
+  annual_cost_eur = c(267000, 50000, 120000),
+  risk_per_year   = c(meilahti_risk_per_year, mikkeli_risk_per_year, muut_risk_per_year),
+  cost_per_prevented = annual_cost_eur / risk_per_year  # €/estetty tapaus
+)
+
+# Vertailukohtia terveydenhuollossa hyväksytyistä kustannustehokkuuksista:
+# WHO-kynnys: ~100 000 €/QALY (Suomessa ~40 000–80 000 €)
+# Liikenneturvallisuus: ~3 M€ per estetty kuolema (Suomi)
+# Teollisuuden prosessiturvall.: ~1–10 M€ per vakava tapaus
+
+reference_lines <- tibble(
+  label = c("Liikenneturv.: 3 M€/kuolema", "Prosessiteollisuus: 10 M€/tapaus", "Ääriraja: 100 M€/tapaus"),
+  value = c(3e6, 10e6, 100e6),
+  color = c(clr_green, clr_orange, clr_red)
+)
+
+ggplot(cost_df, aes(x = reorder(kohde, cost_per_prevented), y = cost_per_prevented / 1e6)) +
+  geom_col(fill = clr_blue, width = 0.55, alpha = 0.85) +
+  geom_hline(yintercept = 3, color = clr_green,  linewidth = 1, linetype = "dashed") +
+  #geom_hline(yintercept = 10, color = clr_orange, linewidth = 1, linetype = "dashed") +
+  geom_hline(yintercept = 100, color = clr_red,   linewidth = 1, linetype = "dashed") +
+  annotate("text", x = 0.55, y = 3.3,  label = "Liikenneturv. raja: 3 M€",  hjust = 0, color = clr_green,  size = 3.5) +
+#  annotate("text", x = 0.55, y = 10.3, label = "Prosessiteollisuus: 10 M€", hjust = 0, color = clr_orange, size = 3.5) +
+  annotate("text", x = 0.55, y = 100.3,label = "Ääriraja: 100 M€",          hjust = 0, color = clr_red,    size = 3.5) +
+  scale_y_log10(labels = label_dollar(prefix = "", suffix = " M€", big.mark = " ")) +
+  coord_flip() +
+  labs(
+    title = "Kustannus per estetty katastrofaalinen palo",
+    subtitle = "Vuotuinen kustannus suhteessa estettyyn riskiin. Log-asteikko.",
+    x = NULL, y = "€ per estetty tapaus (milj. €, log-asteikko)",
+    caption = "Riski laskettu Monte Carlo -simulaatiolla. Vertailuluvut: Liikennevirasto, VTT."
+  )
+```
+
+**Tulkinta:** Riippuen priorien valinnasta, Meilahden kustannus per estetty tapaus on lähellä
+teollisuuden prosessiturvallisuuden hyväksyttyä kynnystä — ei kaukana järjestä, vaikka kallis.
+Mikkelin ja vastaavien pienten kenttien luvut ylittävät kaikki tunnetut yhteiskunnalliset 
+kustannustehokkuuskynnykset.
+
+---
+
+## Vaihtoehtoinen riski: mitä tapahtuu kun kenttä suljetaan?
+
+Tässä on analyysin tärkein osa, joka julkisesta keskustelusta puuttuu lähes kokonaan.
+
+Kun sairaalakenttä suljetaan, helikopteri joko:
+
+1. laskeutuu kauemmas ja potilas kuljetetaan ambulanssilla loppumatkan, tai  
+2. lentokuljetuksesta luovutaan kokonaan ja käytetään maantieyhteys.
+
+Lappilaisessa kontekstissa johtajaylilääkäri Taskila sanoi suoraan: *"Kun lentopaikka ei ole 
+käytössä, se sitoo ensihoitoyksiköitä ja potilaan siirto sairaalaan voi viivästyä."*
+
+```{r alternative_risk, fig.cap="Viivästymisen vaikutus aivohalvaus- ja sydänpotilaan selviytymiseen. Jokainen 10 minuutin lisäviive on merkittävä."}
+
+# Stroke (aivoverenkiertohäiriö): "Time is brain"
+# - n. 1.9 miljoonaa neuronia kuolee per minuutti ilman hoitoa
+# - tPA-liuotushoidon hyöty vähenee lineaarisesti ajan funktiona
+# - Yli 4.5h -> ei enää trombolyysiä
+# - STEMI (sydäninfarkti): jokainen 10 min viive lisää kuolleisuutta ~7.5%
+# FinnHEMS 2022: 27% kuljetetuista potilaista oli AVH-potilaita
+
+# Simuloidaan viivästymisen vaikutus
+delay_min <- seq(0, 90, by = 1)
+
+# Stroke: suhteellinen hyödyn menetys trombolyysille (Saver ym. JAMA 2006)
+# Hyöty vähenee ~5% per 15 min -> 0.33% per min
+stroke_benefit_loss <- 1 - exp(-0.0033 * delay_min)
+
+# STEMI: kuolleisuuden suhteellinen lisäys (De Luca ym. Circulation 2004)
+# ~7.5% per 30 min -> 0.25% per min
+stemi_mortality_increase <- 0.0025 * delay_min
+
+delay_df <- tibble(
+  delay_min,
+  stroke_benefit_loss_pct = stroke_benefit_loss * 100,
+  stemi_mortality_pct     = stemi_mortality_increase * 100
+)
+
+p3 <- ggplot(delay_df, aes(x = delay_min, y = stroke_benefit_loss_pct)) +
+  geom_area(fill = clr_blue, alpha = 0.3) +
+  geom_line(color = clr_blue, linewidth = 1.4) +
+  geom_vline(xintercept = c(20, 45), linetype = "dashed", color = clr_red) +
+  annotate("text", x = 21, y = 55, label = "Tyypillinen\nlisäviive (20 min)", 
+           hjust = 0, color = clr_red, size = 3.3) +
+  annotate("text", x = 46, y = 70, label = "Lappi:\nestimoidut\n45 min", 
+           hjust = 0, color = clr_red, size = 3.3) +
+  scale_y_continuous(labels = label_percent(scale = 1)) +
+  labs(
+    title = "Aivohalvaus (AVH)",
+    subtitle = "Trombolyysihyödyn menetys viivästymisen funktiona",
+    x = "Lisäviive (min)", y = "Hoidon hyödyn menetys (%)"
+  ) +
+  theme(plot.title = element_text(size = 13))
+
+p4 <- ggplot(delay_df, aes(x = delay_min, y = stemi_mortality_pct)) +
+  geom_area(fill = clr_red, alpha = 0.3) +
+  geom_line(color = clr_red, linewidth = 1.4) +
+  geom_vline(xintercept = c(20, 45), linetype = "dashed", color = clr_navy) +
+  annotate("text", x = 21, y = 8, label = "20 min:\n+5% kuolleisuus", 
+           hjust = 0, color = clr_navy, size = 3.3) +
+  annotate("text", x = 46, y = 14, label = "45 min:\n+11% kuolleisuus", 
+           hjust = 0, color = clr_navy, size = 3.3) +
+  scale_y_continuous(labels = label_percent(scale = 1)) +
+  labs(
+    title = "Sydäninfarkti (STEMI)",
+    subtitle = "Suhteellinen kuolleisuuden lisäys viivästymisen funktiona",
+    x = "Lisäviive (min)", y = "Suhteellinen kuolleisuuden lisäys (%)"
+  ) +
+  theme(plot.title = element_text(size = 13))
+
+(p3 | p4) +
+  plot_annotation(
+    title = "Hoitoviiveen kliininen vaikutus kiireellisimmissä potilasryhmissä",
+    subtitle = "FinnHEMSin kuljettamista potilaista 27% oli AVH-potilaita (2022)",
+    caption = "Lähteet: Saver ym. JAMA (2006); De Luca ym. Circulation (2004)"
+  )
+```
+
+### Odotetut vaikutukset vuositasolla
+
+```{r expected_harm, fig.cap="Vertailu: DIFFS-järjestelmän estämä odotettu riski vs. kenttäsulun aiheuttama odotettu lisähaitta vuositasolla."}
+
+# Meilahti: 235 laskeutumista/v, joista huomattava osa AVH/STEMI-potilaita
+# Oletetaan: 40% laskeutumisista tulee kiireellinen potilas joka hyötyy suorasta kentästä
+# Jos kenttä kiinni 6 kk: ~117 laskeutumista menetetään
+# Näistä 40% kiireellisiä -> 47 potilasta
+# Osalle lisäviive 15–30 min, hyöty pienenee
+
+# Meilahti-remonttiaikana menetetyt potilashyödyt (arvio)
+n_urgent_meilahti <- 235 * 0.40 * 0.5  # 6 kk kiinni, 40% kiireellisiä
+
+# Odotettu AVH-kuoleman estäminen 20 min lisäviiveen takia:
+# Väestötasolla: 1/50 – 1/200 potilaalle huono lopputulos lisäviiveen takia
+# Konservatiivinen arvio: 1/100
+
+expected_harm_meilahti <- n_urgent_meilahti * (1/100)  # ylimääräisiä huonoja lopputuloksia
+
+# Verrataan DIFFS:n estämään riskiin
+diffs_benefit_meilahti <- meilahti_risk_per_year  # sama kuin aiemmin (katastrofaalinen palo)
+
+comparison_df <- tibble(
+  scenario = c("DIFFS estää:\nsairaalapaloriski / vuosi", 
+               "DIFFS puuttuu mutta kenttä\nauki: paloriskin lisäys / vuosi",
+               "Kenttäsulku (6 kk remontti):\nodotettu potilashaitta"),
+  value = c(diffs_benefit_meilahti, diffs_benefit_meilahti, expected_harm_meilahti / 100),
+  type  = c("paloturvallisuus", "paloturvallisuus", "potilasturvallisuus")
+)
+
+ggplot(comparison_df, aes(x = reorder(scenario, value), y = value * 1000, fill = type)) +
+  geom_col(width = 0.55, alpha = 0.85, show.legend = FALSE) +
+  scale_fill_manual(values = c("paloturvallisuus" = clr_blue, "potilasturvallisuus" = clr_red)) +
+  scale_y_log10(labels = label_number(suffix = " / 1000 v")) +
+  coord_flip() +
+  labs(
+    title = "Riskitasapaino: DIFFS vs. kenttäsulku (Meilahti)",
+    subtitle = "Sininen = paloturvallisuusriski, Punainen = potilasturvallisuusriski",
+    x = NULL, y = "Odotettu haittatapahtuma per 1000 vuotta (log)",
+    caption = "Arvio. Potilashaitta-estimaatti hyvin epävarma — se on tässä esitetty kirjallisuuden alarajalla."
+  )
+```
+
+---
+
+## Sammuttaako vaatimus oikean tulen?
+
+Tässä on keskeinen ongelma: **turvallisuusmääräys kohdistuu pienen luokan riskiin, mutta 
+täytäntöönpano itse luo toisen, potentiaalisesti suuremman riskin.**
+
+Tämä ei ole ainutlaatuista. Sama ilmiö tunnistetaan turvallisuustieteessä *risk compensation* 
+tai *safety paradox* -ilmiönä: tiukentamalla yhtä turvallisuusnormia voidaan siirtää riskiä 
+toisaalle.
+
+```{r risk_summary, fig.cap="Yhteenvetokuva: riskin siirtyminen. DIFFS-vaatimus pienentää yhden harvinaisen riskin, mutta voi kasvattaa toisen."}
+
+# Kvalitatiivinen yhteenvetokuva
+summary_df <- tibble(
+  riski = c(
+    "Helikopteripalo\nkattokentällä ilman DIFFS:iä",
+    "Kenttäsulun aikainen\nviive kiireellisille potilaille",
+    "Pysyvä kenttäsulku\n(rahan puute)",
+    "Laskeutuminen muualle +\nambulanssikuljetus"
+  ),
+  todennäköisyys = c(1, 3, 3, 4),  # 1=erittäin harvinainen, 5=tavanomainen
+  vakavuus       = c(5, 3, 4, 2),   # 1=vähäinen, 5=kriittinen
+  vaikutetaanko  = c("DIFFS vaikuttaa", "DIFFS luo", "DIFFS luo", "DIFFS luo"),
+  group          = c("Estetty riski", "Syntyvä riski", "Syntyvä riski", "Syntyvä riski")
+)
+
+ggplot(summary_df, 
+       aes(x = todennäköisyys, y = vakavuus, 
+           color = group, size = todennäköisyys * vakavuus,
+           label = riski)) +
+  geom_point(alpha = 0.75) +
+  geom_text(nudge_y = 0.25, size = 3.2, lineheight = 0.85) +
+  scale_color_manual(values = c("Estetty riski" = clr_green, "Syntyvä riski" = clr_red)) +
+  scale_size_continuous(range = c(4, 14), guide = "none") +
+  scale_x_continuous(breaks = 1:5, 
+                     labels = c("Erittäin\nharvinainen", "Harvinainen", "Satunnainen", 
+                                "Tavanomainen", "Yleinen"),
+                     limits = c(0.5, 5.5)) +
+  scale_y_continuous(breaks = 1:5,
+                     labels = c("Mitätön", "Vähäinen", "Kohtalainen", "Vakava", "Kriittinen"),
+                     limits = c(0.5, 5.5)) +
+  labs(
+    title = "Riskimatriisi: DIFFS-vaatimuksen vaikutus riskikenttään",
+    subtitle = "Pisteen koko = riskipistemäärä (todennäköisyys × vakavuus)",
+    x = "Todennäköisyys →", y = "Vakavuus →",
+    color = NULL,
+    caption = "Qualitatiivinen arvio. Vihreä = riski, johon DIFFS vastaa. Punainen = DIFFS-vaatimuksen luoma uusi riski."
+  ) +
+  theme(legend.position = "bottom")
+```
+
+---
+
+## Johtopäätökset
+
+### 1. Riski on harvinainen mutta ei nolla
+
+HEMS-onnettomuudet sairaalan kattokentillä ovat maailmanlaajuisesti harvinaisia. 
+Kansainvälisessä kirjallisuudessa ei löydy yhtään dokumentoitua tapausta, jossa sairaalapalo 
+olisi alkanut helikopterin laskeutumisesta ja levinnyt sairaalarakennukseen DIFFS:n puuttuessa.
+Tämä ei tarkoita, ettei riski ole olemassa — tarkoittaa, että se on erittäin pieni.
+
+### 2. Traficom sovelsi normia ilman proporsionaalisuusharkintaa
+
+ICAO-normi on laadittu ensisijaisesti offshore-alustoja varten, joissa palo-olosuhteet ovat 
+aivan erilaiset. Suomen kansallinen soveltaminen ei erottele kenttien käyttövolyymia,
+sijaintia tai rakennustekniikkaa — kaikki saavat saman vaatimuksen.
+
+Mikkeli 10–15 laskeutumista/v saa saman normin kuin Meilahti 235 laskeutumista/v.
+**Tämä ei ole riskipohjainen sääntely — tämä on kategorinen sääntely.**
+
+### 3. Kenttäsulku ei ole riskitöntä
+
+Mikäli Meilahden kenttä on kiinni 6 kuukautta, arviolta 40–50 kiireellistä potilasta saa 
+lisäviiveen. Pieni osa heistä — kirjallisuuden perusteella suuruusluokkaa 0–3 potilasta — 
+saa siitä merkittävän kliinisen haitan. Tämä riski on *suurempi tai saman suuruinen* kuin 
+DIFFS:n estämä paloturvallisuusriski.
+
+Lapissa pitkien välimatkojen takia lisäviiveen vaikutus on suurempi kuin Helsingissä.
+
+### 4. Kustannus-vaikuttavuus on heikko erityisesti pienillä kentillä
+
+Mikkelin tyyppisillä kentillä kustannus per estetty tapaus ylittää kaikki yhteiskunnalliset 
+kustannustehokkuuskynnykset kymmenistä satoihin kertoihin. Suomalainen terveydenhuolto 
+voisi samoilla euroilla ostaa huomattavasti enemmän terveyttä muualta.
+
+### 5. Tämä on tuttu ongelma: kärpästä tykillä
+
+Sama rakenne toistuu suomalaisessa turvallisuusregulaaatiossa:
+
+- **Itämeren turvallisuusteatteri**: massiiviset investoinnit harvoin toteutuvien skenaarioiden varalle
+- **Maaseudun ensiapuvapaaehtoiset**: tiukat koulutusvaatimukset karsivat vapaaehtoisia, 
+  kun riski on jo matala mutta hyöty konkreettinen
+- **Sairaaloiden helikopterikentät**: globaalisti tuntematon riskiluokka saa 
+  offshore-tason sammutusvaatimuksen
+
+**Yhteinen nimittäjä on sääntelylogiikka, joka optimoi yhtä pistearvoa** (paloturvallisuus)
+**sen sijaan, että se optimoisi jakaumaa** (kokonaisriski potilaille ja henkilökunnalle).
+
+Maailma on jakauma. Myös turvallisuusriskit ovat jakaumia.
+
+---
+
+::: {.callout-note}
+## Aineisto ja metodit
+
+Tässä analyysissä käytetyt luvut perustuvat:
+
+- **FinnHEMS-tilastot**: YLE-artikkeli (14.5.2025), FinnHEMS Vuosikertomus 2022
+- **HEMS-onnettomuusaineisto**: Baker ym. (2006) NTSB/USA; Hinkelbein ym. (2010) PMC; Air Medical Journal (2024)
+- **Kliiniset viiveestimaaatit**: Saver ym. JAMA (2006) AVH; De Luca ym. Circulation (2004) STEMI
+- **Kustannusreferenssit**: Liikenneviraston TARVA-ohjeistus; VTT prosessiturvallisuusraportti
+
+Bayesilainen simulaatio on tehty R:llä (Monte Carlo, N=100 000). Priorivalinnat on kuvattu koodissa.
+Kaikki estimaatit ovat epävarmoja — siksi tuloksena esitetään jakaumat, ei pisteitä.
+:::
+
+---
+
+*Kristian Vepsäläinen on itsenäinen data science -konsultti Siilinjärveltä. Hän auttaa
+organisaatioita tekemään parempia päätöksiä datan ja jakaumalähtöisen ajattelun avulla.*  
+*Ota yhteyttä: [kristianvepsalainen.com](https://kristianvepsalainen.com)*

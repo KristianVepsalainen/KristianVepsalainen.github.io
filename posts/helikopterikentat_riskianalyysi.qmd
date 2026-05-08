@@ -482,8 +482,8 @@ voisi samoilla euroilla ostaa huomattavasti enemmän terveyttä muualta.
 
 Sama rakenne toistuu suomalaisessa turvallisuusregulaaatiossa:
 
-- **Itämeren turvallisuusteatteri**: massiiviset investoinnit harvoin toteutuvien skenaarioiden varalle
-- **Maaseudun ensiapuvapaaehtoiset**: tiukat koulutusvaatimukset karsivat vapaaehtoisia, 
+- **Itämeren turvallisuusteatteri**: massiiviset haitat matkustajille harvoin toteutuvien skenaarioiden varalle
+- **Maaseudun ensiapuvapaaehtoiset**: tiukat lainsäädännön tulkinnat estävät vapaaehtoisien käytön, 
   kun riski on jo matala mutta hyöty konkreettinen
 - **Sairaaloiden helikopterikentät**: globaalisti tuntematon riskiluokka saa 
   offshore-tason sammutusvaatimuksen

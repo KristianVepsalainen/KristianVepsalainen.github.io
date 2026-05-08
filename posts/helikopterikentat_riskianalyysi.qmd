@@ -4,7 +4,6 @@ subtitle: "Bayesilainen riskianalyysi sairaaloiden lentopaikkojen sammutusvaatim
 date: "2025-05-08"
 author: "Kristian Vepsäläinen"
 categories: [riskianalyysi, bayeslainen päättely, terveydenhuolto, turvallisuus]
-draft: true
 code-fold: true
 format:
   html:

@@ -1,0 +1,356 @@
+---
+title: "Euroviisut 2026: Voittajan jakauma – ketä Wienissä kruunataan?"
+subtitle: "Plackett-Luce-malli, historiallinen pisteytysjakauma ja Monte Carlo"
+author: "Kristian Vepsäläinen"
+date: "2026-05-16"
+draft: true
+lang: fi
+format:
+  html:
+    code-fold: true
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    fig-width: 9
+    fig-height: 7
+    base-font-size: 14px
+categories:
+  - euroviisut
+  - bayesian
+  - ennustaminen
+  - avoin data
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.retina = 2)
+
+library(tidyverse)
+library(scales)
+library(ggdist)
+library(patchwork)
+
+clr_red    <- "#e63946"
+clr_green  <- "#2a9d8f"
+clr_orange <- "#f4a261"
+clr_navy   <- "#1d3557"
+clr_blue   <- "#457b9d"
+```
+
+Tänä iltana kello 22 ratkaistaan, kuka voittaa 70. Eurovision
+laulukilpailun Wienissä. Kolmen päivän blogisarjan viimeisessä osassa
+rakennan **ennusteen voittajalle** – ja ennen kaikkea näytän, miltä
+**voittajajakauma** näyttää.
+
+## Data: TidyTuesday Eurovision-kilpailudata
+
+```{r load-data}
+# Lähde: TidyTuesday Eurovision -datasetti (CC0)
+# https://github.com/rfordatascience/tidytuesday/tree/master/data/2022/2022-05-17
+#
+# eurovision.csv – kilpailutulokset per maa per vuosi
+# Sarakkeet: year, host_city, host_country, event_url, section,
+#            artist, song, artist_country, running_order,
+#            total_points, rank, qualified, winner
+
+base_url <- paste0("https://raw.githubusercontent.com/rfordatascience/",
+                   "tidytuesday/master/data/2022/2022-05-17/")
+
+esc_raw <- read_csv(paste0(base_url, "eurovision.csv"),
+                    show_col_types = FALSE)
+
+cat("Rivejä:", nrow(esc_raw), "\n")
+cat("Sarakkeet:", paste(names(esc_raw), collapse = ", "), "\n\n")
+cat("section-arvot:\n")
+print(count(esc_raw, section))
+```
+
+```{r finals-data}
+# Suodata: vain finaalit, 2004+ (semifinaalit käyttöön 2004)
+finals <- esc_raw |>
+  filter(
+    str_detect(str_to_lower(section), "grand.final|^f$|final") &
+      !str_detect(str_to_lower(section), "semi"),
+    year >= 2004,
+    !is.na(total_points),
+    !is.na(rank)
+  ) |>
+  # Normalisoi maanimi
+  mutate(
+    artist_country = str_replace(artist_country,
+                                 "^The Netherlands$", "Netherlands")
+  )
+
+cat("Finaalihavaintoja:", nrow(finals), "\n")
+cat("Vuosia:", n_distinct(finals$year), "\n")
+```
+
+## Pisteytysjakauma: ei normaali, vaan oikealle vino
+
+```{r score-distribution}
+p_hist <- finals |>
+  ggplot(aes(x = total_points)) +
+  geom_histogram(bins = 35, fill = clr_blue, alpha = 0.75, color = "white") +
+  geom_vline(xintercept = median(finals$total_points, na.rm = TRUE),
+             color = clr_red,    linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = mean(finals$total_points,   na.rm = TRUE),
+             color = clr_orange, linetype = "dotted", linewidth = 1) +
+  annotate("text",
+           x = median(finals$total_points, na.rm = TRUE) + 25,
+           y = Inf, vjust = 2,
+           label = paste0("Mediaani: ",
+                          round(median(finals$total_points, na.rm = TRUE))),
+           color = clr_red, size = 3.5) +
+  annotate("text",
+           x = mean(finals$total_points, na.rm = TRUE) - 25,
+           y = Inf, vjust = 4,
+           label = paste0("Keskiarvo: ",
+                          round(mean(finals$total_points, na.rm = TRUE))),
+           color = clr_orange, size = 3.5) +
+  labs(
+    title    = "Pisteytysdistribuutio Eurovision finaaleissa 2004–2022",
+    subtitle = "Jakauma on oikealle vino – häntä on pitkä, voittajat erottuvat selvästi",
+    x        = "Kokonaispisteet",
+    y        = "Kappaleiden lukumäärä",
+    caption  = "Lähde: TidyTuesday / eurovision.csv (CC0)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title    = element_text(face = "bold", color = clr_navy),
+        plot.subtitle = element_text(color = "grey40"))
+
+# Voittajan pisteet vuosittain
+winners <- finals |>
+  filter(rank == 1) |>
+  select(year, artist_country, total_points)
+
+p_winners <- winners |>
+  ggplot(aes(x = year, y = total_points)) +
+  geom_col(fill = clr_green, alpha = 0.85) +
+  geom_text(aes(label = artist_country), angle = 90,
+            hjust = 1.1, size = 3, color = "white") +
+  scale_x_continuous(breaks = seq(2004, 2022, 2)) +
+  labs(
+    title    = "Voittajan kokonaispisteet 2004–2022",
+    subtitle = "Pisteet eivät ole suoraan vertailukelpoisia eri vuosien välillä\n(pisteytysjärjestelmä muuttui 2016, osallistujamäärä vaihtelee)",
+    x        = NULL,
+    y        = "Kokonaispisteet",
+    caption  = "Lähde: TidyTuesday / eurovision.csv (CC0)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title       = element_text(face = "bold", color = clr_navy),
+        plot.subtitle    = element_text(color = "grey40"),
+        panel.grid.minor = element_blank())
+
+p_hist / p_winners
+```
+
+## Historiallinen vahvuus: normalisoitu ranking
+
+```{r historical-strength}
+# Laske normalisoitu ranking per vuosi:
+# norm_rank = 1 - (rank-1)/(n-1), jolloin voittaja = 1, viimeinen = 0
+strength <- finals |>
+  group_by(year) |>
+  mutate(
+    n_countries = n(),
+    norm_rank   = 1 - (rank - 1) / (n_countries - 1)
+  ) |>
+  ungroup() |>
+  group_by(artist_country) |>
+  summarise(
+    mean_norm  = mean(norm_rank, na.rm = TRUE),
+    n_finals   = n(),
+    n_wins     = sum(rank == 1, na.rm = TRUE),
+    .groups    = "drop"
+  ) |>
+  filter(n_finals >= 3) |>
+  arrange(desc(mean_norm))
+
+# Plackett-Luce log-lineaarinen vahvuus
+# lambda_i = exp(theta_i), p_i = lambda_i / sum(lambda_j)
+strength <- strength |>
+  mutate(
+    theta    = qlogis(pmax(pmin(mean_norm, 0.99), 0.01)),
+    pl_wt    = exp(theta),
+    pl_prob  = pl_wt / sum(pl_wt)
+  )
+
+strength |>
+  slice_max(pl_prob, n = 20) |>
+  mutate(artist_country = fct_reorder(artist_country, pl_prob)) |>
+  ggplot(aes(x = artist_country, y = pl_prob)) +
+  geom_col(fill = clr_blue, alpha = 0.8) +
+  geom_col(
+    data = strength |>
+      slice_max(pl_prob, n = 20) |>
+      filter(n_wins > 0) |>
+      mutate(artist_country = fct_reorder(artist_country, pl_prob)),
+    fill = clr_red, alpha = 0.6
+  ) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.1)) +
+  coord_flip() +
+  labs(
+    title    = "Historiallinen Plackett-Luce -vahvuus (top 20)",
+    subtitle = "Sininen = kokonaisvahvuus | Punainen = voiton P-komponentti\nPerustuu normalisoituihin finaalisijoituksiin 2004–2022",
+    x        = NULL,
+    y        = "P(voitto | historiallinen vahvuus)",
+    caption  = "Plackett-Luce log-lineaarinen malli"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title    = element_text(face = "bold", color = clr_navy),
+        plot.subtitle = element_text(color = "grey40"))
+```
+
+## Monte Carlo: Wien 2026 voittajajakauma
+
+```{r monte-carlo}
+set.seed(2026)
+N_SIM <- 10000
+
+# Wien 2026 finalistit (25 maata)
+# Big-5 (Ranska, Saksa, Italia, Espanja, Iso-Britannia) + Itävalta (voittaja/isäntä)
+# + 10 SF1-läpäisijää + 10 SF2-läpäisijää
+finalistit <- c(
+  # Esikarsintamaattomat
+  "France", "Germany", "Italy", "Spain", "United Kingdom", "Austria",
+  # SF1 oletusläpäisijät
+  "Moldova", "Sweden", "Croatia", "Greece", "Portugal",
+  "Finland", "Estonia", "Israel", "Belgium", "Serbia",
+  # SF2 oletusläpäisijät
+  "Czech Republic", "Armenia", "Switzerland", "Latvia", "Denmark",
+  "Australia", "Ukraine", "Albania", "Norway", "Romania"
+)
+
+# Vahvuudet: historiallinen Plackett-Luce + asiantuntija-arvio Wien 2026
+# (vedonlyöntikertoimet parantaisivat tätä huomattavasti)
+get_strength <- function(country, str_df) {
+  val <- str_df |>
+    filter(artist_country == country) |>
+    pull(pl_wt)
+  if (length(val) == 0 || is.na(val[1])) return(1.0)
+  val[1]
+}
+
+base_strengths <- map_dbl(finalistit, get_strength, str_df = strength)
+
+# Asiantuntijalisä 2026: "Sweden", "Ukraine", "Norway" ovat vahvoja
+# (perustuu julkisiin vedonlyöntikertoimiin)
+expert_adj <- case_when(
+  finalistit %in% c("Sweden", "Norway")  ~ 1.8,
+  finalistit %in% c("Ukraine", "Armenia") ~ 1.5,
+  finalistit %in% c("Switzerland", "Croatia", "Estonia") ~ 1.3,
+  TRUE ~ 1.0
+)
+
+final_strengths <- base_strengths * expert_adj
+
+# Simulaatio: jokainen kierros = yksi finaali
+# 37 äänestäjää (maat + Rest of World), kukin jakaa 12-10-8-7-6-5-4-3-2-1
+simulate_final <- function(strengths, n_voters = 37) {
+  n <- length(strengths)
+  total <- rep(0L, n)
+  pts   <- c(12L, 10L, 8L, 7L, 6L, 5L, 4L, 3L, 2L, 1L)
+
+  for (i in seq_len(n_voters)) {
+    probs   <- strengths / sum(strengths)
+    top10   <- sample(n, size = 10, replace = FALSE, prob = probs)
+    ordered <- sample(top10)           # satunnaistaa järjestyksen sisällä
+    total[ordered] <- total[ordered] + pts
+  }
+  total
+}
+
+sim_mat <- matrix(0L, nrow = N_SIM, ncol = length(finalistit))
+colnames(sim_mat) <- finalistit
+
+for (i in seq_len(N_SIM)) {
+  sim_mat[i, ] <- simulate_final(final_strengths)
+}
+
+# Voittajatodennäköisyydet
+win_probs <- colMeans(sim_mat == apply(sim_mat, 1, max))
+
+# Visualisoi top-15
+tibble(country = finalistit, p_win = win_probs) |>
+  slice_max(p_win, n = 15) |>
+  mutate(country = fct_reorder(country, p_win)) |>
+  ggplot(aes(x = country, y = p_win)) +
+  geom_col(fill = clr_green, alpha = 0.85) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.1)) +
+  coord_flip() +
+  labs(
+    title    = glue::glue("Monte Carlo ({scales::comma(N_SIM)} simulaatiota): voittajajakauma Wien 2026"),
+    subtitle = paste0(
+      "Vahvuus = historiallinen Plackett-Luce + asiantuntija-arvio\n",
+      "Ei huomioi kappaleen laatua eikä live-esitystä"
+    ),
+    x        = NULL,
+    y        = "P(voittaa finaali)",
+    caption  = "Malli: Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title    = element_text(face = "bold", color = clr_navy),
+        plot.subtitle = element_text(color = "grey40"),
+        panel.grid.minor = element_blank())
+```
+
+```{r posterior-distributions}
+# Pisteytysdistribuutio top-6 finalistille
+top6 <- names(sort(win_probs, decreasing = TRUE))[1:6]
+
+as_tibble(sim_mat) |>
+  select(all_of(top6)) |>
+  pivot_longer(everything(), names_to = "country", values_to = "points") |>
+  mutate(country = factor(country, levels = top6)) |>
+  ggplot(aes(x = points, y = country, fill = country)) +
+  stat_halfeye(
+    .width          = c(0.80, 0.95),
+    point_interval  = median_qi,
+    normalize       = "panels",
+    show.legend     = FALSE
+  ) +
+  scale_fill_manual(
+    values = c(clr_red, clr_blue, clr_green, clr_orange, clr_navy, clr_blue)
+  ) +
+  labs(
+    title    = "Pisteytysdistribuutio top-6 finalistille",
+    subtitle = "Mediaani + 80% ja 95% uskottavuusintervallit (Monte Carlo)",
+    x        = "Simuloidut kokonaispisteet",
+    y        = NULL,
+    caption  = glue::glue("{scales::comma(N_SIM)} simulaatiota")
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.title    = element_text(face = "bold", color = clr_navy),
+        plot.subtitle = element_text(color = "grey40"))
+```
+
+## Yhteenveto: kolmen päivän jakauma-analyysi
+
+Viikon aikana olemme nähneet, että Euroviisut on **kolmiulotteinen
+jakaumaongelma**:
+
+1. **Tiistai:** Esiintymisjärjestys luo epätasaisen todennäköisyysjakauman
+   – loppupuolen esittäjät hyötyvät muistiharhoista (bayesilainen
+   logistinen regressio)
+2. **Torstai:** Äänestysverkosto on kompositionaalinen – Louvain-algoritmi
+   tunnistaa blokit, korrelaatiomatriisi paljastaa rakenteen
+3. **Lauantai:** Voittajan pisteytys ei ole normaalijakautunut –
+   Monte Carlo -simulaatio tuottaa voittajajakauman pisteineen
+
+::: callout-important
+## Miksi tämä on tärkeää?
+
+Julkisessa keskustelussa kysytään "kuka voittaa?" Oikea kysymys on:
+**mikä on voittajajakauma, ja kuinka leveä se on?**
+
+Ruotsi voi voittaa todennäköisyydellä X – mutta epävarmuus on
+huomattava. Pistemäinen ennuste ilman jakaumaa on harhaanjohtava.
+
+Tämä on "maailma on jakauma" -periaatteen ydin.
+:::
+
+---
+
+*Kristian Vepsäläinen on data science -konsultti Siilinjärveltä,
+erikoistunut bayeslaiseen analytiikkaan ja avoimeen dataan.
+Tarvitsetko fractional Head of Data -palvelun pk-yrityksellesi? →
+[kristianvepsalainen.com](https://kristianvepsalainen.com)*

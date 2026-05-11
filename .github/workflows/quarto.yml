@@ -57,6 +57,7 @@ jobs:
 
           pak::pak(c(
             "eurostat",
+            "corrplot",
             "dplyr",
             "tsibble",
             "ggplot2",
@@ -77,6 +78,7 @@ jobs:
             "igraph",
             "ggtext",
             "tidybayes",
+            "tidygraph",
             "broom",
             "data.table",
             "glue",

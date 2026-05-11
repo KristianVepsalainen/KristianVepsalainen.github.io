@@ -96,6 +96,7 @@ jobs:
             "patchwork", 
             "acledR",
             "modelsummary",
+            "rstanarm",
             "zoo",
             "treemapify",
             "eurlex",

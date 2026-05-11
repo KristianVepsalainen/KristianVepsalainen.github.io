@@ -117,27 +117,34 @@ voidaan varmistaa, että jokainen on kokonainen.
 Tarkastelu rajataan vuoteen 2024, koska voidaan olettaa, että kyseinä vuonna annetut säädökset ovat ehtineet mennä koko prosessin läpi. Vuosien 2025 ja 2026 mukaan ottaaminen johtaisi siihen, että kaikki kuvaajat tekisivät voimakkaan piikin alaspäin, koska näiden osalta prosessit ovat vielä kesken. Näiden vuosien mukanaolo antaisi lukijalle väärän kuvan datasta.
 
 ```{r hae_data}
-tyypit <- c("regulation", "directive", "decision", "recommendation")
+#| label: hae_data
+#| cache: false   # tärkeä: ei cacheta, koska logiikka on tiedostopohjainen
 
-hae_tyyppi <- function(tyyppi) {
-  message("Haetaan: ", tyyppi)
-  tulos <- elx_make_query(
-    resource_type = tyyppi,
-    include_date  = TRUE,
-    include_force = TRUE,
-    include_celex = TRUE
-  ) |> elx_run_query()
+data_path <- here::here("data/eu/eu_saadanto_raw.rds")
 
-  cat(tyyppi, ":", nrow(tulos), "riviä —",
-      if (nrow(tulos) == 1e6) "*** RAJA OSUI — DATA KATKAISTUA ***\n"
-      else "ok\n")
-
-  tulos |> mutate(resource_type = tyyppi)
+if (!file.exists(data_path)) {
+  tyypit <- c("regulation", "directive", "decision", "recommendation")
+  
+  hae_tyyppi <- function(tyyppi) {
+    message("Haetaan: ", tyyppi)
+    tulos <- elx_make_query(
+      resource_type = tyyppi,
+      include_date  = TRUE,
+      include_force = TRUE,
+      include_celex = TRUE
+    ) |> elx_run_query()
+    tulos |> mutate(resource_type = tyyppi)
+  }
+  
+  raw <- map(tyypit, hae_tyyppi) |> bind_rows()
+  dir.create(dirname(data_path), showWarnings = FALSE, recursive = TRUE)
+  saveRDS(raw, data_path)
+  message("Data haettu ja tallennettu: ", nrow(raw), " riviä")
+  
+} else {
+  raw <- readRDS(data_path)
+  message("Data ladattu tiedostosta: ", nrow(raw), " riviä")
 }
-
-raw_list <- map(tyypit, hae_tyyppi)
-raw      <- bind_rows(raw_list)
-
 #cat("\nYhteensä:", nrow(raw), "riviä neljästä asiakirjatyypistä\n")
 ```
 

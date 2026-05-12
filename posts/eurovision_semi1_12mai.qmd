@@ -3,7 +3,6 @@ title: "Euroviisut 2026: Esiintymisjärjestys on kohtalo – semifinaalin 1 jaka
 subtitle: "Maailma on jakauma – myös se, milloin lavalle astut"
 author: "Kristian Vepsäläinen"
 date: "2026-05-12"
-draft: true
 lang: fi
 format:
   html:

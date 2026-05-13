@@ -1,35 +1,3 @@
-project:
-  type: website
-
-website:
-  title: "Kristian Vepsäläinen – Maailma on jakauma"
-  site-url: https://kristianvepsalainen.com
-  repo-url: https://github.com/KristianVepsalainen/KristianVepsalainen.github.io
-
-  navbar:
-    left:
-      - href: index.qmd
-        text: Etusivu
-      - href: blog.qmd
-        text: Blogi
-      - href: about.qmd
-        text: Minusta
-      - href: pricing.qmd
-        text: Hinnoittelu
-
-  page-footer:
-    left: "© 2026 Kristian Vepsäläinen"
-
-  sidebar:
-    style: docked
-
-  open-graph: true
-  twitter-card: true
-  reader-mode: true
-
-  search: true
-  page-navigation: true
-
   comments:
     giscus:
       repo: KristianVepsalainen/KristianVepsalainen.github.io
@@ -40,7 +8,7 @@ website:
       reactions-enabled: true
       input-position: bottom
       theme: light
-
+ 
 format:
   html:
     theme:
@@ -49,18 +17,17 @@ format:
     toc: true
     toc-depth: 3
     code-copy: true
+    code-fold: true
+    code-tools: true
     smooth-scroll: true
     anchor-sections: true
     link-external-newwindow: true
-    code-tools: true
     fig-responsive: true
     image-lazy-loading: true
-    permalink: /posts/{slug}.html
-
+ 
 execute:
   freeze: auto
   cache: true
   warning: false
   message: false
   echo: false
-  code-fold: true

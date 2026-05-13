@@ -1,9 +1,16 @@
 ---
 title: "Blogi"
-
 listing:
   contents: posts
   type: default
   sort: "date desc"
   feed: true
+  fields: [date, title, reading-time, description, categories]
+  categories: true
+  sort-ui: true
+  filter-ui: true
 ---
+
+Kirjoitan datasta, jakaumista ja epävarmuudesta — siitä, mitä julkisesta datasta voi oppia, kun katsoo pidemmälle kuin keskiarvoon. Erityisesti kiinnostavat bayeslaiset menetelmät, ennustemallit ja avoimen datan yllättävät yhdistelmät.
+
+Kohderyhmä: päätöksentekijät, analyytikot ja tutkijat, joita kiinnostaa miten avointa dataa hyödynnetään ilman pelkkiä piste-estimaatteja.

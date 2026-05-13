@@ -1,6 +1,7 @@
 ---
 title: "Minusta"
 ---
+
 ::: {.columns .v-center}
 
 ::: {.column width="35%"}
@@ -8,33 +9,60 @@ title: "Minusta"
 :::
 
 ::: {.column width="65%"}
-Olen Kristian Vepsäläinen, kokenut datatieteilijä, joka vaikuttaa tällä hetkellä pääsääntöisesti Pohjois-Savon alueella. 
+Olen Kristian Vepsäläinen, kokenut datatieteilijä. Toimin koko Suomen alueella etänä, fyysisesti tavattavissa Pohjois-Savossa.
+:::
 
-Jos ihmettelet sloganiani, "Maailma on jakauma", se kuvastaa filosofiaani, jonka mukaan mikä tahansa asia maailmassa on kuvattavissa jollain jakaumalla. Yleensä kuitenkin ihmiset näkevät ilmöistä lähinnä keskiarvoja ja ehkä mediaaneja, mutta vasta jakauma antaa todenmukaisen kuvan siitä, mistä asiassa on oikeasti kyse (ja mistä ei ole). Juuri nämä jakaumat ovat olennaisia todellisuuden ymmärtämisessä. Valitettavasti niitä raportoidaan julkisesti harvoin. Suurin osa maailman avoimesta datasta on piste-estimaatteja, eivät jakaumia. Yksi elämäni missioista on saada tähän muutos ja avoimesta datasta hyödyllisempää jokaiselle.
+:::
 
-Olen opiskellut matematiikkaa,tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa. Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta. Graudni tein liittyen kansantalouden tilinpitoon ja julkaisin siitä [artikkelin](https://arxiv.org/abs/2012.11282).
+## Slogan: *maailma on jakauma*
 
-Työurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finassialalla.
+Slogani kuvastaa filosofiaani, jonka mukaan mikä tahansa asia maailmassa on kuvattavissa jollain jakaumalla. Yleensä ihmiset näkevät ilmiöistä lähinnä keskiarvoja ja ehkä mediaaneja, mutta vasta jakauma antaa todenmukaisen kuvan siitä, mistä asiassa on oikeasti kyse — ja mistä ei ole.
 
-Aloitin työurani jo opiskeluaikana tekemällä matematiikan, fysiikan ja kemian opettajan sijaisuuksia ympäri Itä-Suomea. Tämän jälkeen siirryin Uudellemaalle työskentelemään Sosiaalitaito Oy:llä, jossa tein monipuolista analytiikkaa liittyen Länsi- ja Keski-Uudenmaan sosiaalihuoltoon. Julkaisin tänä aikana myös toisen tieteellisen [artikkelini](https://www.proquest.com/openview/e6cf40d07201be8b1fa8330049145da9/).
+Suurin osa maailman avoimesta datasta on piste-estimaatteja, eivät jakaumia. Yksi elämäni missioista on saada tähän muutos ja tehdä avoimesta datasta hyödyllisempää jokaiselle.
 
-Seuraavaksi siirryin Terveyden ja hyvinvoinnin laitokselle eli THL:lle töihin. THL:llä toimin lukuisissa eri projekteissa datatieteilijänä. Projekteista osa oli talon sisäisiä ja osa oli ulkoisten toimijoiden (sekä yksityisiä yrityksiä että muita valtionhallinnon toimoijta) kanssa yhteistyöprojekteja. Näistä projekteista syntyi myös seuraavat tieteelliset artikkelit
+## Koulutus
+
+Olen opiskellut matematiikkaa, tilastotiedettä ja tietojenkäsittelytiedettä Itä-Suomen yliopistossa (FM, pääaineena matematiikka). Lisäksi minulla on kyberturvallisuusinsinöörin ylempi ammattikorkeakoulututkinto Jyväskylän ammattikorkeakoulusta (MEng). Gradun tein liittyen kansantalouden tilinpitoon ja julkaisin siitä [artikkelin](https://arxiv.org/abs/2012.11282). Kyberturvallisuuden opinnäytetyö liittyi avoimien lähteiden tiedusteluun (OSINT).
+
+## Työkokemus
+
+Työurani olen tehnyt pääasiassa sensitiivisen datan parissa terveydenhuollossa ja finanssialalla.
+
+**Opetus (Itä-Suomi)**
+
+Aloitin työurani opiskeluaikana tekemällä matematiikan, fysiikan ja kemian opettajan sijaisuuksia ympäri Itä-Suomea.
+
+**Sosiaalitaito Oy — tilastollinen asiantuntija**
+
+Vastasin Länsi- ja Keski-Uudenmaan kuntien sosiaalihuollon tilastotuotannosta — usean kunnan datan yhdistämisestä ja vuosittaisesta raportoinnista kuntien päätöksenteon tueksi. Julkaisin tänä aikana myös tieteellisen [artikkelin](https://www.proquest.com/openview/e6cf40d07201be8b1fa8330049145da9/).
+
+**Terveyden ja hyvinvoinnin laitos (THL) — tilastotutkija**
+
+Toimin lukuisissa projekteissa datatieteilijänä. Osa projekteista oli talon sisäisiä, osa yhteistyöprojekteja yksityisten yritysten ja muiden valtionhallinnon toimijoiden kanssa. Tämän kauden tuloksena syntyivät seuraavat vertaisarvioidut artikkelit:
 
 - [Predicting utilization of healthcare services from individual disease trajectories using RNNs with multi-headed attention](https://proceedings.mlr.press/v116/kumar20a.html)
 - [Assessing health gradient with different equivalence scales for household income – A sensitivity analysis](https://www.sciencedirect.com/science/article/pii/S2352827321001671)
 - [Impact of a Conformité Européenne (CE) Certification–Marked Medical Software Sensor on COVID-19 Pandemic Progression Prediction: Register-Based Study Using Machine Learning Methods](https://formative.jmir.org/2022/3/e35181)
 
-sekä konferenssiesitys Assessing the Quality of Finnish Primary Health Care Registers, jonka pidin  konferenssissa 9th Nordic Conference of Epidemiology and Register-Based Health Research Tampereen yliopistolla vuonna 2019.
+Lisäksi pidin konferenssiesityksen *Assessing the Quality of Finnish Primary Health Care Registers* tapahtumassa *9th Nordic Conference of Epidemiology and Register-Based Health Research* Tampereen yliopistolla 2019.
 
-THL:tä siirryin finanssialalle data-analyytikoksi. Finanssialan kokemukseni liittyy pääasiassa erilaisten compliance-kysymysten analytiikkaan. Samaan aikaan perustin toiminimen, jolla olen tehnyt erilaisia sivuprojekteja.Näistä sivuprojekteista pitkäkestoisin on ollut Tampereen yliopistosairaalan Silmätautikeskuksen kanssa tehdyt projektit, joissa on tehty benchmarking-menetelmä glaukooman hoitoon. Tässä on syntynyt myös kaksi tieteellistä artikkelia:
+**Finanssiala — data scientist**
+
+Siirryin THL:ltä finanssialalle data scientistiksi. Kokemukseni liittyy pääasiassa erilaisten compliance-kysymysten analytiikkaan.
+
+**Oma toiminimi — sivuprojektit ja akateemiset yhteistyöt**
+
+Samaan aikaan perustin toiminimen, jolla olen tehnyt erilaisia projekteja. Pitkäkestoisin on ollut yhteistyö Tampereen yliopistosairaalan Silmätautikeskuksen kanssa: rakensin benchmarking-menetelmän, jolla suomalaiset silmäyksiköt voivat verrata glaukooman hoitotuloksiaan kansallisesti. Tästä syntyi kaksi tieteellistä artikkelia:
+
 - [Users of reimbursed glaucoma medications in Finland in 1986–2023: A nationwide study](https://onlinelibrary.wiley.com/doi/10.1111/aos.16803)
 - [Prototype master protocol for benchmarking of real-world follow-up data in glaucoma](https://onlinelibrary.wiley.com/doi/full/10.1111/aos.17453)
 
-Olen antanyt myös yksityisopetusta matematiikan ja tilastotieteen aloilla ammattikorkeakoulu- ja yliopisto-opiskeljoille. 
+Olen antanut myös yksityisopetusta matematiikan ja tilastotieteen aloilla ammattikorkeakoulu- ja yliopisto-opiskelijoille.
 
-Suoritin tänä aikana myös mainitsemani kyberturvallisuusinsinöörin tutkinnon johon liittyen tein opinnäytetyön, joka liittyi avoimien lähteiden tiedusteluun (OSINT).
+## Tulevaisuus
 
-Tulevaisuuden tavoitteni on siirtyä täyspäiväiseksi yrittäjäksi data-analytiikan alalla.
+Tulevaisuuden tavoitteeni on siirtyä täyspäiväiseksi yrittäjäksi data-analytiikan alalla. Fokuksessa on avoimen ja simuloidun datan monipuolinen, yllättävä käyttö pk-yritysten päätöksenteon tukena — ja fractional Head of Data -roolit, joissa pk-yritys saa kokeneen datajohtajan ilman täysipäiväisen palkkaa.
 
+---
 
-Jos sinulla on kiinnostusta projektiin, älä epäröi ottaa yhteyttä kristian.vepsalainen@proton.me
+Jos pohdit, voisiko avoimesta datasta löytyä etua organisaatiollesi — tai etsitkö fractional Head of Dataa joka osaa myös koodata mallit itse — laita viestiä: **kristian.vepsalainen@proton.me**

@@ -1,19 +1,45 @@
 ---
 title: "Palvelut ja hinnoittelu"
 ---
+
 ## Avoin data kilpailuetuna
 
-Autan yrityksiä ja organisaatioita löytämään ja hyödyntämään avointa dataa päätöksenteossa.
-Työni yhdistää avoimen datan kartoituksen, analyysin ja liiketoimintalähtöisen tulkinnan.
+Autan yrityksiä ja organisaatioita löytämään ja hyödyntämään avointa dataa päätöksenteossa. Työni yhdistää avoimen datan kartoituksen, tilastollisen analyysin ja liiketoimintalähtöisen tulkinnan.
 
-Palvelut on suunniteltu niin, että ne tuottavat konkreettisen lopputuloksen:
-paremman ymmärryksen markkinasta, riskeistä tai kasvumahdollisuuksista.
+Palvelut on suunniteltu niin, että ne tuottavat konkreettisen lopputuloksen: paremman ymmärryksen markkinasta, riskeistä tai kasvumahdollisuuksista — ja sen, mitä päätöksissä ei vielä tiedetä.
 
+**Erityisalueet:** terveydenhuolto, lääketeollisuus, tutkimusorganisaatiot, julkinen sektori.
 
+---
 
 # Palvelupaketit
 
-## Open Data Scan
+## Fractional Head of Data
+
+Datavetoisen päätöksenteon johtaminen pk-yrityksessä ilman täysipäiväisen johtajan palkkaa. Sopii organisaatiolle, joka tarvitsee datan ja analytiikan strategista omistajaa, mutta jolle täyspäiväinen Head of Data ei ole vielä järkevä investointi.
+
+**Sisältö**
+
+* Datastrategian rakentaminen ja ylläpito
+* Mallien ja analyysien priorisointi liiketoiminnan tavoitteiden mukaan
+* Sisäisen datatiimin (1–3 hlö) ohjaus ja sparraus
+* Avainkysymysten tilastollinen analyysi
+* Kuukausittainen johdon raportointi — epävarmuus mukaan luettuna
+* Sopimuksellinen tavoitettavuus sovittuina päivinä
+
+**Kesto**
+
+6–18 kuukautta, 2–6 päivää kuukaudessa
+
+**Hinta**
+
+4 500 – 12 000 € + alv / kk
+
+*Esimerkki: terveydenhuollon kasvuyritys, joka tarvitsee datajohtajan strategiaa varten ennen ensimmäisen oman analyytikon palkkaamista.*
+
+---
+
+## Avoimen datan kartoitus
 
 Ensimmäinen askel organisaatiolle, joka haluaa selvittää, mitä avoimesta datasta voidaan oppia.
 
@@ -33,11 +59,11 @@ Ensimmäinen askel organisaatiolle, joka haluaa selvittää, mitä avoimesta dat
 
 **Hinta**
 
-7 000 – 15 000 € + alv
+8 500 € + alv (kiinteä hinta)
 
 ---
 
-## Strategic Open Data Project
+## Strateginen avoimen datan projekti
 
 Syvällinen analyysiprojekti, jossa avoimesta datasta rakennetaan päätöksenteon työkaluja.
 
@@ -45,7 +71,7 @@ Syvällinen analyysiprojekti, jossa avoimesta datasta rakennetaan päätöksente
 
 * Avoimen datan laaja kartoitus
 * Datan yhdistely ja rikastaminen
-* Tilastollinen mallinnus
+* Tilastollinen mallinnus, mukaan lukien bayeslaiset menetelmät
 * Skenaario- ja epävarmuusanalyysi
 * Replikoitava analyysikoodi
 * Johtopäätökset ja strategiset suositukset
@@ -57,11 +83,11 @@ Syvällinen analyysiprojekti, jossa avoimesta datasta rakennetaan päätöksente
 
 **Hinta**
 
-20 000 – 60 000 € + alv
+25 000 – 45 000 € + alv
 
 ---
 
-## Executive Workshop
+## Johdon työpaja
 
 Johdolle suunnattu työpaja avoimen datan hyödyntämisestä.
 
@@ -86,8 +112,7 @@ Johdolle suunnattu työpaja avoimen datan hyödyntämisestä.
 
 ## Tarjous ja sopimus
 
-Jokainen projekti käynnistyy kirjallisella tarjouksella ja tilausvahvistuksella.
-Tarjous sisältää työn laajuuden, aikataulun ja hinnan.
+Jokainen projekti käynnistyy kirjallisella tarjouksella ja tilausvahvistuksella. Tarjous sisältää työn laajuuden, aikataulun ja hinnan.
 
 ---
 
@@ -98,6 +123,7 @@ Tarjous sisältää työn laajuuden, aikataulun ja hinnan.
 
   * 50 % projektin alussa
   * 50 % projektin valmistuessa
+* Fractional Head of Data: laskutus kuukausittain
 
 ---
 
@@ -111,8 +137,7 @@ Projektin aikataulu voi muuttua, jos tarvittavia tietoja ei ole saatavilla.
 
 ## Avoin data ja lähteet
 
-Analyysit perustuvat pääosin avoimiin ja julkisiin tietolähteisiin.
-Lähteet dokumentoidaan raportissa mahdollisimman läpinäkyvästi.
+Analyysit perustuvat pääosin avoimiin ja julkisiin tietolähteisiin. Lähteet dokumentoidaan raportissa mahdollisimman läpinäkyvästi.
 
 ---
 
@@ -126,8 +151,7 @@ Analyysimenetelmät, koodi ja yleinen osaaminen jäävät palveluntarjoajan käy
 
 ## Vastuun rajaus
 
-Analyysit perustuvat saatavilla olevaan dataan ja parhaaseen mahdolliseen asiantuntija-arvioon.
-Tuloksia ei tule tulkita sitovina ennusteina tai taloudellisina suosituksina.
+Analyysit perustuvat saatavilla olevaan dataan ja parhaaseen mahdolliseen asiantuntija-arvioon. Tuloksia ei tule tulkita sitovina ennusteina tai taloudellisina suosituksina.
 
 Palveluntarjoajan vastuu rajoittuu projektin arvoon.
 
@@ -141,7 +165,7 @@ Kaikki asiakkaalta saatu tieto käsitellään luottamuksellisesti.
 
 # Ota yhteyttä
 
-Jos haluat keskustella, voisiko avoimesta datasta olla hyötyä organisaatiosi päätöksenteossa, ota yhteyttä.
+Jos haluat keskustella, voisiko avoimesta datasta olla hyötyä organisaatiosi päätöksenteossa — tai etsitkö fractional Head of Dataa pk-yrityksellesi — ota yhteyttä.
 
 Yhteydenotot:
-kristian.vepsalainen@proton.me
+**kristian.vepsalainen@proton.me**

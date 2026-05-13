@@ -1,5 +1,5 @@
 ---
-title: "Kristian Vepsäläinen - Maailma on jakauma"
+title: "Kristian Vepsäläinen — Datatieteen konsultti"
 format:
   html:
     toc: false
@@ -13,17 +13,28 @@ format:
 
 ::: {.column width="65%"}
 
-Datatiede ja tilastollinen mallinnus 
+**Datatieteen konsultti — fractional Head of Data pk-yrityksille**
 
-Rakennan tilastollisia malleja ja dataohjautuvia ratkaisuja, jotka muttavat analyysin päätöksiksi.
+FM (matematiikka, Itä-Suomen yliopisto), MEng (kyberturvallisuus, JAMK).
+10+ vuotta dataa terveydenhuollossa ja finanssialalla.
+5 vertaisarvioitua tieteellistä julkaisua.
 
+Rakennan tilastollisia malleja, jotka muuttavat avoimen datan päätöksiksi ja epävarmuuden euroiksi.
+
+Asiakkaita mm. Tampereen yliopistosairaala (Silmätautikeskus), Uumajan yliopisto, Terveyden ja hyvinvoinnin laitos.
+
+:::
+
+:::
+
+---
 
 # Data, päätöksenteko ja epävarmuus
 
-Suurin osa organisaatioista käyttää dataa raportointiin.  
+Suurin osa organisaatioista käyttää dataa raportointiin.
 Minä rakennan malleja, joilla tehdään päätöksiä.
 
-Erikoistun ennustemallinnukseen, kausaalianalyysiin ja päätöksenteon kvantifiointiin.
+Erikoistun ennustemallinnukseen, kausaalianalyysiin ja epävarmuuden kvantifiointiin — eli sen näkyväksi tekemiseen, kuinka varma malli oikeasti on.
 
 ---
 
@@ -38,56 +49,46 @@ Autan organisaatioita:
 
 Työskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia.
 
+**Etsitkö fractional Head of Dataa pk-yrityksellesi?** → [Palvelut ja hinnoittelu](/pricing.qmd)
+
 ---
 
-## Ajatteluni ydin
+## Ajatteluni ydin — *maailma on jakauma*
 
 Datatiede ei ole algoritmien valintaa.
 
-Se on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi.
+Se on epävarmuuden mallintamista, vaihtoehtoisten maailmojen vertaamista ja riskin tekemistä näkyväksi. Yksi piste-estimaatti ei riitä — vasta jakauma kertoo mitä päätöksenteossa oikeasti on pelissä.
 
-Tilastollinen mallinnus on väline – ei itseisarvo.
+Tilastollinen mallinnus on väline — ei itseisarvo.
 
 ---
 
 ## Ydinkyvykkyydet
 
-### Tilastolliset mallit
-- Lienaariset ja yleiset lienaariset mallit
-- Hierarkiset mallit
-- Bayeslainen tilastotiede  
+### Ennustaminen ja päätösanalyysi
+- Bayeslainen tilastotiede ja hierarkkiset mallit
+- Yleistetyt lineaariset mallit (GLM, GAM)
+- Kausaalianalyysi ja interventioiden vaikuttavuuden arviointi
+- Monte Carlo -simulointi ja skenaarioanalyysi
 
+### Avoimen ja simuloidun datan analytiikka
+- Tilastokeskus (StatFin PXWeb), Eurostat, Vipunen
+- Semantic Finlex (SPARQL), EurLex
+- OSINT ja monilähteinen datan yhdistely
+- Replikoitavat ja avoimet analyysit
 
 ### Koneoppiminen ja mallien validointi
-- Ohjattu ja ohjaamton oppminen
-  - Neuroverkot
-  - Gradient boosting
-  - Päätöspuuut
-- Feature engineering  
-- Cross-validation frameworks 
-- Mallien diagnostiikka ja validointi  
+- Ohjattu ja ohjaamaton oppiminen
+- Gradient boosting, päätöspuut, neuroverkot
+- Feature engineering
+- Mallien diagnostiikka ja ristiinvalidointi
 
-### Tekoäly 
-- Suuret kielimallit
-- ChatGPT
-- Claude
-- Tekoälyagentit
-- n8n automaatiot
-
-### Data workflow
-- SQL  
-- Automated data pipelines  
-- Versionhallinta (Git)  
-- Quarto-Pohjainen raportointi
-- Python
-- R
-- PowerBI
-
-### Päätöksen tuki ja viesintä
-- Vaativa raportointi
-- Datan visualisointi 
-- Tulosten viestintä työntekijöille, asiakkaille ja muille tahoille
-- Kaikkien edellä mainittujen asioiden koulutus
+### Tuotanto, tiimi ja viestintä
+- R, Python, SQL, Quarto-pohjainen raportointi
+- Versionhallinta (Git), automatisoidut data-putket
+- Power BI
+- Tulosten viestintä johdolle, asiakkaille ja sidosryhmille
+- Tiimin sparraus ja koulutus
 
 ---
 
@@ -107,8 +108,6 @@ Blogissani käsittelen:
 
 ## Yhteystiedot
 
-Yhteydenotot: kristian.vepsalainen@proton.me
+Yhteydenotot: **kristian.vepsalainen@proton.me**
 
 Avoin keskusteluille, projekteille ja yhteistyölle.
-
-

@@ -1,3 +1,53 @@
+project:
+  type: website
+
+website:
+  title: "Kristian Vepsäläinen – Maailma on jakauma"
+  description: "Datatieteen konsultointi pk-yrityksille. Avoimen datan analytiikka, bayeslainen mallinnus ja fractional Head of Data -palvelut."
+  site-url: https://kristianvepsalainen.com
+  repo-url: https://github.com/KristianVepsalainen/KristianVepsalainen.github.io
+  repo-actions: [edit, issue]
+  repo-branch: main
+  favicon: images/favicon.png
+  open-graph: true
+  twitter-card: true
+  reader-mode: true
+  search: true
+  page-navigation: true
+
+  navbar:
+    left:
+      - href: index.qmd
+        text: Etusivu
+      - href: pricing.qmd
+        text: Palvelut
+      - href: blog.qmd
+        text: Blogi
+      - href: about.qmd
+        text: Minusta
+    right:
+      - text: "Ota yhteyttä"
+        href: "mailto:kristian.vepsalainen@proton.me"
+      - icon: linkedin
+        href: https://www.linkedin.com/in/kristian-vepsäläinen
+        aria-label: LinkedIn
+      - icon: github
+        href: https://github.com/KristianVepsalainen
+        aria-label: GitHub
+      - icon: rss
+        href: blog.xml
+        aria-label: RSS
+
+  page-footer:
+    left: "© 2026 Kristian Vepsäläinen"
+    right:
+      - icon: envelope
+        href: "mailto:kristian.vepsalainen@proton.me"
+      - icon: linkedin
+        href: https://www.linkedin.com/in/kristian-vepsäläinen
+      - icon: github
+        href: https://github.com/KristianVepsalainen
+
   comments:
     giscus:
       repo: KristianVepsalainen/KristianVepsalainen.github.io
@@ -8,7 +58,7 @@
       reactions-enabled: true
       input-position: bottom
       theme: light
- 
+
 format:
   html:
     theme:
@@ -24,7 +74,7 @@ format:
     link-external-newwindow: true
     fig-responsive: true
     image-lazy-loading: true
- 
+
 execute:
   freeze: auto
   cache: true

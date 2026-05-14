@@ -1,0 +1,515 @@
+/*
+ * kristian-theme.css
+ * Kristian Vepsäläinen — maailma on jakauma
+ * Quarto custom stylesheet
+ *
+ * Käyttö _quarto.yml:ssä:
+ *   format:
+ *     html:
+ *       css: kristian-theme.css
+ *       theme: [flatly, kristian-theme.css]
+ *
+ * TAI theme: cosmo pohjana, lisää css: kristian-theme.css
+ */
+
+/* ─── Google Fonts ─────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Source+Sans+3:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ─── Värimuuttujat ─────────────────────────────────────────────────────────── */
+:root {
+  --kv-red:    #e63946;
+  --kv-teal:   #2a9d8f;
+  --kv-orange: #f4a261;
+  --kv-navy:   #1d3557;
+  --kv-blue:   #457b9d;
+  --kv-light:  #f8f9fa;
+  --kv-white:  #ffffff;
+  --kv-gray1:  #f1f3f5;
+  --kv-gray2:  #dee2e6;
+  --kv-gray3:  #868e96;
+  --kv-text:   #212529;
+  --kv-muted:  #495057;
+
+  /* Typografia */
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body:    'Source Sans 3', sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+
+  /* Spacing */
+  --section-gap: 4rem;
+}
+
+/* ─── Perusasettelu ─────────────────────────────────────────────────────────── */
+body {
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  line-height: 1.75;
+  color: var(--kv-text);
+  background-color: var(--kv-white);
+}
+
+/* ─── Navigaatio ────────────────────────────────────────────────────────────── */
+.navbar {
+  background-color: var(--kv-navy) !important;
+  border-bottom: 3px solid var(--kv-red);
+  padding: 0.8rem 1.5rem;
+}
+
+.navbar-brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--kv-white) !important;
+  letter-spacing: 0.02em;
+}
+
+.navbar-nav .nav-link {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: rgba(255,255,255,0.85) !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.5rem 1rem !important;
+  transition: color 0.2s ease;
+}
+
+.navbar-nav .nav-link:hover,
+.navbar-nav .nav-link.active {
+  color: var(--kv-orange) !important;
+}
+
+/* ─── Hero-otsikko (etusivu) ────────────────────────────────────────────────── */
+#quarto-content > * > h1:first-of-type,
+.quarto-title h1,
+h1.title {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.2rem);
+  font-weight: 900;
+  color: var(--kv-navy);
+  line-height: 1.15;
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+/* Punainen korostusviiva otsikon alle */
+h1.title::after,
+#quarto-content > * > h1:first-of-type::after {
+  content: '';
+  display: block;
+  width: 4rem;
+  height: 4px;
+  background: var(--kv-red);
+  margin-top: 0.75rem;
+  border-radius: 2px;
+}
+
+/* ─── Otsikkohierarkia ──────────────────────────────────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  color: var(--kv-navy);
+  font-weight: 700;
+}
+
+h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); line-height: 1.2; }
+h2 { font-size: clamp(1.4rem, 3vw, 2rem);   line-height: 1.25; border-bottom: 2px solid var(--kv-gray2); padding-bottom: 0.4rem; margin-top: 3rem; }
+h3 { font-size: 1.25rem; color: var(--kv-blue); font-style: italic; margin-top: 2rem; }
+h4 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--kv-muted); }
+
+/* ─── Kappaleet ja tekstielementit ─────────────────────────────────────────── */
+p {
+  margin-bottom: 1.25rem;
+  color: var(--kv-text);
+}
+
+strong {
+  font-weight: 600;
+  color: var(--kv-navy);
+}
+
+em {
+  font-style: italic;
+  color: var(--kv-blue);
+}
+
+/* ─── Linkit ────────────────────────────────────────────────────────────────── */
+a {
+  color: var(--kv-blue);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+a:hover {
+  color: var(--kv-red);
+  border-bottom-color: var(--kv-red);
+}
+
+/* ─── Listat ────────────────────────────────────────────────────────────────── */
+ul, ol {
+  padding-left: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+ul li, ol li {
+  margin-bottom: 0.4rem;
+  padding-left: 0.25rem;
+}
+
+ul li::marker {
+  color: var(--kv-red);
+}
+
+ol li::marker {
+  color: var(--kv-blue);
+  font-weight: 600;
+}
+
+/* ─── Erottimet ─────────────────────────────────────────────────────────────── */
+hr {
+  border: none;
+  border-top: 2px solid var(--kv-gray2);
+  margin: var(--section-gap) 0;
+}
+
+/* ─── Koodi ─────────────────────────────────────────────────────────────────── */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background-color: var(--kv-gray1);
+  color: var(--kv-navy);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  border: 1px solid var(--kv-gray2);
+}
+
+pre {
+  background-color: var(--kv-navy);
+  color: #e8edf3;
+  border-radius: 8px;
+  padding: 1.5rem;
+  overflow-x: auto;
+  font-size: 0.88rem;
+  border-left: 4px solid var(--kv-teal);
+  box-shadow: 0 4px 12px rgba(29,53,87,0.15);
+}
+
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+/* ─── Kuvaajat ja kuvat ─────────────────────────────────────────────────────── */
+img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+/* Profiilikuva pyöreäksi */
+.img-fluid.rounded,
+img[src*="kristian-vepsalainen"] {
+  border-radius: 50% !important;
+  border: 4px solid var(--kv-navy);
+  box-shadow: 0 8px 24px rgba(29,53,87,0.2);
+  max-width: 220px;
+}
+
+/* ─── Lainaukset / calloutit ────────────────────────────────────────────────── */
+blockquote {
+  border-left: 4px solid var(--kv-teal);
+  background: var(--kv-gray1);
+  padding: 1.25rem 1.5rem;
+  margin: 2rem 0;
+  border-radius: 0 6px 6px 0;
+  font-style: italic;
+  color: var(--kv-muted);
+}
+
+/* ─── Callout-box: maailma on jakauma -lainaus ──────────────────────────────── */
+.callout {
+  border-left: 5px solid var(--kv-red);
+  background: linear-gradient(135deg, #fff5f5 0%, #fff 100%);
+  border-radius: 0 8px 8px 0;
+  padding: 1.5rem 2rem;
+  margin: 2.5rem 0;
+  box-shadow: 0 2px 8px rgba(230,57,70,0.08);
+}
+
+.callout-header {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--kv-red);
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.5rem;
+}
+
+/* ─── CTA-napit ─────────────────────────────────────────────────────────────── */
+.btn-primary,
+a.btn {
+  background-color: var(--kv-red);
+  border-color: var(--kv-red);
+  color: var(--kv-white);
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 0.65rem 1.75rem;
+  border-radius: 4px;
+  transition: background-color 0.2s, transform 0.15s, box-shadow 0.2s;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+}
+
+.btn-primary:hover,
+a.btn:hover {
+  background-color: var(--kv-navy);
+  border-color: var(--kv-navy);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(29,53,87,0.25);
+}
+
+/* ─── Taulukot ──────────────────────────────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  margin: 2rem 0;
+}
+
+th {
+  background-color: var(--kv-navy);
+  color: var(--kv-white);
+  font-family: var(--font-body);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  padding: 0.85rem 1rem;
+  text-align: left;
+}
+
+td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--kv-gray2);
+  vertical-align: top;
+}
+
+tr:nth-child(even) td {
+  background-color: var(--kv-gray1);
+}
+
+tr:hover td {
+  background-color: #edf2f7;
+}
+
+/* ─── Sivupalkki (TOC) ──────────────────────────────────────────────────────── */
+#quarto-sidebar,
+.sidebar {
+  border-right: 1px solid var(--kv-gray2);
+}
+
+#TOC {
+  border-left: 3px solid var(--kv-teal);
+  padding-left: 1rem;
+}
+
+#TOC a {
+  font-size: 0.88rem;
+  color: var(--kv-muted);
+  border-bottom: none;
+}
+
+#TOC a:hover,
+#TOC a.active {
+  color: var(--kv-red);
+}
+
+/* ─── Blogi-listaus ─────────────────────────────────────────────────────────── */
+.quarto-post,
+.listing-item {
+  border: 1px solid var(--kv-gray2);
+  border-radius: 8px;
+  padding: 1.75rem;
+  margin-bottom: 1.5rem;
+  transition: box-shadow 0.2s, transform 0.15s, border-color 0.2s;
+  background: var(--kv-white);
+}
+
+.quarto-post:hover,
+.listing-item:hover {
+  box-shadow: 0 8px 24px rgba(29,53,87,0.1);
+  transform: translateY(-3px);
+  border-color: var(--kv-blue);
+}
+
+.listing-item .listing-title a {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--kv-navy);
+  border-bottom: none;
+}
+
+.listing-item .listing-title a:hover {
+  color: var(--kv-red);
+}
+
+.listing-item .listing-date,
+.listing-item .listing-categories {
+  font-size: 0.82rem;
+  color: var(--kv-gray3);
+  font-family: var(--font-body);
+  font-weight: 300;
+}
+
+.listing-category {
+  background-color: var(--kv-gray1);
+  color: var(--kv-blue);
+  border: 1px solid var(--kv-gray2);
+  border-radius: 3px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.listing-category:hover {
+  background-color: var(--kv-navy);
+  color: var(--kv-white);
+}
+
+/* ─── Footer ────────────────────────────────────────────────────────────────── */
+#quarto-footer,
+footer {
+  background-color: var(--kv-navy);
+  color: rgba(255,255,255,0.7);
+  padding: 2rem 1.5rem;
+  font-size: 0.88rem;
+  border-top: 3px solid var(--kv-teal);
+  margin-top: var(--section-gap);
+}
+
+#quarto-footer a,
+footer a {
+  color: rgba(255,255,255,0.85);
+  border-bottom: none;
+}
+
+#quarto-footer a:hover,
+footer a:hover {
+  color: var(--kv-orange);
+}
+
+/* ─── "Edit this page" -linkkien piilotus tuotannossa ───────────────────────── */
+/* Poista kommentti jos haluat piilottaa: */
+/* .quarto-secondary-nav, .page-navigation { display: none; } */
+
+/* ─── Pääsisältöalue ────────────────────────────────────────────────────────── */
+#quarto-content {
+  padding-top: 2rem;
+  padding-bottom: 4rem;
+}
+
+main.content {
+  max-width: 820px;
+}
+
+/* ─── Responsiivisuus ───────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  :root { --section-gap: 2.5rem; }
+
+  h1 { font-size: 1.9rem; }
+  h2 { font-size: 1.4rem; }
+
+  .navbar-brand { font-size: 1rem; }
+
+  img[src*="kristian-vepsalainen"] {
+    max-width: 150px;
+    margin: 0 auto 1.5rem auto;
+    display: block;
+  }
+
+  pre { font-size: 0.8rem; padding: 1rem; }
+  table { font-size: 0.85rem; }
+}
+
+/* ─── Slogan-korostus ───────────────────────────────────────────────────────── */
+/* Käyttö: <span class="slogan">maailma on jakauma</span> */
+.slogan {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 700;
+  color: var(--kv-red);
+  font-size: 1.05em;
+}
+
+/* ─── Highlight-box ─────────────────────────────────────────────────────────── */
+/* Käyttö: ::: {.highlight-box} ... ::: */
+.highlight-box {
+  background: linear-gradient(135deg, #edf6f9 0%, #fff 100%);
+  border: 1px solid var(--kv-teal);
+  border-radius: 8px;
+  padding: 1.75rem 2rem;
+  margin: 2.5rem 0;
+}
+
+/* ─── Stat-kortit (esim. "5 julkaisua", "10 vuotta") ───────────────────────── */
+/* Käyttö: ::: {.stat-grid} ::: {.stat-card} ... ::: ::: */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1.25rem;
+  margin: 2rem 0;
+}
+
+.stat-card {
+  background: var(--kv-navy);
+  color: var(--kv-white);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.stat-card .stat-number {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: var(--kv-orange);
+  line-height: 1;
+  display: block;
+}
+
+.stat-card .stat-label {
+  font-size: 0.85rem;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 0.4rem;
+  display: block;
+  color: rgba(255,255,255,0.75);
+}
+
+/* ─── Animaatiot ────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  .listing-item,
+  .quarto-post {
+    animation: fadeInUp 0.4s ease both;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

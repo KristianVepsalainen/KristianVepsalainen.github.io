@@ -62,8 +62,8 @@ website:
 format:
   html:
     theme:
-      - litera
-      - styles.scss
+      - flatly
+      - kristian-theme.css
     toc: true
     toc-depth: 3
     code-copy: true

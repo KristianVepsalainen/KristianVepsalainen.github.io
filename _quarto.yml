@@ -61,9 +61,8 @@ website:
 
 format:
   html:
-    theme:
-      - flatly
-      - kristian-theme.css
+    theme: flatly
+    css: kristian-theme.css
     toc: true
     toc-depth: 3
     code-copy: true

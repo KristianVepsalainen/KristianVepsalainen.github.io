@@ -3,7 +3,6 @@ title: "Euroviisut 2026: Äänestysverkosto on jakauma – kuka äänestää ket
 subtitle: "Blokkiäänestyksen rakenne, naapuruuskorrelaaatiot ja Dirichlet-malli"
 author: "Kristian Vepsäläinen"
 date: "2026-05-14"
-draft: true
 lang: fi
 format:
   html:

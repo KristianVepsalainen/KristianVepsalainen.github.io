@@ -4,6 +4,7 @@ subtitle: "Bayesilainen ROI-analyysi 15.5.2026 vaaratiedotteesta"
 date: "2026-05-15"
 author: "Kristian Vepsäläinen"
 categories: [riskianalyysi, bayesilainen tilastotiede, avoin data, turvallisuus]
+draft: true
 code-fold: true
 execute:
   warning: false
@@ -46,22 +47,30 @@ Haetaan Tilastokeskuksen Paavo-tietokannasta Uudenmaan postinumeroalueiden väes
 
 ```{r paavo-data}
 # Paavo PxWeb API - Uudenmaan postinumeroalueet
-# Taulukko: paavo_pxt_12f7.px
 # https://pxdata.stat.fi/PxWeb/pxweb/fi/Postinumeroalueittainen_avoin_tieto/
 #
-# Käytetään pxweb-pakettia, joka hoitaa oikean POST-rakenteen automaattisesti.
-# API-polku: /api/v1/fi/Postinumeroalueittainen_avoin_tieto/
-#            Postinumeroalueittainen_avoin_tieto_2023/paavo_pxt_12f7.px
-#
-# TIETOSUOJAHUOMIO: PxWeb-API palauttaa 400-virheen jos values-listassa
-# on wildcard "*". Oikea tapa on hakea metadata GET:llä, poimia koodit,
-# ja POST vasta niillä.
+# HUOMIO: pxweb_get() ilman queryä hakee itse taulukkodatan, ei metadataa,
+# ja iso taulu saa 400-virheen. Oikea kulku:
+#   1. pxweb_metadata_get()  → metadata-objekti, josta koodit
+#   2. pxweb_query()         → validoi query-rakenne ennen lähetystä
+#   3. pxweb_get(url, query) → POST data
+
+# paavo_url <- paste0(
+#   "https://pxdata.stat.fi/PxWeb/api/v1/fi/",
+#   "Postinumeroalueittainen_avoin_tieto/",
+#   "Postinumeroalueittainen_avoin_tieto_2023/",
+#   "paavo_pxt_12f7.px"
+# )
+# 
 
 library(fst)
 library(here)
 library(stringr)
+ #Hae data
 paavo_raw <- read_fst(here("data","paavo","paavo.fst"))
 
+
+#  Muunna data frameksi — column.name.type = "code" antaa muuttujanimet koodina
 df_uusimaa <- as.data.frame(paavo_raw, column.name.type = "code", variable.value.type = "code") |>
   filter(Vuosi == 2024) |>
   filter(str_starts(Postinumeroalue,"0")|str_starts(Postinumeroalue,"10")) |>
@@ -77,8 +86,8 @@ df_uusimaa <- as.data.frame(paavo_raw, column.name.type = "code", variable.value
   filter(!is.na(vaesto), vaesto > 0)
 
 cat("Uudenmaan postinumeroalueita:", nrow(df_uusimaa), "\n")
-cat("Väestö yhteensä:", format(sum(df_uusimaa$vaesto, na.rm=TRUE), big.mark=" "), "\n")
-cat("Asuntoja yhteensä:", format(sum(df_uusimaa$asunnot, na.rm=TRUE), big.mark=" "), "\n")
+cat("Väestö yhteensä:", format(sum(df_uusimaa$vaesto,    na.rm = TRUE), big.mark = " "), "\n")
+cat("Asuntoja yhteensä:", format(sum(df_uusimaa$asunnot,  na.rm = TRUE), big.mark = " "), "\n")
 ```
 
 ```{r uusimaa-vis}
@@ -93,7 +102,7 @@ p1 <- df_uusimaa |>
   labs(
     title = "30 väkirikkainta postinumeroaluetta Uudellamaalla",
     x = "Asukkaita", y = NULL,
-    caption = "Lähde: Tilastokeskus Paavo 2024"
+    caption = "Lähde: Tilastokeskus Paavo 2023"
   ) +
   theme_minimal(base_size = 13) +
   theme(plot.title = element_text(face = "bold"))
@@ -456,6 +465,408 @@ roi_df |>
   )
 ```
 
+---
+
+## 4b. Fat tail: entä jos drooni pudottaa täyteen tankatun matkustajakoneen kaupungin päälle?
+
+Perusskenaario käsitteli droonia, joka räjähtää satunnaisessa paikassa. Mutta on olemassa toinen, paljon vakavampi skenaario: **drooni osuu lähestyvään matkustajakoneeseen matalalentovaiheessa polttoaine täynnä**. Tämä on juuri se tilanne, jonka ilmatilansulku estää suoraan.
+
+Ennen kuin lasketaan, on syytä tarkistaa geometria: menevätkö lähestymisreitit Helsingin kaupungin päälle?
+
+Helsinki-Vantaalla on kolme kiitotietä. Ensisijaisesti laskeudutaan kiitotielle 2 (15) luoteen eli Nurmijärven suunnasta tai kiitotielle 1 (22L) koillisesta Keravan suunnasta. Kiitotienumero kertoo kompassisuunnan: kiitotie 15 = 150°, kiitotie 22L = 220°. Lähestyminen tapahtuu vastakkaisesta suunnasta — kiitotielle 15 tullaan siis koillisesta (suunta ~330°, Nurmijärven suunnasta), kiitotielle 22L tullaan lounaasta (suunta ~40°, Keravan suunnalta).
+
+Kumpikaan reitti ei lennä suoraan Helsingin kantakaupungin yli. Vantaan kaupunkialue sen sijaan osuu molempiin lähestymiskäytäviin. Tämä on tärkeä havainto: **worst-case-skenaario ei ole Helsingin keskusta vaan Vantaan tiiviit asuinalueet** lähestymiskäytävien alla.
+
+```{r fat-tail-kone}
+# Fat tail -skenaario: drooni osuu matalalentavaan matkustajakoneeseen
+#
+# Parametrit:
+# - Kone: Boeing 737-800 tai A320 (tyypillisin HEL-liikenteessä)
+# - Polttoaine täynnä lähtiessä: 737-800 max ~20 000 kg kerosiinia
+#   (Boeing spec: max fuel capacity 26 020 L ≈ 20 900 kg Jet A-1, rho=0.804)
+#   Lyhyelle reitin (esim. HEL-ARN ~400km): tankataan n. 8 000–10 000 kg
+#   Pitkälle reitille (esim. HEL-BKK): lähes täysi tankki ~18 000 kg
+# - Matkustajia: 160–189 (737-800 tyypillinen)
+# - Kaupunkiruutupinta-ala, jolle kone putoaa: siipien laajuus ~35m,
+#   rungon pituus ~40m, polttoainepilvi leviää ~100–300m tulipalossa
+# - Lähde polttoainekuormalle: Boeing 737 Technical Characteristics (Boeing.com),
+#   FAA Lessons Learned (N709PA tapaus: polttoaineen syttyminen)
+
+# TODENNÄKÖISYYSKETJU
+# P(katastrofi) = P(drooni osuu koneeseen) ×
+#                P(polttoaine syttyy | osuma) ×
+#                P(kone putoaa kaupunkiin | syttyminen)
+
+# 1. P(drooni osuu koneeseen lähestymisessä)
+# Lähestyminen kestää ~4 min alle 1000m korkeudessa, nopeus ~250 km/h
+# ILS-käytävän leveys maassa: ~±150m sivuttain kiitotieltä
+# Lähestymiskäytävän pinta-ala (4min × 250km/h × 300m leveys):
+lahenemis_pituus_km  <- 4/60 * 250       # ~16.7 km
+lahenemis_leveys_m   <- 300              # ±150m ILS-käytävä
+lahenemis_ala_km2    <- lahenemis_pituus_km * (lahenemis_leveys_m / 1000)
+
+# Drooni satunnaisessa paikassa Uudellamaalla — P(sattuu lähestymiskäytävään)
+p_osuu_kaytavaan <- lahenemis_ala_km2 / pinta_ala_yht
+
+# Kone on käytävässä: P(drooni törmää koneeseen | drooni on käytävässä)
+# Kone vie ~35m siipien leveyden verran käytävän 300m leveydestä
+p_tormaays_koneeseen <- 35 / lahenemis_leveys_m
+
+# Yhdistetty P(osuma koneeseen)
+p_osuma_kone <- p_osuu_kaytavaan * p_tormaays_koneeseen
+
+# 2. P(polttoaine syttyy ja kone putoaa | osuma)
+# Shahed-136 räjähdyskärki + kerosiini: todennäköinen syttyminen
+# Historiallinen data: 9/11-tyyppiset iskut → syttyminen ~lähes varma
+# Siviililentokoneet ovat kuitenkin paljon kestävämpiä → arvioidaan
+# todennäköisyys että sotilasdrooni räjähdyskärjellä kaataa koneen: 0.30–0.70
+p_syttyy_ja_putoaa <- 0.45   # konservatiivinen keskiarvo
+
+# 3. P(kone putoaa kaupunkialueelle | putoaa)
+# Lähestymisreitti 15 (Nurmijärven suunnasta): lentää Vantaan pohjoisosan yli
+# Lähestymisreitti 22L (Keravan suunnasta): lentää Tikkurilan/Koivukylän yli
+# Molemmat alueet: tiivis esikaupunkiasutus. P ≈ 0.65
+p_putoaa_kaupunkiin <- 0.65
+
+# YHDISTETTY TODENNÄKÖISYYS (1 kone, 1 drooni, 1 lähestyminen)
+p_katastrofi_per_laheneminen <- p_osuma_kone * p_syttyy_ja_putoaa * p_putoaa_kaupunkiin
+
+# VAHINKO: koneessa + maassa
+matkustajia        <- 175
+p_kuolema_koneessa <- 0.85   # sotilasdrooni + polttoaineenpalo → korkea
+uhreja_koneessa    <- matkustajia * p_kuolema_koneessa
+
+# Maakohde: 737 putoaa Vantaan asuinalueelle
+# Polttoainepilvi (~10 000 kg kerosiinia) leviää korttelikokoisen alueen
+# Historiallinen vertailu: FedEx 705 (1994), UPS 6 (2010) — ei kaupunkiosumia
+# Analogia: Bijlmermeer 1992 (El Al 747, Amsterdam) → 39 kuollutta maassa
+# 737 on pienempi → arvioidaan 20–80 maakuolemaa
+uhreja_maassa      <- 40
+
+uhreja_yht         <- uhreja_koneessa + uhreja_maassa
+vahinko_kone_eur   <- uhreja_yht * vsl_eur
+
+# Monte Carlo — epävarmuus kaikissa parametreissa
+set.seed(20260515)
+N <- 100000
+
+sim_kone <- tibble(
+  # Lähestymiskäytävän leveys: ±100–200m (riippuu säästä ja ILS-tarkkuudesta)
+  kaytava_lev   = runif(N, 200, 400),
+  # P(syttyy ja putoaa): 0.20–0.70
+  p_sytytyy     = rbeta(N, 3, 4),
+  # P(kaupunkiin): 0.40–0.85
+  p_kaupunki    = rbeta(N, 5, 3),
+  # Uhrimäärä maassa: 5–150
+  uhreja_m      = round(rlnorm(N, log(40), 0.8))
+) |>
+  mutate(
+    p_kaytava   = lahenemis_pituus_km * (kaytava_lev / 1000) / pinta_ala_yht,
+    p_osuma_k   = p_kaytava * (35 / kaytava_lev),
+    p_kat       = p_osuma_k * p_sytytyy * p_kaupunki,
+    uhrit_tot   = uhreja_koneessa + uhreja_m,
+    vahinko_sim = uhrit_tot * vsl_eur
+  )
+
+# Odotettu vahinko (E[p_katastrofi × vahinko])
+ev_kone <- mean(sim_kone$p_kat * sim_kone$vahinko_sim)
+
+cat(sprintf(
+  "P(katastrofi | 1 lähestyminen, 1 drooni): %.2e\n",
+  median(sim_kone$p_kat)
+))
+cat(sprintf(
+  "90%% CI: [%.2e, %.2e]\n",
+  quantile(sim_kone$p_kat, 0.05),
+  quantile(sim_kone$p_kat, 0.95)
+))
+cat(sprintf("Odotettu vahinko E[p × €]: %.1f M€\n", ev_kone / 1e6))
+```
+
+```{r fat-tail-vis}
+# Vertailu: perusskenaario vs. kone-skenaario
+p1_ft <- sim_kone |>
+  ggplot(aes(x = p_kat)) +
+  geom_histogram(bins = 80, fill = COL_RED, alpha = 0.75) +
+  geom_vline(
+    xintercept = quantile(sim_kone$p_kat, c(0.05, 0.50, 0.95)),
+    linetype = c("dashed","solid","dashed"),
+    color = COL_NAVY, linewidth = 0.8
+  ) +
+  scale_x_log10(labels = label_scientific()) +
+  labs(
+    title    = "Posteriori: P(matkustajakone putoaa | 1 drooni Uudellamaalla)",
+    subtitle = sprintf(
+      "Mediaani: %.2e  |  90%% CI: [%.2e, %.2e]",
+      median(sim_kone$p_kat),
+      quantile(sim_kone$p_kat, 0.05),
+      quantile(sim_kone$p_kat, 0.95)
+    ),
+    x = "Todennäköisyys (log-asteikko)", y = "Simulaatioita"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+
+# Odotusarvovertailu: perusskenaario vs. kone
+ev_df <- tibble(
+  Skenaario = c(
+    "Drooni räjähtää maassa\n(perusskenaario)",
+    "Drooni pudottaa\nmatkustajakoneen"
+  ),
+  p_mediaani = c(
+    median(sim$p_kuolema),
+    median(sim_kone$p_kat)
+  ),
+  vahinko_eur = c(
+    median(sim$p_kuolema) * 1 * vsl_eur,      # 1 odotettu uhri maassa
+    median(sim_kone$p_kat) * uhreja_yht * vsl_eur
+  ),
+  ev = c(
+    mean(sim$p_kuolema * 1 * vsl_eur),
+    ev_kone
+  )
+)
+
+p2_ft <- ev_df |>
+  ggplot(aes(x = Skenaario, y = ev / 1e6, fill = Skenaario)) +
+  geom_col(width = 0.5, alpha = 0.85) +
+  geom_text(aes(label = sprintf("%.2f M€", ev/1e6)), vjust = -0.5, size = 4.5) +
+  scale_fill_manual(values = c(COL_BLUE, COL_RED)) +
+  scale_y_continuous(labels = \(x) paste0(x, " M€")) +
+  labs(
+    title    = "Odotettu vahinko E[p × €]: kone-skenaario dominoi",
+    subtitle = "Vaikka todennäköisyys on pienempi, vahinko on kertaluokkia suurempi",
+    x = NULL, y = "Odotettu vahinko (M€)",
+    caption  = "VSL = 3.5 M€ | Kone: 737-800, ~175 matkustajaa + maakuolemat"
+  ) +
+  guides(fill = "none") +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+
+p1_ft / p2_ft
+```
+
+Perusmalli on tarkoituksella yksinkertainen ensimmäiseksi arvioksi. Neljä tärkeää tarkennusta pienentää todennäköisyyttä — mutta eivät pienennä odotusarvoa nollaan.
+
+### 4b.1 TCAS ei näe droonia
+
+Kaupallisissa koneissa on TCAS II (Traffic Collision Avoidance System), joka havaitsee lähestyvät ilma-alukset transponderisignaalin perusteella. TCAS käyttää ADS-B-dataa ja muita sensoreita, mutta UAV:t eivät vielä lähetä ADS-B-signaalia — ne ovat ei-kooperatiivista liikennettä, johon TCAS ei reagoi. TCAS suunniteltiin toimimaan isompien yksityis-, sotilas- ja kaupallisten koneiden kanssa — se ei skaalaudu hyvin pienempiin ilma-aluksiin.
+
+Shahed-136 on pieni, matalalentava, tutka-poikkipinnaltaan minimaalinen kohde. Se ei lähetä transponderia. **TCAS on tässä skenaariossa käytännössä hyödytön.** Tämä *ei* pienennä törmäystodennäköisyyttä.
+
+### 4b.2 Lentäjät pyrkivät ohjaamaan koneen pois asutuksesta
+
+Tämä on tärkeä ja oikea korjaus. FAA:n ohjeistuksen mukaan hätälaskussa lentäjät pyrkivät löytämään avoimen alueen ja välttämään voimalinjoja, rakennuksia ja liikennettä. Perusperiaate on "Aviate, Navigate, Communicate" — ensin hallitaan kone, sitten valitaan sopivin laskeutumisalue.
+
+Helsinki-Vantaan lähestymisreiteiltä (Nurmijärvi/Kerava suunnista) on kuitenkin merkittäviä rajoitteita:
+
+- **Korkeus on matala** (~300–1000 m ILS-lähestymisessä) — liikkuma-aika on 30–90 sekuntia
+- **Polttoainepalossa** ohjattavuus voi heikentyä nopeasti
+- Vantaan alueella on **vähän suuria avoimia peltoalueita** — kartalta löytyy lähinnä tiheää esikaupunkiasutusta
+
+```{r pilotti-korjaus}
+# Parametrikorjaus: lentäjän väistömanööveri alentaa P(kaupunkiin)
+# Ilman väistöä: P(kaupunki) ~ 0.65 (Vantaan maankäyttö lähestymiskäytävällä)
+# Väistöllä ja hyvällä onnella: P(kaupunki) ~ 0.30–0.45
+# Rajoitukset: matala korkeus, nopea tilanne, polttoainepalo
+
+# Päivitetty MC-simulaatio pilottifaktorilla
+set.seed(20260516)
+N <- 100000
+
+sim_korjattu <- tibble(
+  kaytava_lev  = runif(N, 200, 400),
+  p_sytytyy    = rbeta(N, 3, 4),
+  # Pilotti voi osittain välttää asutusta: Beta(3,5) → mediaani ~0.37
+  p_kaupunki_k = rbeta(N, 3, 5),
+  uhreja_m     = round(rlnorm(N, log(25), 0.9))  # Pienempi maakuolemat pilottivältyksellä
+) |>
+  mutate(
+    p_kaytava  = lahenemis_pituus_km * (kaytava_lev / 1000) / pinta_ala_yht,
+    p_osuma_k  = p_kaytava * (35 / kaytava_lev),
+    p_kat_k    = p_osuma_k * p_sytytyy * p_kaupunki_k,
+    uhrit_tot  = uhreja_koneessa + uhreja_m,
+    vahinko_k  = uhrit_tot * vsl_eur
+  )
+
+ev_korjattu <- mean(sim_korjattu$p_kat_k * sim_korjattu$vahinko_k)
+```
+
+### 4b.3 Tulosuunta: Pietari → Helsinki, ei satunnainen
+
+Tämä on analyyttisesti kiinnostavin korjaus. Aiempi malli oletti droonin tulevan satunnaisesta suunnasta Uudellamaalle. Todellisuudessa sotilasuhka tulee idästä/koillisesta — Pietarista Helsinkiin on noin **380 km**, mikä on selvästi Geran-2:n kantaman sisällä.
+
+Ukrainan tiedusteluarvion mukaan Geran-2:n kantama on 1 800–2 500 km, ja Pietarin alue tarjoaa hyvät logistiset edellytykset ja suotuisan etäisyyden Skandinaviaan.
+
+Mutta matka ei ole yhdentekevä. Drooni joutuu lentämään:
+- Venäjän ilmatilan läpi (~150 km)
+- Suomenlahden yli (~80 km merialue)
+- Suomen ilmatilan läpi (~150 km ennen HEL:tä)
+
+Jokainen kilometri lisää häirintäriskiä, teknistä vikaa ja havaitsemistodennäköisyyttä. Tämä ei ole lineaarinen pinta-alamalli — **etäisyys toimii eksponentiaalisena suodattimena**.
+
+```{r tulosuunta-malli}
+# Eksponentiaalinen selviytymismalli matkalle
+# P(drooni selviää matkasta x km) = exp(-lambda * x)
+# Kalibrointi: Ukrainan data — ~60% Shahed-drooneista tuhoutuu ennen kohdetta
+# 600km matka Ukrainassa → lambda ≈ -ln(0.4)/600 ≈ 0.00153
+
+lambda <- -log(0.40) / 600   # selviytymisaste kalibroitu Ukrainan dataan
+
+# Pietari → Helsinki: ~380 km lentoreitti Suomenlahden yli
+# (ei suoraan, kiertää Viron pohjoisrannan tai Suomenlahden ylittäen)
+matka_km <- 380
+
+p_selviytyy_matkasta <- exp(-lambda * matka_km)
+
+# Lisäksi: P(ohjautuu nimenomaan HEL-lähestymiskäytävään | saapuu Uudellemaalle)
+# Drooni käyttää GPS-ohjausta — se EI ohjaudu satunnaisesti vaan kohteeseen.
+# Jos kohde on Helsinki-Vantaa tai muu tarkka kohde: P = ~1.0 (se menee sinne)
+# Jos kohde on "jokin Uudenmaan kohde" satunnaisesti: P = lähestymiskäytävä/Uusimaa
+
+# Skenaario A: Kohde on tarkoituksella HEL-lähestymiskäytävä (lentokone)
+p_kohde_kaytava_A <- 1.0   # GPS-ohjattu kohti lähestymiskäytävää
+
+# Skenaario B: Kohde on jokin muu (infrastruktuuri) ja drooni eksyy käytävälle
+p_kohde_kaytava_B <- lahenemis_ala_km2 / pinta_ala_yht  # satunnainen osuma
+
+# Yhdistetty todennäköisyys koko ketjulle
+p_koko_ketju_A <- p_selviytyy_matkasta * p_kohde_kaytava_A *
+                  median(sim_korjattu$p_kat_k)
+
+p_koko_ketju_B <- p_selviytyy_matkasta * p_kohde_kaytava_B *
+                  median(sim_korjattu$p_kat_k)
+
+# Visualisoi selviytymisjakauma etäisyyden funktiona
+dist_df <- tibble(
+  km        = seq(0, 800, by = 10),
+  p_survive = exp(-lambda * km)
+)
+
+p_dist <- dist_df |>
+  ggplot(aes(x = km, y = p_survive)) +
+  geom_line(color = COL_RED, linewidth = 1.3) +
+  geom_vline(xintercept = matka_km, linetype = "dashed", color = COL_NAVY) +
+  geom_point(
+    data = tibble(km = matka_km, p_survive = p_selviytyy_matkasta),
+    size = 4, color = COL_NAVY
+  ) +
+  annotate("label",
+    x = matka_km + 20, y = p_selviytyy_matkasta + 0.05,
+    label = sprintf("Pietari→HEL\n%.0f km\np=%.2f", matka_km, p_selviytyy_matkasta),
+    hjust = 0, size = 3.5, fill = "white"
+  ) +
+  scale_y_continuous(labels = percent_format()) +
+  scale_x_continuous(breaks = seq(0, 800, 100)) +
+  labs(
+    title    = "Droonin selviytymistodennäköisyys matkan funktiona",
+    subtitle = sprintf(
+      "Eksponentiaalinen malli | λ = %.5f | kalibroitu Ukrainan taistelutilastosta (40%% selviää 600km)",
+      lambda
+    ),
+    x = "Matka (km)", y = "P(drooni selviää matkasta)",
+    caption = "Lähde: Ukrainan ilmapuolustustilastot 2022–2024 (OSINT-lähteistä)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+
+p_dist
+```
+
+```{r yhteenveto-ketju}
+# Koko tapahtumaketjun todennäköisyysvertailu
+tibble(
+  Vaihe = c(
+    "P(drooni selviää Pietari → HEL, 380km)",
+    "P(osuu lähestymiskäytävään) — Skenaario A: kohdennettu",
+    "P(osuu lähestymiskäytävään) — Skenaario B: satunnainen",
+    "P(törmäys koneeseen | käytävässä)",
+    "P(kone putoaa kaupunkiin, pilottikorjaus)",
+    "─────────────────────────────────────",
+    "KOKO KETJU — Skenaario A (kohdennettu hyökkäys)",
+    "KOKO KETJU — Skenaario B (satunnainen eksyminen)"
+  ),
+  Arvo = c(
+    sprintf("%.3f (%.0f%%)", p_selviytyy_matkasta, p_selviytyy_matkasta*100),
+    sprintf("%.1f (kohdennettu)", p_kohde_kaytava_A),
+    sprintf("%.2e", p_kohde_kaytava_B),
+    sprintf("%.3f", 35 / 300),
+    sprintf("%.3f (mediaani, pilottikorjaus)", median(sim_korjattu$p_kaupunki_k)),
+    "─────────────────────────────────────",
+    sprintf("%.2e", p_koko_ketju_A),
+    sprintf("%.2e", p_koko_ketju_B)
+  )
+) |>
+  knitr::kable(caption = "Todennäköisyysketju: Pietari → lentokone putoaa Vantaalle")
+```
+
+### 4b.4 Yhteenveto: malli on oikeaan suuntaan korjattu, johtopäätös pysyy
+
+Neljän korjauksen jälkeen:
+
+| Tekijä | Alkuperäinen oletus | Korjattu | Vaikutus P:hen |
+|---|---|---|---|
+| TCAS | Alentaa P:tä | Ei vaikuta (TCAS sokea droonille) | 0 |
+| Pilottiväistö | P(kaupunki) = 0.65 | P(kaupunki) ≈ 0.37 | ↓ ~43% |
+| Tulosuunta/matka | Satunnainen Uusimaa | Pietari 380km, ~55% selviää | ↓ ~45% |
+| GPS-kohdennus | Satunnainen osuma | Skenaario A: 100%; B: ~0.5% | A↑↑ tai B↓↓ |
+
+```{r final-comparison}
+ev_alkuperainen <- mean(sim_kone$p_kat * sim_kone$vahinko_sim)
+ev_korjattu_A   <- p_selviytyy_matkasta * 1.0 * mean(sim_korjattu$p_kat_k * sim_korjattu$vahinko_k)
+ev_korjattu_B   <- p_selviytyy_matkasta * p_kohde_kaytava_B * mean(sim_korjattu$p_kat_k * sim_korjattu$vahinko_k)
+
+tibble(
+  Skenaario   = c("Alkuperäinen (yksinkert.)", "Korjattu A:\nkohdennettu hyökkäys", "Korjattu B:\nsatunnainen eksyminen"),
+  EV_milj_eur = c(ev_alkuperainen, ev_korjattu_A, ev_korjattu_B) / 1e6
+) |>
+  mutate(Skenaario = fct_inorder(Skenaario)) |>
+  ggplot(aes(x = Skenaario, y = EV_milj_eur, fill = Skenaario)) +
+  geom_col(width = 0.55, alpha = 0.85) +
+  geom_text(aes(label = sprintf("%.3f M€", EV_milj_eur)), vjust = -0.4, size = 4) +
+  geom_hline(
+    yintercept = kust_yhteensa / 1e6, linetype = "dashed",
+    color = COL_NAVY, linewidth = 0.9
+  ) +
+  annotate("label",
+    x = 0.6, y = kust_yhteensa / 1e6 + 0.02,
+    label = sprintf("Hälytyksen kustannus: %.1f M€", kust_yhteensa/1e6),
+    hjust = 0, size = 3.5, fill = "white", color = COL_NAVY
+  ) +
+  scale_fill_manual(values = c(COL_BLUE, COL_RED, COL_ORANGE)) +
+  scale_y_continuous(labels = \(x) paste0(x, " M€")) +
+  labs(
+    title    = "Odotettu vahinko eri mallinnusoletuksilla",
+    subtitle = "Kohdennettu hyökkäys (A) ylittää edelleen kustannuskynnyksen",
+    x = NULL, y = "E[vahinko] (M€)",
+    caption = "Pilottikorjaus + etäisyysmalli + TCAS-rajoitus huomioitu"
+  ) +
+  guides(fill = "none") +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+```
+
+**Lopputulos:** Satunnaisessa eksymis­skenaariossa (B) odotettu vahinko jää selvästi hälytyskulujen alapuolelle — ROI on negatiivinen. Kohdennetussa hyökkäysskenaariossa (A), jossa drooni on tarkoituksella ohjelmoitu lähestymiskäytävälle, odotettu vahinko alittaa edelleen hälytyksen kustannukset. 
+
+---
+
+## 4c. Spatiaalis-bayesilainen analyysi: Ukrainan optimointiongelman geometria
+
+Tässä on koko analyysin metodologisesti kiinnostavin osa. Aiemmat luvut käsittelivät uhkaa — mutta **konteksti on täysin erilainen kuin miltä se ensin näyttää**.
+
+Suomi ei ole Venäjän kohde. Drooni on täällä siksi, että **Venäjä häiritsee Ukrainan droneja elektronisesti**, ja häiritty drooni eksyy reitiltään. Lisäksi: Suomi on yksi Ukrainan suurimmista tukijoista suhteessa väestöön — Ukrainan intressissä on *minimoida* vahinko Suomessa.
+
+Tämä muuttaa optimointiongelman rakenteen täysin:
+
+> **Ukrainan ongelma:** Ohjelmoi drooni niin, että elektroniikan häiritessä se eksyy mahdollisimman harmittomaan paikkaan Suomessa.
+
+Tämä on spatiaalis-bayesilainen minimointiongelma — ja se on ratkaistavissa avoimella datalla.
+
+### BYM2-malli: spatiaalisesti silotellut riskialueet
+
+Käytetään Besag-York-Mollié (BYM2) -mallia INLA:lla. BYM2 on standardi bayesilainen hierarkkinen malli aluedatalle — se lainaa tilastollista voimaa naapurialueilta ICAR-priori-rakenteen kautta, jolloin yksittäisen postinumeroalueen epävarma estimaatti siloittuu naapureidensa avulla.
+
+Tämä on kuitenkin laskennallisesti raskasta ja todennäköisyys on jo hyvin lähellä nollaa, joten tähän ei ole tällä aikataululla järkevää lähteä.
 ---
 
 ## 5. Poika joka huusi sutta — luottamuspääoman kuluminen jakaumana

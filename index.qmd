@@ -47,7 +47,7 @@ Autan organisaatioita:
 - Kvantifioimaan epävarmuutta päätöksenteossa
 - Rakentamaan toistettavia ja läpinäkyviä analyysiprosesseja
 
-Työskentelen erityisesti tilanteissa, joissa päätöksillä on merkittäviä taloudellisia vaikutuksia.
+Menetelmäni ovat universaaleja, mutta vahvin näyttö löytyy raskaasti säädellyistä ja datavaltaisista ympäristöistä: terveydenhuolto, lääketeollisuus, julkinen sektori ja finanssiala.
 
 **Etsitkö fractional Head of Dataa pk-yrityksellesi?** → [Palvelut ja hinnoittelu](/pricing.qmd)
 

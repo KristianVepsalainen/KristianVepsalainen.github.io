@@ -8,7 +8,11 @@ Autan yrityksiä ja organisaatioita löytämään ja hyödyntämään avointa da
 
 Palvelut on suunniteltu niin, että ne tuottavat konkreettisen lopputuloksen: paremman ymmärryksen markkinasta, riskeistä tai kasvumahdollisuuksista — ja sen, mitä päätöksissä ei vielä tiedetä.
 
-**Erityisalueet:** terveydenhuolto, lääketeollisuus, tutkimusorganisaatiot, julkinen sektori.
+**Erityisosaaminen:** avoimen ja simuloidun datan analytiikka, bayeslainen mallinnus, kausaalipäättely ja OSINT-menetelmät.
+
+**Toimialakokemus:** terveydenhuolto, lääketeollisuus, julkinen sektori, finanssiala. Yhteistyö Tampereen yliopistosairaalan, Uumajan yliopiston ja Terveyden ja hyvinvoinnin laitoksen kanssa.
+
+Menetelmäosaaminen skaalautuu mille tahansa toimialalle, jossa päätökset tehdään epävarmuuden vallitessa.
 
 ---
 
@@ -34,8 +38,6 @@ Datavetoisen päätöksenteon johtaminen pk-yrityksessä ilman täysipäiväisen
 **Hinta**
 
 4 500 – 12 000 € + alv / kk
-
-*Esimerkki: terveydenhuollon kasvuyritys, joka tarvitsee datajohtajan strategiaa varten ennen ensimmäisen oman analyytikon palkkaamista.*
 
 ---
 

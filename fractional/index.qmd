@@ -1,0 +1,318 @@
+---
+title: "Fractional Head of Data"
+lang: en
+draft: false
+page-layout: full
+title-block-banner: false
+include-in-header:
+  text: |
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+      body { background: #0d1117; color: #e8e0d5; font-family: 'Source Serif 4', serif; }
+      .nav-strip {
+        display: flex; gap: 2rem; padding: 1.2rem 2rem;
+        border-bottom: 1px solid rgba(232,224,213,0.08);
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem;
+        letter-spacing: 0.1em; position: sticky; top: 0;
+        background: rgba(13,17,23,0.92); backdrop-filter: blur(8px); z-index: 100;
+      }
+      .nav-strip a { color: #857e76; text-decoration: none; transition: color 0.2s; }
+      .nav-strip a:hover, .nav-strip a.active { color: #2a9d8f; }
+      .nav-strip .nav-lang { margin-left: auto; color: #e63946; }
+      /* Hero */
+      .frac-hero {
+        padding: 7rem 2rem 5rem;
+        max-width: 1060px; margin: 0 auto;
+        display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 5rem; align-items: center;
+      }
+      @media (max-width: 760px) { .frac-hero { grid-template-columns: 1fr; gap: 3rem; } }
+      .hero-label {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: #2a9d8f; margin-bottom: 1.2rem;
+      }
+      .hero-title {
+        font-family: 'Playfair Display', serif;
+        font-size: clamp(2.2rem, 4.5vw, 3.8rem);
+        color: #f0ebe3; line-height: 1.1; margin-bottom: 1.5rem;
+      }
+      .hero-title em { font-style: italic; color: #e63946; }
+      .hero-body { color: #a09890; font-size: 1.05rem; line-height: 1.82; margin-bottom: 2.5rem; }
+      .btn-primary {
+        display: inline-block; background: #e63946; color: #fff;
+        padding: 0.9rem 2.2rem; font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.82rem; letter-spacing: 0.08em; text-decoration: none;
+        transition: background 0.2s, transform 0.15s;
+      }
+      .btn-primary:hover { background: #c1121f; transform: translateY(-2px); color: #fff; text-decoration: none; }
+      .hero-aside {
+        background: rgba(42,157,143,0.05);
+        border: 1px solid rgba(42,157,143,0.15);
+        padding: 2.5rem;
+      }
+      .aside-item { margin-bottom: 1.8rem; }
+      .aside-item:last-child { margin-bottom: 0; }
+      .aside-num {
+        font-family: 'IBM Plex Mono', monospace; font-size: 2rem; font-weight: 600;
+        color: #2a9d8f; line-height: 1;
+      }
+      .aside-desc { font-size: 0.88rem; color: #857e76; line-height: 1.6; margin-top: 0.2rem; }
+      /* Sections */
+      .section { max-width: 1060px; margin: 0 auto; padding: 4rem 2rem; }
+      .section-label {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: #2a9d8f; margin-bottom: 1rem;
+      }
+      .section-title {
+        font-family: 'Playfair Display', serif; font-size: clamp(1.6rem, 3vw, 2.4rem);
+        color: #f0ebe3; margin-bottom: 2rem; line-height: 1.2;
+      }
+      .divider { border: none; border-top: 1px solid rgba(232,224,213,0.07); margin: 0 2rem; }
+      /* Problem / solution split */
+      .split { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; }
+      @media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+      .split-col h3 {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem;
+        letter-spacing: 0.16em; text-transform: uppercase;
+        margin-bottom: 1.5rem;
+      }
+      .split-col.problem h3 { color: #e63946; }
+      .split-col.solution h3 { color: #2a9d8f; }
+      .split-col ul { list-style: none; padding: 0; margin: 0; }
+      .split-col ul li {
+        padding: 0.75rem 0; border-bottom: 1px solid rgba(232,224,213,0.06);
+        color: #a09890; font-size: 0.95rem; line-height: 1.65;
+        padding-left: 1.2rem; position: relative;
+      }
+      .split-col ul li::before { content: '—'; position: absolute; left: 0; }
+      .split-col.problem ul li::before { color: #e63946; }
+      .split-col.solution ul li::before { color: #2a9d8f; }
+      /* Service tiers */
+      .tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5px; background: rgba(232,224,213,0.06); }
+      .tier {
+        background: #0d1117; padding: 2.5rem 2rem;
+        display: flex; flex-direction: column;
+      }
+      .tier-name {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem;
+        letter-spacing: 0.16em; text-transform: uppercase;
+        color: #457b9d; margin-bottom: 0.5rem;
+      }
+      .tier-title {
+        font-family: 'Playfair Display', serif; font-size: 1.4rem;
+        color: #f0ebe3; margin-bottom: 1rem;
+      }
+      .tier-price {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem;
+        color: #f4a261; margin-bottom: 1.5rem; letter-spacing: 0.06em;
+      }
+      .tier ul { list-style: none; padding: 0; margin: 0 0 2rem; flex: 1; }
+      .tier ul li {
+        font-size: 0.88rem; color: #857e76; padding: 0.5rem 0;
+        border-bottom: 1px solid rgba(232,224,213,0.05);
+        padding-left: 1.1rem; position: relative;
+      }
+      .tier ul li::before { content: '✓'; position: absolute; left: 0; color: #2a9d8f; font-size: 0.75rem; }
+      .tier-cta {
+        display: inline-block; font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.74rem; letter-spacing: 0.1em;
+        color: #2a9d8f; text-decoration: none; margin-top: auto;
+        transition: color 0.2s;
+      }
+      .tier-cta:hover { color: #e63946; }
+      .tier.featured { background: #0f1a24; border-top: 2px solid #e63946; }
+      .tier.featured .tier-name { color: #e63946; }
+      /* Fit section */
+      .fit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+      .fit-card {
+        padding: 1.5rem; background: rgba(232,224,213,0.03);
+        border: 1px solid rgba(232,224,213,0.07);
+      }
+      .fit-icon { font-size: 1.4rem; margin-bottom: 0.6rem; }
+      .fit-card h4 { font-family: 'Playfair Display', serif; font-size: 1rem; color: #e8e0d5; margin-bottom: 0.4rem; }
+      .fit-card p { font-size: 0.85rem; color: #6b6560; line-height: 1.6; margin: 0; }
+      /* CTA block */
+      .cta-block {
+        margin: 2rem 0; padding: 4rem 3rem;
+        background: linear-gradient(135deg, rgba(230,57,70,0.08) 0%, rgba(42,157,143,0.06) 100%);
+        border: 1px solid rgba(232,224,213,0.08);
+        text-align: center;
+      }
+      .cta-block h2 { font-family: 'Playfair Display', serif; font-size: 2rem; color: #f0ebe3; margin-bottom: 1rem; }
+      .cta-block p { color: #a09890; max-width: 500px; margin: 0 auto 2.5rem; line-height: 1.8; }
+    </style>
+---
+
+```{=html}
+<nav class="nav-strip">
+  <a href="/en/">Home</a>
+  <a href="/en/about.html">About</a>
+  <a href="/en/work.html">Work</a>
+  <a href="/fractional/index.html" class="active">Fractional Head of Data</a>
+  <a href="/" class="nav-lang">🇫🇮 Suomeksi</a>
+</nav>
+
+<!-- Hero -->
+<div class="frac-hero">
+  <div>
+    <div class="hero-label">Fractional Head of Data</div>
+    <h1 class="hero-title">Senior data leadership.<br><em>Without the headcount.</em></h1>
+    <p class="hero-body">
+      Your SME generates data. It shapes your customers, your risk, your operations. 
+      But hiring a full-time Head of Data or Chief Data Officer is expensive, 
+      premature, and often the wrong fit at your stage.
+      <br><br>
+      I work with you one or two days a week — embedded in your team, 
+      aligned to your goals — bringing the statistical rigour and open-data 
+      methodology of a senior data scientist without the full-time cost.
+    </p>
+    <a href="mailto:kristian.vepsalainen@proton.me" class="btn-primary">Start the conversation →</a>
+  </div>
+  <aside class="hero-aside">
+    <div class="aside-item">
+      <div class="aside-num">10+</div>
+      <div class="aside-desc">years statistical practice across health, finance, and research sectors</div>
+    </div>
+    <div class="aside-item">
+      <div class="aside-num">FM + MEng</div>
+      <div class="aside-desc">Mathematics & Cybersecurity — dual quantitative foundation</div>
+    </div>
+    <div class="aside-item">
+      <div class="aside-num">7+</div>
+      <div class="aside-desc">peer-reviewed publications as co-author or primary analyst</div>
+    </div>
+    <div class="aside-item">
+      <div class="aside-num">Open</div>
+      <div class="aside-desc">data first — public datasets as competitive intelligence</div>
+    </div>
+  </aside>
+</div>
+
+<hr class="divider">
+
+<!-- Problem / Solution -->
+<section class="section">
+  <div class="section-label">The gap</div>
+  <h2 class="section-title">What SMEs face. What I solve.</h2>
+  <div class="split">
+    <div class="split-col problem">
+      <h3>The problem</h3>
+      <ul>
+        <li>Data piling up with no systematic analysis</li>
+        <li>Dashboards that show what happened, not why</li>
+        <li>No capacity to build forecasting or risk models</li>
+        <li>Regulatory and public data going unmonitored</li>
+        <li>Junior analysts without senior methodological oversight</li>
+        <li>Decisions made on point estimates — no uncertainty quantified</li>
+      </ul>
+    </div>
+    <div class="split-col solution">
+      <h3>What I bring</h3>
+      <ul>
+        <li>Bayesian models that expose uncertainty explicitly</li>
+        <li>Open data synthesis — public sources as competitive intelligence</li>
+        <li>Probabilistic forecasting with documented confidence bounds</li>
+        <li>Data strategy aligned to business decisions, not analytics for its own sake</li>
+        <li>Mentoring your existing team in rigorous methods</li>
+        <li>Research-grade analysis at consultancy speed</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Service tiers -->
+<section class="section">
+  <div class="section-label">Engagement models</div>
+  <h2 class="section-title">How we work together.</h2>
+  <div class="tier-grid">
+
+    <div class="tier">
+      <div class="tier-name">Diagnostic</div>
+      <div class="tier-title">Data Audit</div>
+      <div class="tier-price">Fixed scope · 2–3 weeks</div>
+      <ul>
+        <li>Map your current data assets and gaps</li>
+        <li>Identify the three highest-value analytical opportunities</li>
+        <li>Prioritised roadmap with effort/impact estimates</li>
+        <li>Written report + presentation</li>
+      </ul>
+      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Enquire →</a>
+    </div>
+
+    <div class="tier featured">
+      <div class="tier-name">Core offering</div>
+      <div class="tier-title">Fractional Head of Data</div>
+      <div class="tier-price">1–2 days/week · rolling engagement</div>
+      <ul>
+        <li>Embedded strategic data partner</li>
+        <li>Model building, forecasting, Bayesian inference</li>
+        <li>Open data monitoring relevant to your sector</li>
+        <li>Team mentoring and methodology review</li>
+        <li>Monthly decision-support reports</li>
+        <li>Slack / async availability between days</li>
+      </ul>
+      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Start the conversation →</a>
+    </div>
+
+    <div class="tier">
+      <div class="tier-name">Project</div>
+      <div class="tier-title">Defined Analysis</div>
+      <div class="tier-price">Scoped per project</div>
+      <ul>
+        <li>One focused deliverable: model, forecast, or analysis</li>
+        <li>Suitable for academic collaborations</li>
+        <li>Research-grade methods, publication-ready output</li>
+        <li>Full code and documentation handover</li>
+      </ul>
+      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Enquire →</a>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Who it's for -->
+<section class="section">
+  <div class="section-label">Best fit</div>
+  <h2 class="section-title">Who this is for.</h2>
+  <div class="fit-grid">
+    <div class="fit-card">
+      <div class="fit-icon">🏥</div>
+      <h4>Healthcare & pharma</h4>
+      <p>Register data, clinical outcomes, patient flow modelling, regulatory compliance analytics.</p>
+    </div>
+    <div class="fit-card">
+      <div class="fit-icon">⚖️</div>
+      <h4>Legal & policy</h4>
+      <p>Legislative analytics, EU directive tracking, regulatory change modelling — the skill gap between law and data science.</p>
+    </div>
+    <div class="fit-card">
+      <div class="fit-icon">🔬</div>
+      <h4>Research organisations</h4>
+      <p>Academic collaboration, statistical analysis for publications, open data methodology.</p>
+    </div>
+    <div class="fit-card">
+      <div class="fit-icon">📊</div>
+      <h4>Data-generating SMEs</h4>
+      <p>Any organisation that has data but no internal senior statistical capacity to extract value from it.</p>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section" style="padding-bottom: 7rem;">
+  <div class="cta-block">
+    <h2>Let's find out if this fits.</h2>
+    <p>
+      The first conversation costs nothing. We discuss your data, your decisions, 
+      and whether a fractional engagement makes sense for your stage.
+    </p>
+    <a href="mailto:kristian.vepsalainen@proton.me" class="btn-primary">
+      kristian.vepsalainen@proton.me
+    </a>
+  </div>
+</section>
+```

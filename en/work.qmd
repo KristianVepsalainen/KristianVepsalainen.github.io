@@ -1,0 +1,245 @@
+---
+title: "Work"
+lang: en
+draft: false
+page-layout: full
+title-block-banner: false
+include-in-header:
+  text: |
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+      body { background: #0d1117; color: #e8e0d5; font-family: 'Source Serif 4', serif; }
+      .nav-strip {
+        display: flex; gap: 2rem; padding: 1.2rem 2rem;
+        border-bottom: 1px solid rgba(232,224,213,0.08);
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem;
+        letter-spacing: 0.1em; position: sticky; top: 0;
+        background: rgba(13,17,23,0.92); backdrop-filter: blur(8px); z-index: 100;
+      }
+      .nav-strip a { color: #857e76; text-decoration: none; transition: color 0.2s; }
+      .nav-strip a:hover, .nav-strip a.active { color: #2a9d8f; }
+      .nav-strip .nav-lang { margin-left: auto; color: #e63946; }
+      .page-wrap { max-width: 1060px; margin: 0 auto; padding: 5rem 2rem 7rem; }
+      .page-label {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: #2a9d8f; margin-bottom: 1.2rem;
+      }
+      .page-title {
+        font-family: 'Playfair Display', serif; font-size: clamp(2rem, 4vw, 3.2rem);
+        color: #f0ebe3; line-height: 1.1; margin-bottom: 1rem;
+      }
+      .page-intro { color: #a09890; font-size: 1.05rem; line-height: 1.8; max-width: 620px; margin-bottom: 4rem; }
+      .filter-row {
+        display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 3rem;
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem;
+      }
+      .filter-btn {
+        padding: 0.35rem 0.9rem; border: 1px solid rgba(232,224,213,0.15);
+        color: #857e76; background: transparent; cursor: pointer;
+        letter-spacing: 0.08em; text-transform: uppercase; transition: all 0.2s;
+      }
+      .filter-btn:hover, .filter-btn.active { border-color: #2a9d8f; color: #2a9d8f; }
+      .work-grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1.5px; background: rgba(232,224,213,0.06);
+      }
+      .work-card {
+        background: #0d1117; padding: 2.5rem 2rem;
+        display: flex; flex-direction: column; transition: background 0.2s;
+        position: relative; overflow: hidden;
+      }
+      .work-card:hover { background: #10161e; }
+      .work-card::after {
+        content: ''; position: absolute; bottom: 0; left: 0;
+        height: 2px; width: 0; background: #e63946; transition: width 0.3s;
+      }
+      .work-card:hover::after { width: 100%; }
+      .card-domain {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
+        letter-spacing: 0.16em; text-transform: uppercase;
+        margin-bottom: 1rem;
+      }
+      .domain-law { color: #457b9d; }
+      .domain-labour { color: #f4a261; }
+      .domain-health { color: #2a9d8f; }
+      .domain-method { color: #e63946; }
+      .card-title {
+        font-family: 'Playfair Display', serif; font-size: 1.15rem;
+        color: #f0ebe3; line-height: 1.35; margin-bottom: 0.75rem;
+      }
+      .card-desc { color: #857e76; font-size: 0.9rem; line-height: 1.7; flex: 1; margin-bottom: 1.5rem; }
+      .card-meta {
+        display: flex; gap: 0.5rem; flex-wrap: wrap;
+      }
+      .card-tag {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem;
+        letter-spacing: 0.08em; padding: 0.2rem 0.6rem;
+        background: rgba(232,224,213,0.05); color: #6b6560;
+      }
+      .card-link {
+        display: inline-block; margin-top: 1.2rem;
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem;
+        letter-spacing: 0.1em; color: #2a9d8f; text-decoration: none;
+        transition: color 0.2s;
+      }
+      .card-link:hover { color: #e63946; }
+      .coming-soon { opacity: 0.45; }
+      .coming-badge {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem;
+        letter-spacing: 0.12em; color: #6b6560;
+        border: 1px solid rgba(107,101,96,0.3); padding: 0.15rem 0.5rem;
+        display: inline-block; margin-bottom: 1rem;
+      }
+      .section-divider {
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+        letter-spacing: 0.2em; text-transform: uppercase;
+        color: #457b9d; margin: 4rem 0 2rem;
+        padding-bottom: 0.5rem; border-bottom: 1px solid rgba(69,123,157,0.2);
+      }
+    </style>
+---
+
+```{=html}
+<nav class="nav-strip">
+  <a href="/en/">Home</a>
+  <a href="/en/about.html">About</a>
+  <a href="/en/work.html" class="active">Work</a>
+  <a href="/fractional/index.html">Fractional Head of Data</a>
+  <a href="/" class="nav-lang">🇫🇮 Suomeksi</a>
+</nav>
+
+<div class="page-wrap">
+  <div class="page-label">Portfolio & Analyses</div>
+  <h1 class="page-title">Selected work.</h1>
+  <p class="page-intro">
+    Analyses combining open public data with probabilistic methods. 
+    The common thread: every result exposes a distribution, not a point estimate.
+  </p>
+
+  <div class="section-divider">Legislative analytics</div>
+  <div class="work-grid">
+
+    <div class="work-card">
+      <span class="card-domain domain-law">Law · Open Data</span>
+      <h2 class="card-title">Finnish Legislation as a Distribution: Statute Age, Output Rate &amp; Citation Networks</h2>
+      <p class="card-desc">
+        A distributional analysis of the Finnish statute corpus via Semantic Finlex (Linked Open Data). 
+        Bayesian changepoint detection on legislative output rate, length distributions, 
+        and citation network centrality — methodologies the legal discipline lacks internally.
+        Submitted to <em>Lakimies</em>.
+      </p>
+      <div class="card-meta">
+        <span class="card-tag">Semantic Finlex</span>
+        <span class="card-tag">SPARQL</span>
+        <span class="card-tag">Bayesian changepoint</span>
+        <span class="card-tag">Network analysis</span>
+        <span class="card-tag">R</span>
+      </div>
+      <a href="https://kristianvepsalainen.com" class="card-link">Coming in Lakimies →</a>
+    </div>
+
+    <div class="work-card coming-soon">
+      <span class="coming-badge">In progress</span>
+      <span class="card-domain domain-law">Law · EU Data</span>
+      <h2 class="card-title">EU Directive Implementation Delays: A Survival Analysis</h2>
+      <p class="card-desc">
+        Combining EurLex transposition deadlines with Semantic Finlex enactment dates 
+        to model the distribution of Finland's implementation lag — and predict 
+        which directives are most likely to be late.
+      </p>
+      <div class="card-meta">
+        <span class="card-tag">eurlex R package</span>
+        <span class="card-tag">Survival analysis</span>
+        <span class="card-tag">EurLex + Finlex</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-divider">Labour market</div>
+  <div class="work-grid">
+
+    <div class="work-card">
+      <span class="card-domain domain-labour">Labour · Finland</span>
+      <h2 class="card-title">Labour Market Discussion Without Distributions Is Pseudo-Discussion</h2>
+      <p class="card-desc">
+        An 11-part Quarto/R series challenging point-estimate narratives in Finnish 
+        labour market policy. Regional mismatch, wage rigidity, unemployment proxies, 
+        education mismatch, skills decline, job polarisation, and a generative 
+        Cobb-Douglas simulation finale.
+      </p>
+      <div class="card-meta">
+        <span class="card-tag">Eurostat</span>
+        <span class="card-tag">StatFin</span>
+        <span class="card-tag">PIAAC</span>
+        <span class="card-tag">Simulation</span>
+        <span class="card-tag">R / Quarto</span>
+      </div>
+      <a href="https://kristianvepsalainen.com" class="card-link">Read the series (FI) →</a>
+    </div>
+
+    <div class="work-card coming-soon">
+      <span class="coming-badge">Planned</span>
+      <span class="card-domain domain-labour">Skills · PIAAC</span>
+      <h2 class="card-title">Nordic Skills Gap: A Bayesian Cross-Country Comparison</h2>
+      <p class="card-desc">
+        Using PIAAC microdata to model the posterior distribution of numeracy and literacy 
+        scores across Nordic countries — with implications for labour market policy and 
+        education system design.
+      </p>
+      <div class="card-meta">
+        <span class="card-tag">PIAAC</span>
+        <span class="card-tag">Bayesian hierarchical model</span>
+        <span class="card-tag">Nordic comparison</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-divider">Health & academic</div>
+  <div class="work-grid">
+
+    <div class="work-card">
+      <span class="card-domain domain-health">Ophthalmology · Academic</span>
+      <h2 class="card-title">Peer-reviewed research — Tampere University Eye Centre</h2>
+      <p class="card-desc">
+        Statistical analysis and co-authorship on two publications with Tampere University 
+        Eye Centre. Clinical data modelling, survival analysis, and outcome prediction.
+      </p>
+      <div class="card-meta">
+        <span class="card-tag">Clinical statistics</span>
+        <span class="card-tag">Survival analysis</span>
+        <span class="card-tag">Peer-reviewed</span>
+      </div>
+    </div>
+
+    <div class="work-card">
+      <span class="card-domain domain-health">Health · THL</span>
+      <h2 class="card-title">National health and welfare statistics — THL (2016–2019)</h2>
+      <p class="card-desc">
+        Statistical researcher at the Finnish Institute for Health and Welfare. 
+        National register-based statistics and ~5 peer-reviewed publications 
+        across health and social welfare domains.
+      </p>
+      <div class="card-meta">
+        <span class="card-tag">Register data</span>
+        <span class="card-tag">National statistics</span>
+        <span class="card-tag">Peer-reviewed</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="margin-top:4rem; padding:2.5rem; border:1px solid rgba(232,224,213,0.08); text-align:center;">
+    <p style="font-family:'IBM Plex Mono',monospace; font-size:0.76rem; letter-spacing:0.12em; color:#6b6560; margin-bottom:1rem;">
+      HAVE A DATASET THAT NEEDS THIS KIND OF TREATMENT?
+    </p>
+    <a href="mailto:kristian.vepsalainen@proton.me" 
+       style="font-family:'IBM Plex Mono',monospace; font-size:0.82rem; color:#2a9d8f; text-decoration:none; letter-spacing:0.08em;">
+      kristian.vepsalainen@proton.me →
+    </a>
+  </div>
+
+</div>
+```

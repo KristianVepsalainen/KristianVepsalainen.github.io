@@ -1,0 +1,312 @@
+---
+title: "The World Is a Distribution"
+subtitle: "Data Science & Fractional Head of Data"
+lang: en
+draft: false
+page-layout: full
+title-block-banner: false
+include-in-header:
+  text: |
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+      body { background: #0d1117; color: #e8e0d5; font-family: 'Source Serif 4', serif; }
+      .hero-section {
+        min-height: 92vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 6rem 2rem 4rem;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero-section::before {
+        content: '';
+        position: absolute;
+        top: -10%;
+        right: -5%;
+        width: 55%;
+        height: 120%;
+        background: radial-gradient(ellipse at 70% 40%, rgba(42,157,143,0.07) 0%, rgba(230,57,70,0.04) 50%, transparent 75%);
+        pointer-events: none;
+      }
+      .distribution-bg {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        opacity: 0.06;
+        pointer-events: none;
+      }
+      .hero-label {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.72rem;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #2a9d8f;
+        margin-bottom: 2rem;
+        animation: fadeUp 0.6s ease both;
+      }
+      .hero-title {
+        font-family: 'Playfair Display', serif;
+        font-size: clamp(2.8rem, 7vw, 6rem);
+        font-weight: 700;
+        line-height: 1.05;
+        color: #f0ebe3;
+        max-width: 820px;
+        margin-bottom: 1.5rem;
+        animation: fadeUp 0.6s 0.1s ease both;
+      }
+      .hero-title em {
+        font-style: italic;
+        color: #e63946;
+      }
+      .hero-sub {
+        font-size: 1.18rem;
+        font-weight: 300;
+        color: #a09890;
+        max-width: 560px;
+        line-height: 1.75;
+        margin-bottom: 3rem;
+        animation: fadeUp 0.6s 0.2s ease both;
+      }
+      .hero-cta {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        animation: fadeUp 0.6s 0.3s ease both;
+      }
+      .btn-primary {
+        background: #e63946;
+        color: #fff;
+        padding: 0.85rem 2rem;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+        text-decoration: none;
+        border: none;
+        cursor: pointer;
+        transition: background 0.2s, transform 0.15s;
+      }
+      .btn-primary:hover { background: #c1121f; transform: translateY(-2px); color: #fff; text-decoration: none; }
+      .btn-ghost {
+        background: transparent;
+        color: #e8e0d5;
+        padding: 0.85rem 2rem;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+        text-decoration: none;
+        border: 1px solid rgba(232,224,213,0.25);
+        transition: border-color 0.2s, transform 0.15s;
+      }
+      .btn-ghost:hover { border-color: #2a9d8f; color: #2a9d8f; transform: translateY(-2px); text-decoration: none; }
+      .section { padding: 5rem 2rem; max-width: 1100px; margin: 0 auto; }
+      .section-label {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.68rem;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: #2a9d8f;
+        margin-bottom: 1rem;
+      }
+      .section-title {
+        font-family: 'Playfair Display', serif;
+        font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+        color: #f0ebe3;
+        margin-bottom: 2rem;
+        line-height: 1.2;
+      }
+      .pillar-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5px;
+        background: rgba(232,224,213,0.06);
+        margin-top: 3rem;
+      }
+      .pillar {
+        background: #0d1117;
+        padding: 2.5rem 2rem;
+        position: relative;
+        transition: background 0.25s;
+      }
+      .pillar:hover { background: #111820; }
+      .pillar-num {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 2.4rem;
+        font-weight: 600;
+        color: rgba(230,57,70,0.18);
+        line-height: 1;
+        margin-bottom: 1rem;
+      }
+      .pillar h3 {
+        font-family: 'Playfair Display', serif;
+        font-size: 1.2rem;
+        color: #f0ebe3;
+        margin-bottom: 0.75rem;
+      }
+      .pillar p { font-size: 0.92rem; color: #857e76; line-height: 1.7; margin: 0; }
+      .quote-block {
+        border-left: 3px solid #e63946;
+        padding: 2rem 2.5rem;
+        margin: 4rem 0;
+        background: rgba(230,57,70,0.04);
+      }
+      .quote-block p {
+        font-family: 'Playfair Display', serif;
+        font-style: italic;
+        font-size: 1.4rem;
+        color: #d4ccc4;
+        line-height: 1.6;
+        margin: 0 0 1rem;
+      }
+      .quote-block cite {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
+        color: #2a9d8f;
+      }
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 2rem;
+        padding: 3rem 0;
+        border-top: 1px solid rgba(232,224,213,0.08);
+        border-bottom: 1px solid rgba(232,224,213,0.08);
+      }
+      .stat-item { text-align: center; }
+      .stat-num {
+        font-family: 'Playfair Display', serif;
+        font-size: 2.6rem;
+        color: #f4a261;
+        display: block;
+      }
+      .stat-label {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.68rem;
+        letter-spacing: 0.14em;
+        color: #6b6560;
+        text-transform: uppercase;
+        margin-top: 0.3rem;
+      }
+      .nav-strip {
+        display: flex;
+        gap: 2rem;
+        padding: 1.2rem 2rem;
+        border-bottom: 1px solid rgba(232,224,213,0.08);
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.76rem;
+        letter-spacing: 0.1em;
+        position: sticky;
+        top: 0;
+        background: rgba(13,17,23,0.92);
+        backdrop-filter: blur(8px);
+        z-index: 100;
+      }
+      .nav-strip a { color: #857e76; text-decoration: none; transition: color 0.2s; }
+      .nav-strip a:hover { color: #2a9d8f; }
+      .nav-strip .nav-lang { margin-left: auto; color: #e63946; }
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(18px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    </style>
+---
+
+```{=html}
+<nav class="nav-strip">
+  <a href="/en/">Home</a>
+  <a href="/en/about.html">About</a>
+  <a href="/en/work.html">Work</a>
+  <a href="/fractional/index.html">Fractional Head of Data</a>
+  <a href="/" class="nav-lang">🇫🇮 Suomeksi</a>
+</nav>
+
+<section class="hero-section">
+  <svg class="distribution-bg" viewBox="0 0 1440 320" preserveAspectRatio="none">
+    <path d="M0,280 C120,280 180,40 360,120 C540,200 600,20 720,60 C840,100 900,240 1080,180 C1260,120 1380,260 1440,240 L1440,320 L0,320 Z" fill="#2a9d8f"/>
+  </svg>
+  <div class="hero-label">Kristian Vepsäläinen — Data Science</div>
+  <h1 class="hero-title">The world is<br><em>a distribution.</em></h1>
+  <p class="hero-sub">
+    Point estimates lie. Averages mislead. The shape of uncertainty
+    is where real understanding lives — and where competitive advantage hides.
+  </p>
+  <div class="hero-cta">
+    <a href="/fractional/index.html" class="btn-primary">Fractional Head of Data →</a>
+    <a href="/en/work.html" class="btn-ghost">See the analyses</a>
+  </div>
+</section>
+
+<section class="section">
+  <div class="stats-row">
+    <div class="stat-item">
+      <span class="stat-num">5+</span>
+      <span class="stat-label">Peer-reviewed publications</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-num">10+</span>
+      <span class="stat-label">Years statistical practice</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-num">FM + MEng</span>
+      <span class="stat-label">Mathematics & Cybersecurity</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-num">Open</span>
+      <span class="stat-label">Data first approach</span>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-label">What I do</div>
+  <h2 class="section-title">Distributional thinking<br>applied to real decisions.</h2>
+  <p style="color:#a09890; max-width:620px; line-height:1.8; font-size:1.05rem;">
+    I combine public datasets — legislation, labour markets, health registries, 
+    EU open data — with Bayesian methods, changepoint models, and simulation 
+    to produce analyses that domain experts cannot replicate without 
+    data science skills.
+  </p>
+
+  <div class="pillar-grid">
+    <div class="pillar">
+      <div class="pillar-num">01</div>
+      <h3>Bayesian inference</h3>
+      <p>Posterior distributions over parameters, not p-values. Uncertainty quantified, not hidden.</p>
+    </div>
+    <div class="pillar">
+      <div class="pillar-num">02</div>
+      <h3>Open data synthesis</h3>
+      <p>Semantic Finlex, Eurostat, StatFin, EurLex — combined in ways no single-discipline analyst can.</p>
+    </div>
+    <div class="pillar">
+      <div class="pillar-num">03</div>
+      <h3>Forecasting & simulation</h3>
+      <p>Monte Carlo, generative models, changepoint detection. Predictions with explicit confidence bounds.</p>
+    </div>
+    <div class="pillar">
+      <div class="pillar-num">04</div>
+      <h3>Fractional leadership</h3>
+      <p>SMEs get a senior data strategy partner without hiring a full-time CDO. One day a week, full expertise.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="quote-block">
+    <p>"A single number — an average, a headline figure, a point forecast — is not an answer. It is a question about which distribution produced it."</p>
+    <cite>— Kristian Vepsäläinen, maailma on jakauma</cite>
+  </div>
+</section>
+
+<section class="section" style="text-align:center; padding-bottom:7rem;">
+  <div class="section-label">Next step</div>
+  <h2 class="section-title">Let's talk about your data.</h2>
+  <p style="color:#a09890; max-width:480px; margin:0 auto 2.5rem; line-height:1.8;">
+    Whether you need a specific analysis or a fractional data science partner — 
+    the first conversation is free.
+  </p>
+  <a href="mailto:kristian.vepsalainen@proton.me" class="btn-primary">kristian.vepsalainen@proton.me</a>
+</section>
+```

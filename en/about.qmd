@@ -9,16 +9,39 @@ include-in-header:
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:wght@300;400&display=swap" rel="stylesheet">
     <style>
-      body { background: #0d1117; color: #e8e0d5; font-family: 'Source Serif 4', serif; }
+      body,
+      .quarto-container, #quarto-content,
+      .page-layout-full, main.content {
+        background: #0d1117 !important;
+        color: #e8e0d5 !important;
+        font-family: 'Source Serif 4', serif !important;
+      }
+      #title-block-header { display: none !important; }
+      h1,h2,h3,h4,h5 { color: #f0ebe3 !important; font-family: 'Playfair Display', serif !important; }
+
+      .en-nav {
+        display: flex; flex-wrap: wrap; align-items: center;
+        gap: 0.25rem 0; padding: 0.75rem 1.5rem;
+        border-bottom: 1px solid rgba(232,224,213,0.1);
+        background: rgba(13,17,23,0.97);
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.72rem; letter-spacing: 0.08em;
+      }
+      .en-nav a { color: #857e76 !important; text-decoration: none !important; padding: 0.35rem 0.7rem; transition: color 0.2s; white-space: nowrap; }
+      .en-nav a:hover { color: #2a9d8f !important; }
+      .en-nav a.active { color: #f0ebe3 !important; }
+      .en-nav .nav-fi { margin-left: auto; color: #e63946 !important; padding-left: 1rem; }
+      .en-nav .nav-fi:hover { color: #f4a261 !important; }
+
       .page-wrap { max-width: 960px; margin: 0 auto; padding: 4rem 1.5rem 6rem; box-sizing: border-box; }
       .page-label {
-        font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
-        letter-spacing: 0.22em; text-transform: uppercase; color: #2a9d8f; margin-bottom: 1.2rem;
+        font-family: 'IBM Plex Mono', monospace !important; font-size: 0.68rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: #2a9d8f !important; margin-bottom: 1.2rem; display: block;
       }
       .page-title {
-        font-family: 'Playfair Display', serif;
-        font-size: clamp(2rem, 6vw, 3.2rem);
-        color: #f0ebe3; line-height: 1.1; margin-bottom: 3rem;
+        font-family: 'Playfair Display', serif !important;
+        font-size: clamp(2rem, 6vw, 3.2rem) !important;
+        color: #f0ebe3 !important; line-height: 1.1; margin-bottom: 3rem;
       }
       .two-col { display: grid; grid-template-columns: 1fr; gap: 3rem; }
       @media (min-width: 700px) { .two-col { grid-template-columns: 1fr 1.6fr; gap: 5rem; } }
@@ -26,27 +49,27 @@ include-in-header:
       .tag {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
         letter-spacing: 0.1em; padding: 0.3rem 0.7rem;
-        border: 1px solid rgba(42,157,143,0.3); color: #2a9d8f;
+        border: 1px solid rgba(42,157,143,0.3); color: #2a9d8f !important;
       }
       .contact-block a {
         display: block; font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem;
-        color: #f4a261; text-decoration: none; margin-bottom: 0.5rem;
-        letter-spacing: 0.06em; transition: color 0.2s; word-break: break-all;
+        color: #f4a261 !important; text-decoration: none !important; margin-bottom: 0.5rem;
+        letter-spacing: 0.06em; word-break: break-all; transition: color 0.2s;
       }
-      .contact-block a:hover { color: #e63946; }
+      .contact-block a:hover { color: #e63946 !important; }
       .bio-main h2 {
-        font-family: 'Playfair Display', serif; font-size: 1.25rem;
-        color: #f0ebe3; margin: 2.5rem 0 0.75rem;
+        font-family: 'Playfair Display', serif !important; font-size: 1.25rem !important;
+        color: #f0ebe3 !important; margin: 2.5rem 0 0.75rem;
         border-bottom: 1px solid rgba(232,224,213,0.08); padding-bottom: 0.5rem;
       }
       .bio-main h2:first-child { margin-top: 0; }
-      .bio-main p { color: #a09890; line-height: 1.82; font-size: 0.97rem; margin-bottom: 1rem; }
-      .bio-main strong { color: #e8e0d5; font-weight: 400; }
-      .timeline { margin: 0.5rem 0 0; padding: 0; list-style: none; }
+      .bio-main p { color: #a09890 !important; line-height: 1.82; font-size: 0.97rem; margin-bottom: 1rem; }
+      .bio-main strong { color: #e8e0d5 !important; font-weight: 400; }
+      .timeline { margin: 0.5rem 0 0; padding: 0; list-style: none !important; }
       .timeline li {
         padding: 0.9rem 0 0.9rem 1.4rem;
         border-left: 1px solid rgba(232,224,213,0.1);
-        position: relative; color: #a09890; font-size: 0.92rem; line-height: 1.65;
+        position: relative; color: #a09890 !important; font-size: 0.92rem; line-height: 1.65;
       }
       .timeline li::before {
         content: ''; width: 7px; height: 7px; background: #e63946;
@@ -54,22 +77,30 @@ include-in-header:
       }
       .timeline .year {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
-        letter-spacing: 0.12em; color: #457b9d; display: block; margin-bottom: 0.2rem;
+        letter-spacing: 0.12em; color: #457b9d !important; display: block; margin-bottom: 0.2rem;
       }
       .philosophy-quote {
         margin: 2.5rem 0; padding: 1.5rem 2rem;
         background: rgba(230,57,70,0.05); border-left: 3px solid #e63946;
       }
       .philosophy-quote p {
-        font-family: 'Playfair Display', serif; font-style: italic;
-        font-size: clamp(1rem, 2.5vw, 1.15rem); color: #d4ccc4; line-height: 1.65; margin: 0;
+        font-family: 'Playfair Display', serif !important; font-style: italic;
+        font-size: clamp(1rem, 2.5vw, 1.15rem) !important; color: #d4ccc4 !important; line-height: 1.65; margin: 0;
       }
     </style>
 ---
 
 ```{=html}
+<nav class="en-nav">
+  <a href="/en/index.html">Home</a>
+  <a href="/en/about.html" class="active">About</a>
+  <a href="/en/work.html">Work</a>
+  <a href="/fractional/fractional.html">Fractional HoD</a>
+  <a href="/" class="nav-fi">🇫🇮 Suomeksi</a>
+</nav>
+
 <div class="page-wrap">
-  <div class="page-label">About</div>
+  <span class="page-label">About</span>
   <h1 class="page-title">Kristian Vepsäläinen</h1>
 
   <div class="two-col">
@@ -102,12 +133,10 @@ include-in-header:
         and Welfare (THL), as a data scientist at OP Group, and as a statistical expert at Sosiaalitaito Oy.
         I have co-authored peer-reviewed research with Tampere University Eye Centre and Umeå University.
       </p>
-
       <div class="philosophy-quote">
         <p>Maailma on jakauma — the world is a distribution. A single number is never the answer;
         it is always the beginning of a question about what produced it.</p>
       </div>
-
       <h2>What I actually do</h2>
       <p>
         Most analysts produce charts. I build <strong>probabilistic models</strong> —
@@ -116,7 +145,6 @@ include-in-header:
         statistical machinery with datasets that domain experts (lawyers, policy analysts, physicians)
         control but cannot analyse without data science skills.
       </p>
-
       <h2>Career timeline</h2>
       <ul class="timeline">
         <li>
@@ -138,11 +166,9 @@ include-in-header:
         </li>
         <li>
           <span class="year">2009 – 2014</span>
-          FM, Mathematics — University of Eastern Finland.
-          Minors: computer science, statistics, economics.
+          FM, Mathematics — University of Eastern Finland. Minors: computer science, statistics, economics.
         </li>
       </ul>
-
       <h2>Education</h2>
       <ul class="timeline">
         <li>

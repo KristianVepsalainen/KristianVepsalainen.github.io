@@ -9,22 +9,45 @@ include-in-header:
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:wght@300;400&display=swap" rel="stylesheet">
     <style>
-      body { background: #0d1117; color: #e8e0d5; font-family: 'Source Serif 4', serif; }
+      body,
+      .quarto-container, #quarto-content,
+      .page-layout-full, main.content {
+        background: #0d1117 !important;
+        color: #e8e0d5 !important;
+        font-family: 'Source Serif 4', serif !important;
+      }
+      #title-block-header { display: none !important; }
+      h1,h2,h3,h4,h5 { color: #f0ebe3 !important; font-family: 'Playfair Display', serif !important; }
+
+      .en-nav {
+        display: flex; flex-wrap: wrap; align-items: center;
+        gap: 0.25rem 0; padding: 0.75rem 1.5rem;
+        border-bottom: 1px solid rgba(232,224,213,0.1);
+        background: rgba(13,17,23,0.97);
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.72rem; letter-spacing: 0.08em;
+      }
+      .en-nav a { color: #857e76 !important; text-decoration: none !important; padding: 0.35rem 0.7rem; transition: color 0.2s; white-space: nowrap; }
+      .en-nav a:hover { color: #2a9d8f !important; }
+      .en-nav a.active { color: #f0ebe3 !important; }
+      .en-nav .nav-fi { margin-left: auto; color: #e63946 !important; padding-left: 1rem; }
+      .en-nav .nav-fi:hover { color: #f4a261 !important; }
+
       .page-wrap { max-width: 1040px; margin: 0 auto; padding: 4rem 1.5rem 6rem; box-sizing: border-box; }
       .page-label {
-        font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
-        letter-spacing: 0.22em; text-transform: uppercase; color: #2a9d8f; margin-bottom: 1.2rem;
+        font-family: 'IBM Plex Mono', monospace !important; font-size: 0.68rem;
+        letter-spacing: 0.22em; text-transform: uppercase; color: #2a9d8f !important; margin-bottom: 1.2rem; display: block;
       }
       .page-title {
-        font-family: 'Playfair Display', serif;
-        font-size: clamp(2rem, 6vw, 3.2rem);
-        color: #f0ebe3; line-height: 1.1; margin-bottom: 1rem;
+        font-family: 'Playfair Display', serif !important;
+        font-size: clamp(2rem, 6vw, 3.2rem) !important;
+        color: #f0ebe3 !important; line-height: 1.1; margin-bottom: 1rem;
       }
-      .page-intro { color: #a09890; font-size: 1rem; line-height: 1.8; max-width: 600px; margin-bottom: 3.5rem; }
+      .page-intro { color: #a09890 !important; font-size: 1rem; line-height: 1.8; max-width: 600px; margin-bottom: 3.5rem; }
       .section-divider {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
         letter-spacing: 0.2em; text-transform: uppercase;
-        color: #457b9d; margin: 3.5rem 0 1.5rem;
+        color: #457b9d !important; margin: 3.5rem 0 1.5rem; display: block;
         padding-bottom: 0.5rem; border-bottom: 1px solid rgba(69,123,157,0.2);
       }
       .work-grid {
@@ -33,11 +56,11 @@ include-in-header:
       }
       @media (min-width: 640px) { .work-grid { grid-template-columns: repeat(2, 1fr); } }
       .work-card {
-        background: #0d1117; padding: 2rem 1.5rem;
+        background: #0d1117 !important; padding: 2rem 1.5rem;
         display: flex; flex-direction: column; transition: background 0.2s;
         position: relative; overflow: hidden;
       }
-      .work-card:hover { background: #10161e; }
+      .work-card:hover { background: #10161e !important; }
       .work-card::after {
         content: ''; position: absolute; bottom: 0; left: 0;
         height: 2px; width: 0; background: #e63946; transition: width 0.3s;
@@ -45,32 +68,32 @@ include-in-header:
       .work-card:hover::after { width: 100%; }
       .card-domain {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem;
-        letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.9rem;
+        letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.9rem; display: block;
       }
-      .domain-law { color: #457b9d; }
-      .domain-labour { color: #f4a261; }
-      .domain-health { color: #2a9d8f; }
+      .domain-law { color: #457b9d !important; }
+      .domain-labour { color: #f4a261 !important; }
+      .domain-health { color: #2a9d8f !important; }
       .card-title {
-        font-family: 'Playfair Display', serif; font-size: 1.1rem;
-        color: #f0ebe3; line-height: 1.35; margin-bottom: 0.7rem;
+        font-family: 'Playfair Display', serif !important; font-size: 1.1rem !important;
+        color: #f0ebe3 !important; line-height: 1.35; margin-bottom: 0.7rem;
       }
-      .card-desc { color: #857e76; font-size: 0.88rem; line-height: 1.7; flex: 1; margin-bottom: 1.2rem; }
+      .card-desc { color: #857e76 !important; font-size: 0.88rem; line-height: 1.7; flex: 1; margin-bottom: 1.2rem; }
       .card-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; }
       .card-tag {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem;
         letter-spacing: 0.06em; padding: 0.18rem 0.55rem;
-        background: rgba(232,224,213,0.05); color: #6b6560;
+        background: rgba(232,224,213,0.05); color: #6b6560 !important;
       }
       .card-link {
         display: inline-block; margin-top: 1rem;
         font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem;
-        letter-spacing: 0.08em; color: #2a9d8f; text-decoration: none; transition: color 0.2s;
+        letter-spacing: 0.08em; color: #2a9d8f !important; text-decoration: none !important;
       }
-      .card-link:hover { color: #e63946; }
+      .card-link:hover { color: #e63946 !important; }
       .coming-soon { opacity: 0.45; }
       .coming-badge {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem;
-        letter-spacing: 0.12em; color: #6b6560;
+        letter-spacing: 0.12em; color: #6b6560 !important;
         border: 1px solid rgba(107,101,96,0.3); padding: 0.12rem 0.45rem;
         display: inline-block; margin-bottom: 0.9rem;
       }
@@ -80,27 +103,34 @@ include-in-header:
       }
       .cta-footer p {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem;
-        letter-spacing: 0.1em; color: #6b6560; margin-bottom: 1rem;
+        letter-spacing: 0.1em; color: #6b6560 !important; margin-bottom: 1rem;
       }
       .cta-footer a {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem;
-        color: #2a9d8f; text-decoration: none; letter-spacing: 0.06em;
-        transition: color 0.2s;
+        color: #2a9d8f !important; text-decoration: none !important; letter-spacing: 0.06em;
       }
-      .cta-footer a:hover { color: #e63946; }
+      .cta-footer a:hover { color: #e63946 !important; }
     </style>
 ---
 
 ```{=html}
+<nav class="en-nav">
+  <a href="/en/index.html">Home</a>
+  <a href="/en/about.html">About</a>
+  <a href="/en/work.html" class="active">Work</a>
+  <a href="/fractional/fractional.html">Fractional HoD</a>
+  <a href="/" class="nav-fi">🇫🇮 Suomeksi</a>
+</nav>
+
 <div class="page-wrap">
-  <div class="page-label">Portfolio & Analyses</div>
+  <span class="page-label">Portfolio & Analyses</span>
   <h1 class="page-title">Selected work.</h1>
   <p class="page-intro">
     Analyses combining open public data with probabilistic methods.
     The common thread: every result exposes a distribution, not a point estimate.
   </p>
 
-  <div class="section-divider">Legislative analytics</div>
+  <span class="section-divider">Legislative analytics</span>
   <div class="work-grid">
     <div class="work-card">
       <span class="card-domain domain-law">Law · Open Data</span>
@@ -118,7 +148,6 @@ include-in-header:
       </div>
       <a href="https://kristianvepsalainen.com" class="card-link">Coming in Lakimies →</a>
     </div>
-
     <div class="work-card coming-soon">
       <span class="coming-badge">In progress</span>
       <span class="card-domain domain-law">Law · EU Data</span>
@@ -135,7 +164,7 @@ include-in-header:
     </div>
   </div>
 
-  <div class="section-divider">Labour market</div>
+  <span class="section-divider">Labour market</span>
   <div class="work-grid">
     <div class="work-card">
       <span class="card-domain domain-labour">Labour · Finland</span>
@@ -153,7 +182,6 @@ include-in-header:
       </div>
       <a href="https://kristianvepsalainen.com" class="card-link">Read the series (FI) →</a>
     </div>
-
     <div class="work-card coming-soon">
       <span class="coming-badge">Planned</span>
       <span class="card-domain domain-labour">Skills · PIAAC</span>
@@ -170,7 +198,7 @@ include-in-header:
     </div>
   </div>
 
-  <div class="section-divider">Health & academic</div>
+  <span class="section-divider">Health & academic</span>
   <div class="work-grid">
     <div class="work-card">
       <span class="card-domain domain-health">Ophthalmology · Academic</span>
@@ -185,7 +213,6 @@ include-in-header:
         <span class="card-tag">Peer-reviewed</span>
       </div>
     </div>
-
     <div class="work-card">
       <span class="card-domain domain-health">Health · THL</span>
       <h2 class="card-title">National health and welfare statistics — THL (2016–2019)</h2>

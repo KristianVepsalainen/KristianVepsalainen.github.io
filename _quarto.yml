@@ -19,7 +19,7 @@ website:
         text: Etusivu
       - href: pricing.qmd
         text: Palvelut
-      - href: fractional/index.qmd
+      - href: fractional/fractional.qmd
         text: Fractional Head of Data
       - href: blog.qmd
         text: Blogi

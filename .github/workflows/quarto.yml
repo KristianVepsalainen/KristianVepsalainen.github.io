@@ -81,6 +81,7 @@ jobs:
             "tidybayes",
             "tidygraph",
             "broom",
+            "spdep",
             "data.table",
             "glue",
             "lubridate",
@@ -102,7 +103,8 @@ jobs:
             "treemapify",
             "eurlex",
             "brms",
-            "stan-dev/cmdstanr"
+            "stan-dev/cmdstanr",
+            "remotes"
           ))
         shell: Rscript {0}
 

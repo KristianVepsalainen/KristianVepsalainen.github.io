@@ -10,94 +10,70 @@ include-in-header:
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:wght@300;400&display=swap" rel="stylesheet">
     <style>
       body { background: #0d1117; color: #e8e0d5; font-family: 'Source Serif 4', serif; }
-      .nav-strip {
-        display: flex; gap: 2rem; padding: 1.2rem 2rem;
-        border-bottom: 1px solid rgba(232,224,213,0.08);
-        font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem;
-        letter-spacing: 0.1em; position: sticky; top: 0;
-        background: rgba(13,17,23,0.92); backdrop-filter: blur(8px); z-index: 100;
-      }
-      .nav-strip a { color: #857e76; text-decoration: none; transition: color 0.2s; }
-      .nav-strip a:hover, .nav-strip a.active { color: #2a9d8f; }
-      .nav-strip .nav-lang { margin-left: auto; color: #e63946; }
-      .page-wrap { max-width: 980px; margin: 0 auto; padding: 5rem 2rem 7rem; }
+      .page-wrap { max-width: 960px; margin: 0 auto; padding: 4rem 1.5rem 6rem; box-sizing: border-box; }
       .page-label {
         font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
         letter-spacing: 0.22em; text-transform: uppercase; color: #2a9d8f; margin-bottom: 1.2rem;
       }
       .page-title {
-        font-family: 'Playfair Display', serif; font-size: clamp(2rem, 4vw, 3.2rem);
+        font-family: 'Playfair Display', serif;
+        font-size: clamp(2rem, 6vw, 3.2rem);
         color: #f0ebe3; line-height: 1.1; margin-bottom: 3rem;
       }
-      .two-col { display: grid; grid-template-columns: 1fr 1.6fr; gap: 5rem; align-items: start; }
-      @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; gap: 3rem; } }
-      .bio-aside {}
+      .two-col { display: grid; grid-template-columns: 1fr; gap: 3rem; }
+      @media (min-width: 700px) { .two-col { grid-template-columns: 1fr 1.6fr; gap: 5rem; } }
       .tag-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem; }
       .tag {
-        font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
-        letter-spacing: 0.1em; padding: 0.3rem 0.75rem;
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
+        letter-spacing: 0.1em; padding: 0.3rem 0.7rem;
         border: 1px solid rgba(42,157,143,0.3); color: #2a9d8f;
       }
-      .contact-block { margin-top: 2.5rem; }
       .contact-block a {
-        display: block; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem;
+        display: block; font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem;
         color: #f4a261; text-decoration: none; margin-bottom: 0.5rem;
-        letter-spacing: 0.06em; transition: color 0.2s;
+        letter-spacing: 0.06em; transition: color 0.2s; word-break: break-all;
       }
       .contact-block a:hover { color: #e63946; }
       .bio-main h2 {
-        font-family: 'Playfair Display', serif; font-size: 1.3rem;
-        color: #f0ebe3; margin: 2.5rem 0 0.75rem; border-bottom: 1px solid rgba(232,224,213,0.08);
-        padding-bottom: 0.5rem;
+        font-family: 'Playfair Display', serif; font-size: 1.25rem;
+        color: #f0ebe3; margin: 2.5rem 0 0.75rem;
+        border-bottom: 1px solid rgba(232,224,213,0.08); padding-bottom: 0.5rem;
       }
       .bio-main h2:first-child { margin-top: 0; }
-      .bio-main p { color: #a09890; line-height: 1.82; font-size: 1rem; margin-bottom: 1rem; }
+      .bio-main p { color: #a09890; line-height: 1.82; font-size: 0.97rem; margin-bottom: 1rem; }
       .bio-main strong { color: #e8e0d5; font-weight: 400; }
-      .timeline { margin: 1rem 0 0; padding: 0; list-style: none; }
+      .timeline { margin: 0.5rem 0 0; padding: 0; list-style: none; }
       .timeline li {
-        padding: 1rem 0 1rem 1.5rem;
+        padding: 0.9rem 0 0.9rem 1.4rem;
         border-left: 1px solid rgba(232,224,213,0.1);
-        position: relative; color: #a09890; font-size: 0.94rem; line-height: 1.65;
+        position: relative; color: #a09890; font-size: 0.92rem; line-height: 1.65;
       }
       .timeline li::before {
-        content: '';
-        width: 7px; height: 7px;
-        background: #e63946;
-        border-radius: 50%;
-        position: absolute; left: -4px; top: 1.35rem;
+        content: ''; width: 7px; height: 7px; background: #e63946;
+        border-radius: 50%; position: absolute; left: -4px; top: 1.3rem;
       }
       .timeline .year {
-        font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+        font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
         letter-spacing: 0.12em; color: #457b9d; display: block; margin-bottom: 0.2rem;
       }
       .philosophy-quote {
-        margin: 3rem 0; padding: 2rem;
-        background: rgba(230,57,70,0.05);
-        border-left: 3px solid #e63946;
+        margin: 2.5rem 0; padding: 1.5rem 2rem;
+        background: rgba(230,57,70,0.05); border-left: 3px solid #e63946;
       }
       .philosophy-quote p {
         font-family: 'Playfair Display', serif; font-style: italic;
-        font-size: 1.15rem; color: #d4ccc4; line-height: 1.65; margin: 0;
+        font-size: clamp(1rem, 2.5vw, 1.15rem); color: #d4ccc4; line-height: 1.65; margin: 0;
       }
     </style>
 ---
 
 ```{=html}
-<nav class="nav-strip">
-  <a href="/en/">Home</a>
-  <a href="/en/about.html" class="active">About</a>
-  <a href="/en/work.html">Work</a>
-  <a href="/fractional/index.html">Fractional Head of Data</a>
-  <a href="/about.html" class="nav-lang">🇫🇮 Suomeksi</a>
-</nav>
-
 <div class="page-wrap">
   <div class="page-label">About</div>
   <h1 class="page-title">Kristian Vepsäläinen</h1>
 
   <div class="two-col">
-
-    <aside class="bio-aside">
+    <aside>
       <div class="tag-list">
         <span class="tag">Bayesian methods</span>
         <span class="tag">Open data</span>
@@ -108,7 +84,6 @@ include-in-header:
         <span class="tag">Simulation</span>
         <span class="tag">Fractional HoD</span>
       </div>
-
       <div class="contact-block">
         <a href="mailto:kristian.vepsalainen@proton.me">kristian.vepsalainen@proton.me</a>
         <a href="https://kristianvepsalainen.com" target="_blank">kristianvepsalainen.com</a>
@@ -117,42 +92,36 @@ include-in-header:
     </aside>
 
     <main class="bio-main">
-
       <h2>In one paragraph</h2>
       <p>
-        I am an independent data scientist based in Siilinjärvi, Finland. My work sits at the 
-        intersection of <strong>mathematical statistics, open public data, and domain expertise</strong> 
-        in healthcare, law, and labour economics. I hold an FM in mathematics (University of Eastern Finland) 
-        and a Master of Engineering in cybersecurity (JAMK University of Applied Sciences). 
-        Before going independent, I worked as a statistician at the Finnish Institute for Health and Welfare (THL), 
-        as a data scientist at OP Group, and as a statistical expert at Sosiaalitaito Oy. 
+        I am an independent data scientist based in Siilinjärvi, Finland. My work sits at the
+        intersection of <strong>mathematical statistics, open public data, and domain expertise</strong>
+        in healthcare, law, and labour economics. I hold an FM in mathematics (University of Eastern Finland)
+        and a Master of Engineering in cybersecurity (JAMK University of Applied Sciences).
+        Before going independent, I worked as a statistician at the Finnish Institute for Health
+        and Welfare (THL), as a data scientist at OP Group, and as a statistical expert at Sosiaalitaito Oy.
         I have co-authored peer-reviewed research with Tampere University Eye Centre and Umeå University.
       </p>
 
       <div class="philosophy-quote">
-        <p>Maailma on jakauma — the world is a distribution. A single number is never the answer; 
+        <p>Maailma on jakauma — the world is a distribution. A single number is never the answer;
         it is always the beginning of a question about what produced it.</p>
       </div>
 
       <h2>What I actually do</h2>
       <p>
-        Most analysts produce charts. I build <strong>probabilistic models</strong> — 
-        Bayesian changepoint analyses, posterior predictive distributions, Monte Carlo simulations — 
-        that make uncertainty explicit and actionable. My competitive edge is combining 
-        statistical machinery with datasets that domain experts (lawyers, policy analysts, physicians) 
+        Most analysts produce charts. I build <strong>probabilistic models</strong> —
+        Bayesian changepoint analyses, posterior predictive distributions, Monte Carlo simulations —
+        that make uncertainty explicit and actionable. My competitive edge is combining
+        statistical machinery with datasets that domain experts (lawyers, policy analysts, physicians)
         control but cannot analyse without data science skills.
-      </p>
-      <p>
-        Current active projects include distributional analysis of Finnish legislation 
-        via the Semantic Finlex linked open data service, and an 11-part Quarto/R series 
-        on Finnish labour market dynamics.
       </p>
 
       <h2>Career timeline</h2>
       <ul class="timeline">
         <li>
           <span class="year">2024 – present</span>
-          Independent consultant — data science, fractional Head of Data. 
+          Independent consultant — data science, fractional Head of Data.
           Clients include Tampere University Eye Centre and Umeå University (2 publications).
         </li>
         <li>
@@ -161,19 +130,16 @@ include-in-header:
         </li>
         <li>
           <span class="year">2016 – 2019</span>
-          Statistician / Statistical Researcher, THL (Finnish Institute for Health and Welfare). 
-          National health and welfare statistics, ~5 peer-reviewed publications.
+          Statistician / Statistical Researcher, THL. National health and welfare statistics, ~5 peer-reviewed publications.
         </li>
         <li>
           <span class="year">2014 – 2016</span>
-          Statistical Expert, Sosiaalitaito Oy. Municipal social welfare statistics, 
-          Western and Central Uusimaa.
+          Statistical Expert, Sosiaalitaito Oy. Municipal social welfare statistics, Western and Central Uusimaa.
         </li>
         <li>
           <span class="year">2009 – 2014</span>
-          FM, Mathematics — University of Eastern Finland. 
-          Minor subjects: computer science, statistics, economics. 
-          Substitute teacher (mathematics, physics, chemistry) during studies.
+          FM, Mathematics — University of Eastern Finland.
+          Minors: computer science, statistics, economics.
         </li>
       </ul>
 
@@ -186,10 +152,9 @@ include-in-header:
         <li>
           <span class="year">2009 – 2014</span>
           FM, Mathematical Sciences — University of Eastern Finland<br>
-          Major: Mathematics | Minors: CS, Statistics, Economics
+          Major: Mathematics · Minors: CS, Statistics, Economics
         </li>
       </ul>
-
     </main>
   </div>
 </div>

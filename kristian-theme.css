@@ -429,10 +429,23 @@ main.content {
 
   .navbar-brand { font-size: 1rem; }
 
-  img[src*="kristian-vepsalainen"] {
-    max-width: 150px;
-    margin: 0 auto 1.5rem auto;
-    display: block;
+  /* Korjaus: columns-layout pinoaa mobiililla */
+  .columns {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+
+  .column {
+    width: 100% !important;
+    text-align: center;
+  }
+
+  img[src*="kristian-vepsalainen"],
+  .img-fluid.rounded {
+    max-width: 160px !important;
+    margin: 0 auto 1.75rem auto !important;
+    display: block !important;
   }
 
   pre { font-size: 0.8rem; padding: 1rem; }

@@ -79,7 +79,6 @@ df_uusimaa <- as.data.frame(paavo_raw, column.name.type = "code", variable.value
 cat("Uudenmaan postinumeroalueita:", nrow(df_uusimaa), "\n")
 cat("Väestö yhteensä:", format(sum(df_uusimaa$vaesto, na.rm=TRUE), big.mark=" "), "\n")
 cat("Asuntoja yhteensä:", format(sum(df_uusimaa$asunnot, na.rm=TRUE), big.mark=" "), "\n")
-cat("Työpaikkoja yhteensä:", format(sum(df_uusimaa$tyopaikat, na.rm=TRUE), big.mark=" "), "\n")
 ```
 
 ```{r uusimaa-vis}

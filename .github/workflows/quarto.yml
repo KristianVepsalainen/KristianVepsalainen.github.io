@@ -31,7 +31,9 @@ jobs:
         with:
           use-public-rspm: true
 
-      - name: Install archived CRAN packages from GitHub mirror
+     - name: Install archived CRAN packages from GitHub mirror
+        env:
+          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
           install.packages("remotes", repos = "https://cloud.r-project.org")
           remotes::install_github("cran/NetSwan", upgrade = "never")

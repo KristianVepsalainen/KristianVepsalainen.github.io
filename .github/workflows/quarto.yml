@@ -102,6 +102,17 @@ jobs:
             "remotes"
           ))
         shell: Rscript {0}
+      - name: Debug R library paths
+        run: |
+          cat("R_LIBS_USER:", Sys.getenv("R_LIBS_USER"), "\n")
+          cat("\n.libPaths():\n")
+          print(.libPaths())
+          cat("\neurlex installed at:\n")
+          print(find.package("eurlex", quiet = TRUE))
+          cat("\nAll installed packages with 'eur' in name:\n")
+          ip <- installed.packages()
+          print(ip[grepl("eur", rownames(ip), ignore.case = TRUE), c("Package", "LibPath")])
+        shell: Rscript {0}  
       - name: Render site
         run: quarto render --no-cache
       - name: Upload site artifact

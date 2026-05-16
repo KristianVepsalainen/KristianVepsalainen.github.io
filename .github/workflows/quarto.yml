@@ -53,11 +53,11 @@ jobs:
         install.packages("pak", repos = "https://cloud.r-project.org", lib = lib)
 
         # Asenna eurlex pak:lla SUORAAN CRANista, ei PPM:stä
-        pak::pkg_install(
-          "eurlex",
-          lib = lib,
-          upgrade = FALSE
-        )
+        # pak::pkg_install(
+        #   "eurlex",
+        #   lib = lib,
+        #   upgrade = FALSE
+        # )
 
         # Varmista että se tuli perille - jos ei, kaada koko ajo heti
         if (!requireNamespace("eurlex", quietly = TRUE)) {

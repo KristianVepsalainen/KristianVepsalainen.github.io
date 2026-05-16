@@ -3,7 +3,6 @@ title: "Euroviisut 2026: Voittajan jakauma – ketä Wienissä kruunataan?"
 subtitle: "Plackett-Luce-malli, historiallinen pisteytysjakauma ja Monte Carlo"
 author: "Kristian Vepsäläinen"
 date: "2026-05-16"
-draft: true
 lang: fi
 format:
   html:

@@ -1,33 +1,23 @@
 name: Quarto Publish
-
 on:
   push:
     branches: [main]
-
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       pages: write
       id-token: write
-
     env:
       R_LIBS_USER: ~/.local/share/R
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
-        with:
-         r-version:'4.5.1'
-
       - name: Setup Quarto
         uses: quarto-dev/quarto-actions/setup@v2
-
       # system tools vain kerran
       - name: Install system dependencies
         run: |
@@ -40,7 +30,6 @@ jobs:
             libxml2-dev \
             libharfbuzz-dev \
             libfribidi-dev
-
       # cache nopeuttaa buildin 10–20x
       - name: Cache R packages
         uses: actions/cache@v4
@@ -51,12 +40,10 @@ jobs:
           key: r-${{ runner.os }}-v1-${{ hashFiles('**/*.qmd','**/*.R') }}
           restore-keys: |
             r-${{ runner.os }}-v1-
-
       # nopeampi kuin install.packages
       - name: Install R packages
         run: |
           install.packages("pak", repos = "https://cloud.r-project.org")
-
           pak::pak(c(
             "eurostat",
             "corrplot",
@@ -103,20 +90,16 @@ jobs:
             "rstanarm",
             "zoo",
             "treemapify",
-            "eurlex",
             "brms",
             "stan-dev/cmdstanr",
             "remotes"
           ))
         shell: Rscript {0}
-
       - name: Render site
         run: quarto render --no-cache
-
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4

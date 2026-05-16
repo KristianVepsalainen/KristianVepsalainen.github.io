@@ -151,13 +151,13 @@ p_geometrinen <- osuma_ala_km2 / pinta_ala_yht
 # Henkilötiheys Uudellamaalla
 tiheys_km2 <- vaesto_yht / pinta_ala_yht  # henkilöä/km²
 # Ihmiset räjähdyssäteen sisällä
-ihmiset_sateessa <- tiheys_km2 * osuma_ala_km2
+ihmiset_sateessa   <- tiheys_km2 * osuma_ala_km2 * rakennettu_osuus
 # Kuolinriski: p(kuolema) = p(osuma) * p(kuolema | osuma)
 p_kuolema_per_henkilo <- 0.3  # avoimessa tilassa, yöaika alentaa
 
 # YHTEISTODENNÄKÖISYYS: drooni räjähtää → ihminen kuolee
 # P = p(geometrinen osuma asuinalueelle) * p(kuolema | osuma)
-p_kuolema_kokonais <- p_geometrinen * rakennettu_osuus * p_kuolema_per_henkilo
+p_kuolema_kokonais <- p_geometrinen * ihmiset_sateessa * p_kuolema_per_henkilo
 
 tibble(
   Skenaario = c(
@@ -200,8 +200,8 @@ sim <- tibble(
   mutate(
     ala_sim    = pi * (r_m_sim / 1000)^2,
     p_geo_sim  = ala_sim / pinta_ala_yht,
-    ihmiset    = pmax(0, tiheys_sim * ala_sim),
-    p_kuolema  = p_geo_sim * rak_osuus_sim * tappavuus_sim
+    ihmiset    = pmax(0, tiheys_sim * ala_sim * rak_osuus_sim),
+    p_kuolema  = p_geo_sim * ihmiset * tappavuus_sim
   )
 
 # Posteriorijakauma

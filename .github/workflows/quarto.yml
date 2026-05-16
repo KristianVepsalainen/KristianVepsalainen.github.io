@@ -3,113 +3,96 @@ name: Quarto Publish
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       pages: write
       id-token: write
-
-    env:
-      R_LIBS_USER: ~/.local/share/R
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup R
-        uses: r-lib/actions/setup-r@v2
+      - name: Setup Pandoc
+        uses: r-lib/actions/setup-pandoc@v2
 
       - name: Setup Quarto
         uses: quarto-dev/quarto-actions/setup@v2
 
-      # system tools vain kerran
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            gfortran \
-            libcurl4-openssl-dev \
-            libssl-dev \
-            libxml2-dev \
-            libharfbuzz-dev \
-            libfribidi-dev
-
-      # cache nopeuttaa buildin 10–20x
-      - name: Cache R packages
-        uses: actions/cache@v4
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
         with:
-          path: |
-            ~/.local/share/R
-            ~/.cache/R
-          key: r-${{ runner.os }}-v1-${{ hashFiles('**/*.qmd','**/*.R') }}
-          restore-keys: |
-            r-${{ runner.os }}-v1-
+          use-public-rspm: true
 
-      # nopeampi kuin install.packages
-      - name: Install R packages
+      - name: Install R package dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          cache-version: 2
+          packages: |
+            any::eurostat
+            any::corrplot
+            any::dplyr
+            any::tsibble
+            any::ggplot2
+            any::lubridate
+            any::feasts
+            any::fable
+            any::slider
+            any::flextable
+            any::tidyverse
+            any::dcurves
+            any::scoringRules
+            any::here
+            any::wbstats
+            any::countrycode
+            any::janitor
+            any::ggalluvial
+            any::ggraph
+            any::igraph
+            any::ggtext
+            any::quantreg
+            any::tidybayes
+            any::tidygraph
+            any::broom
+            any::spdep
+            any::data.table
+            any::glue
+            any::pxweb
+            any::readxl
+            any::knitr
+            any::future
+            any::furrr
+            any::fst
+            any::ecmwfr
+            any::sf
+            any::terra
+            any::stringr
+            any::patchwork
+            any::acledR
+            any::modelsummary
+            any::rstanarm
+            any::zoo
+            any::treemapify
+            any::eurlex
+            any::brms
+            any::remotes
+            stan-dev/cmdstanr
+
+      - name: Install CmdStan
         run: |
-          install.packages("pak", repos = "https://cloud.r-project.org")
-
-          pak::pak(c(
-            "eurostat",
-            "corrplot",
-            "dplyr",
-            "tsibble",
-            "ggplot2",
-            "lubridate",
-            "feasts",
-            "fable",
-            "slider",
-            "flextable",
-            "tidyverse",
-            "dcurves",
-            "scoringRules",
-            "here",
-            "wbstats",
-            "countrycode",
-            "janitor",
-            "ggalluvial",
-            "ggraph",
-            "igraph",
-            "ggtext",
-            "quantreg",
-            "tidybayes",
-            "tidygraph",
-            "broom",
-            "spdep",
-            "data.table",
-            "glue",
-            "lubridate",
-            "pxweb",
-            "readxl",
-            "knitr",
-            "future",
-            "furrr",
-            "fst",
-            "ecmwfr",
-            "sf",
-            "terra",
-            "stringr",
-            "patchwork", 
-            "acledR",
-            "modelsummary",
-            "rstanarm",
-            "zoo",
-            "treemapify",
-            "eurlex",
-            "brms",
-            "stan-dev/cmdstanr",
-            "remotes"
-          ))
+          cmdstanr::check_cmdstan_toolchain(fix = TRUE)
+          cmdstanr::install_cmdstan(cores = 2)
         shell: Rscript {0}
 
       - name: Render site
-        run: quarto render --no-cache
+        run: quarto render
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
@@ -117,4 +100,5 @@ jobs:
           path: _site
 
       - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4

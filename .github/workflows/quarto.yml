@@ -1,29 +1,37 @@
 name: Quarto Publish
+
 on:
   push:
     branches: [main]
+
 jobs:
   build-deploy:
     runs-on: ubuntu-22.04
+
     permissions:
       contents: read
       pages: write
       id-token: write
+
     env:
       R_LIBS_USER: ~/.local/share/R
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: '4.5.1'
+
       - name: Setup Quarto
         uses: quarto-dev/quarto-actions/setup@v2
-      # system tools vain kerran
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             build-essential \
             gfortran \
@@ -31,38 +39,47 @@ jobs:
             libssl-dev \
             libxml2-dev \
             libharfbuzz-dev \
-            libfribidi-dev
-      # cache nopeuttaa buildin 10–20x
+            libfribidi-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libpng-dev \
+            libtiff5-dev \
+            libjpeg-dev \
+            libgdal-dev \
+            libgeos-dev \
+            libproj-dev \
+            libudunits2-dev \
+            cmake \
+            make
+
       - name: Cache R packages
         uses: actions/cache@v4
         with:
           path: |
             ~/.local/share/R
             ~/.cache/R
-          key: r-${{ runner.os }}-v1-${{ hashFiles('**/*.qmd','**/*.R') }}
+          key: r-${{ runner.os }}-4.5.1-${{ hashFiles('**/*.qmd', '**/*.R') }}
           restore-keys: |
-            r-${{ runner.os }}-v1-
-      # nopeampi kuin install.packages
+            r-${{ runner.os }}-4.5.1-
+
       - name: Install R packages
         run: |
-        lib <- Sys.getenv("R_LIBS_USER")
-        dir.create(lib, recursive = TRUE, showWarnings = FALSE)
-        .libPaths(c(lib, .libPaths()))
+          lib <- Sys.getenv("R_LIBS_USER")
 
-        # Asenna pak ensin
-        install.packages("pak", repos = "https://cloud.r-project.org", lib = lib)
+          dir.create(lib, recursive = TRUE, showWarnings = FALSE)
 
-        # Asenna eurlex pak:lla SUORAAN CRANista, ei PPM:stä
-        # pak::pkg_install(
-        #   "eurlex",
-        #   lib = lib,
-        #   upgrade = FALSE
-        # )
+          .libPaths(c(lib, .libPaths()))
 
-        # Varmista että se tuli perille - jos ei, kaada koko ajo heti
-        # if (!requireNamespace("eurlex", quietly = TRUE)) {
-        # stop("eurlex installation failed - aborting")
-        # }
+          options(repos = c(
+            CRAN = "https://cloud.r-project.org"
+          ))
+
+          install.packages(
+            "pak",
+            repos = "https://cloud.r-project.org",
+            lib = lib
+          )
+
           pak::pak(c(
             "eurostat",
             "corrplot",
@@ -92,7 +109,6 @@ jobs:
             "spdep",
             "data.table",
             "glue",
-            "lubridate",
             "pxweb",
             "readxl",
             "knitr",
@@ -103,7 +119,7 @@ jobs:
             "sf",
             "terra",
             "stringr",
-            "patchwork", 
+            "patchwork",
             "acledR",
             "modelsummary",
             "rstanarm",
@@ -113,23 +129,29 @@ jobs:
             "stan-dev/cmdstanr",
             "remotes"
           ))
+
         shell: Rscript {0}
-      - name: Debug R library paths
+
+      - name: Debug R libraries
         run: |
-          cat("R_LIBS_USER:", Sys.getenv("R_LIBS_USER"), "\n")
+          cat("R version:\n")
+          print(R.version.string)
+
           cat("\n.libPaths():\n")
           print(.libPaths())
-          cat("\neurlex installed at:\n")
-          print(find.package("eurlex", quiet = TRUE))
-          cat("\nAll installed packages with 'eur' in name:\n")
-          ip <- installed.packages()
-          print(ip[grepl("eur", rownames(ip), ignore.case = TRUE), c("Package", "LibPath")])
-        shell: Rscript {0}  
+
+          cat("\nInstalled package count:\n")
+          print(nrow(installed.packages()))
+
+        shell: Rscript {0}
+
       - name: Render site
         run: quarto render --no-cache
+
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4

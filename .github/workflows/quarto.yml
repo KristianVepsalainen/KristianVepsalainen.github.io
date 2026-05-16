@@ -44,6 +44,10 @@ jobs:
       - name: Install R packages
         run: |
           install.packages("pak", repos = "https://cloud.r-project.org")
+          install.packages(
+          "eurlex",
+          repos = "https://cloud.r-project.org"
+          )
           pak::pak(c(
             "eurostat",
             "corrplot",

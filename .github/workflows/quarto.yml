@@ -60,9 +60,9 @@ jobs:
         # )
 
         # Varmista että se tuli perille - jos ei, kaada koko ajo heti
-        if (!requireNamespace("eurlex", quietly = TRUE)) {
-        stop("eurlex installation failed - aborting")
-        }
+        # if (!requireNamespace("eurlex", quietly = TRUE)) {
+        # stop("eurlex installation failed - aborting")
+        # }
           pak::pak(c(
             "eurostat",
             "corrplot",

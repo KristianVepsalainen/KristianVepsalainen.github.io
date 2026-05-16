@@ -31,10 +31,16 @@ jobs:
         with:
           use-public-rspm: true
 
+      - name: Install archived CRAN packages from GitHub mirror
+        run: |
+          install.packages("remotes", repos = "https://cloud.r-project.org")
+          remotes::install_github("cran/NetSwan", upgrade = "never")
+        shell: Rscript {0}
+
       - name: Install R package dependencies
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          cache-version: 3
+          cache-version: 4
           packages: |
             eurostat
             corrplot
@@ -82,7 +88,6 @@ jobs:
             treemapify
             eurlex
             brms
-            remotes
             stan-dev/cmdstanr
 
       - name: Install CmdStan

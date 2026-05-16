@@ -31,7 +31,7 @@ jobs:
         with:
           use-public-rspm: true
 
-     - name: Install archived CRAN packages from GitHub mirror
+      - name: Install archived CRAN packages from GitHub mirror
         env:
           GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
         run: |

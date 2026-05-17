@@ -82,7 +82,7 @@ df_uusimaa <- as.data.frame(paavo_raw, column.name.type = "code", variable.value
     pinta_ala   = `Postinumeroalueen pinta-ala`
   ) |>
   mutate(across(c(vaesto, asunnot, tyopaikat, pinta_ala), as.numeric)) |>
-  filter(!is.na(vaesto), vaesto > 0) %>% 
+  filter(!is.na(vaesto), vaesto > 0)  |>
   mutate(
     # Paavo: pinta_ala-sarakkeen yksikkö vaihtelee taulukon mukaan.
     # Tarkistetaan summa — Uusimaa ~9 400 km². Jos summa >> 10 000, yksikkö on m².

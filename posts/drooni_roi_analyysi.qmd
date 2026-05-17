@@ -69,7 +69,7 @@ df_uusimaa <- as.data.frame(
 ) |>filter(Vuosi == 2024) |>
   filter(str_starts(Postinumeroalue,"0")|str_starts(Postinumeroalue,"10")) |>
   as_tibble() |>
-  rename(8
+  rename(
     postinumero = Postinumeroalue,
     vaesto      = `Asukkaat yhteensä (HE)`,
     asunnot     = `Asunnot (RA)`,

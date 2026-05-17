@@ -4,6 +4,7 @@ subtitle: "Bayesilainen ROI-analyysi 15.5.2026 vaaratiedotteesta"
 date: "2026-05-15"
 author: "Kristian Vepsäläinen"
 categories: [riskianalyysi, bayesilainen tilastotiede, avoin data, turvallisuus]
+draft: true
 code-fold: true
 execute:
   warning: false
@@ -54,24 +55,18 @@ Haetaan Tilastokeskuksen Paavo-tietokannasta Uudenmaan postinumeroalueiden väes
 #   2. pxweb_query()         → validoi query-rakenne ennen lähetystä
 #   3. pxweb_get(url, query) → POST data
 
-# paavo_url <- paste0(
-#   "https://pxdata.stat.fi/PxWeb/api/v1/fi/",
-#   "Postinumeroalueittainen_avoin_tieto/",
-#   "Postinumeroalueittainen_avoin_tieto_2023/",
-#   "paavo_pxt_12f7.px"
-# )
-# 
 
 library(fst)
 library(here)
 library(stringr)
- #Hae data
 paavo_raw <- read_fst(here("data","paavo","paavo.fst"))
 
-
-#  Muunna data frameksi — column.name.type = "code" antaa muuttujanimet koodina
-df_uusimaa <- as.data.frame(paavo_raw, column.name.type = "code", variable.value.type = "code") |>
-  filter(Vuosi == 2024) |>
+# 5. Muunna data frameksi — column.name.type = "code" antaa muuttujanimet koodina
+df_uusimaa <- as.data.frame(
+  paavo_raw,
+  column.name.type    = "code",
+  variable.value.type = "code"
+) |>filter(Vuosi == 2024) |>
   filter(str_starts(Postinumeroalue,"0")|str_starts(Postinumeroalue,"10")) |>
   as_tibble() |>
   rename(
@@ -82,12 +77,16 @@ df_uusimaa <- as.data.frame(paavo_raw, column.name.type = "code", variable.value
     pinta_ala   = `Postinumeroalueen pinta-ala`
   ) |>
   mutate(across(c(vaesto, asunnot, tyopaikat, pinta_ala), as.numeric)) |>
-  filter(!is.na(vaesto), vaesto > 0)  |>
+  filter(!is.na(vaesto), vaesto > 0) |>
   mutate(
-    pinta_ala = 
+    # Paavo: pinta_ala-sarakkeen yksikkö vaihtelee taulukon mukaan.
+    # Tarkistetaan summa — Uusimaa ~9 400 km². Jos summa >> 10 000, yksikkö on m².
+    # m² → km²: jaetaan 1 000 000
+    pinta_ala_km2 = 
       pinta_ala / 1e6,   # m² -> km²
   )
 
+# Diagnostiikka — tarkistetaan yksikkö ennen kuin jatketaan
 cat("Uudenmaan postinumeroalueita:", nrow(df_uusimaa), "\n")
 cat("Väestö yhteensä:", format(sum(df_uusimaa$vaesto,    na.rm = TRUE), big.mark = " "), "\n")
 cat("Asuntoja yhteensä:", format(sum(df_uusimaa$asunnot,  na.rm = TRUE), big.mark = " "), "\n")
@@ -105,7 +104,7 @@ p1 <- df_uusimaa |>
   labs(
     title = "30 väkirikkainta postinumeroaluetta Uudellamaalla",
     x = "Asukkaita", y = NULL,
-    caption = "Lähde: Tilastokeskus Paavo 2023"
+    caption = "Lähde: Tilastokeskus Paavo 2024"
   ) +
   theme_minimal(base_size = 13) +
   theme(plot.title = element_text(face = "bold"))
@@ -121,7 +120,7 @@ Tarkastellaan tilannetta kahdella tasolla: **geometrinen malli** (pinta-ala) ja 
 
 ```{r drone-probability}
 # Uudenmaan kokonaispinta-ala Paavo-datasta
-pinta_ala_yht <- sum(df_uusimaa$pinta_ala, na.rm = TRUE)  # km²
+pinta_ala_yht <- sum(df_uusimaa$pinta_ala_km2, na.rm = TRUE)  # km² (yksikkökorjattu)
 vaesto_yht    <- sum(df_uusimaa$vaesto, na.rm = TRUE)
 
 # Droonin "osumisala": räjähdyssäde perustuu dokumentoituihin tietoihin
@@ -148,33 +147,50 @@ osuma_ala_km2 <- pi * r_km^2
 rakennettu_osuus <- 0.20
 rakennettu_ala   <- pinta_ala_yht * rakennettu_osuus
 
+# Geometrinen todennäköisyys: drooni osuu johonkin 50m säteellä
 p_geometrinen <- osuma_ala_km2 / pinta_ala_yht
 
-# P(ihminen kuolee | drooni räjähtää satunnaisessa paikassa)
-# Sirpaleiden tappava säde n. 50m, tappavuus suoraan alla ~0.3 avoimessa tilassa
-# Henkilötiheys Uudellamaalla
+# Väestötiheys Uudellamaalla
 tiheys_km2 <- vaesto_yht / pinta_ala_yht  # henkilöä/km²
-# Ihmiset räjähdyssäteen sisällä
-ihmiset_sateessa   <- tiheys_km2 * osuma_ala_km2 * rakennettu_osuus
-# Kuolinriski: p(kuolema) = p(osuma) * p(kuolema | osuma)
-p_kuolema_per_henkilo <- 0.3  # avoimessa tilassa, yöaika alentaa
 
-# YHTEISTODENNÄKÖISYYS: drooni räjähtää → ihminen kuolee
-# P = p(geometrinen osuma asuinalueelle) * p(kuolema | osuma)
-p_kuolema_kokonais <- p_geometrinen * ihmiset_sateessa * p_kuolema_per_henkilo
+# ── Kaksi eri kysymystä, kaksi eri suuretta ────────────────────────────────
+#
+# KYSYMYS A: E[kuolemia | drooni räjähtää jossakin Uudellamaalla]
+#   = tiheys × osuma_ala × rakennettu_osuus × p_kuolema_per_hlö
+#   Tulkinta: odotusarvo kuolemien lukumäärästä.
+#   p_geometrinen EI kuulu tähän — drooni JO räjähti jossakin,
+#   ja kysymme kuinka monta kuollee keskimäärin.
+#
+# KYSYMYS B: P(≥1 kuolema | drooni räjähtää jossakin Uudellamaalla)
+#   Poisson-approksimaatio: P(X≥1) = 1 - exp(-lambda), lambda = E[kuolemia]
+#   Koska lambda << 1, tämä ≈ lambda numeerisesti — mutta käsitteellisesti eri.
+#
+# Virhe aiemmin: p_geometrinen × ihmiset_sateessa kertolasku sisälsi
+# osuma_ala kahdesti (kerran p_geo:ssa, kerran ihmiset_sateessa:ssa).
+# ───────────────────────────────────────────────────────────────────────────
+
+p_kuolema_per_henkilo <- 0.30  # P(kuolema | ihminen säteessä, yöaika, sisätilat)
+
+# A: odotusarvo kuolemia
+ev_kuolemia <- tiheys_km2 * osuma_ala_km2 * rakennettu_osuus * p_kuolema_per_henkilo
+
+# B: todennäköisyys vähintään yhdelle kuolemalle
+p_vah_1_kuolema <- 1 - exp(-ev_kuolemia)
 
 tibble(
   Skenaario = c(
-    "Drooni osuu 50m säteellä johonkin kohtaan Uudellamaalla",
-    "Drooni osuu asuinalueelle (geo. malli, rakennettu 20%)",
-    "Ihmisiä räjähdyssäteessä (väestötiheys × ala)",
-    "P(vähintään 1 kuolema | drooni räjähtää)"
+    "P(drooni osuu 50m säteellä johonkin kohtaan Uudellamaalla)",
+    "P(drooni osuu asuinalueelle) [geo. × rakennettu 20%]",
+    "E[ihmisiä räjähdyssäteessä] [tiheys × ala × rakennettu]",
+    "E[kuolemia | drooni räjähtää jossakin] — Kysymys A",
+    "P(≥1 kuolema | drooni räjähtää jossakin) — Kysymys B"
   ),
   Arvo = c(
     sprintf("%.2e", p_geometrinen),
     sprintf("%.2e", p_geometrinen * rakennettu_osuus),
-    sprintf("%.3f hlö", ihmiset_sateessa),
-    sprintf("%.2e", p_kuolema_kokonais)
+    sprintf("%.4f hlö", tiheys_km2 * osuma_ala_km2 * rakennettu_osuus),
+    sprintf("%.4f kuollutta", ev_kuolemia),
+    sprintf("%.4f (%.2f%%)", p_vah_1_kuolema, p_vah_1_kuolema * 100)
   )
 ) |>
   knitr::kable(caption = "Todennäköisyysarviot — drooni räjähtää Uudellamaalla")
@@ -203,9 +219,15 @@ sim <- tibble(
 ) |>
   mutate(
     ala_sim    = pi * (r_m_sim / 1000)^2,
+    # p_geo_sim: geometrinen osuma — EI käytetä E[kuolemia]-laskussa
     p_geo_sim  = ala_sim / pinta_ala_yht,
+    # ihmiset: E[ihmisiä säteessä | räjähtää jossakin]
     ihmiset    = pmax(0, tiheys_sim * ala_sim * rak_osuus_sim),
-    p_kuolema  = p_geo_sim * ihmiset * tappavuus_sim
+    # ev_kuolemia: E[kuolemia | räjähtää jossakin] — p_geo_sim EI mukana
+    # (se lisättäisiin vain jos laskettaisiin E yli kaikkien mahdollisten räjähdyspaikkojen)
+    ev_kuolemia = ihmiset * tappavuus_sim,
+    # P(≥1 kuolema) Poisson-approksimaatiolla
+    p_kuolema   = 1 - exp(-ev_kuolemia)
   )
 
 # Posteriorijakauma
@@ -219,7 +241,7 @@ p1_mc <- sim |>
   ) +
   scale_x_log10(labels = label_scientific()) +
   labs(
-    title    = "Posteriorijakauma: P(kuolema | drooni räjähtää satunnaisesti Uudellamaalla)",
+    title    = "Posteriorijakauma: E[kuolemia | drooni räjähtää satunnaisesti Uudellamaalla]",
     subtitle = sprintf(
       "Mediaani: %.2e  |  90%% credible interval: [%.2e, %.2e]",
       median(sim$p_kuolema),
@@ -260,25 +282,38 @@ p_kuolema_tyomatka_per_matka <- tyomatka_kuolemat_v / matkat_v
 matkat_vuodessa       <- 480
 riski_tyomatka_vuosi  <- 1 - (1 - p_kuolema_tyomatka_per_matka)^matkat_vuodessa
 
+# HUOMIO: sim$p_kuolema on nyt E[kuolemia per räjähdys] — eri yksikkö kuin
+# yksilön P(kuolema). Vertailua varten käytetään pistemäistä p_kuolema_kokonais
+# joka on: P(drooni osuu) × E[ihmiset säteessä] × P(kuolema/hlö)
+# Tämä on yksikältään yhteensopiva yksilön kuolinriskin kanssa:
+# "satunnainen ihminen Uudellamaalla — kuoleeko tässä räjähdyksessä?"
+
 tibble(
   Tilanne = c(
-    "Drooni räjähtää Uudellamaalla (mediaani)",
-    "Drooni räjähtää Uudellamaalla (95. persentiili)",
+    "Drooni räjähtää Uudellamaalla (pistemalli)",
+    "Drooni räjähtää Uudellamaalla (MC mediaani, E[kuolemia])",
     "Kuolet yhden työmatkavuoden aikana (Suomi)",
     "Kuolet tupakoinnin takia (tupakoitsija, 20v)",
     "Kuolet salamaniskuun Suomessa (vuosi)"
   ),
-  `P(kuolema)` = c(
+  Arvo = c(
+    p_kuolema_kokonais,
     median(sim$p_kuolema),
-    quantile(sim$p_kuolema, 0.95),
     riski_tyomatka_vuosi,
-    0.015,   # ~1.5% vuosiriski pitkäaikaistupakoitsijalle
-    1/1e6    # tilastollinen harvinaisuus
+    0.015,
+    1/1e6
+  ),
+  Yksikkö = c(
+    "P(satunnainen hlö kuolee)",
+    "E[kuolemia per räjähdys]",
+    "P(kuolema / henkilö / vuosi)",
+    "P(kuolema / vuosi)",
+    "P(kuolema / vuosi)"
   )
 ) |>
-  arrange(desc(`P(kuolema)`)) |>
-  mutate(`P(kuolema)` = sprintf("%.2e", `P(kuolema)`)) |>
-  knitr::kable(caption = "Riskivertailu: drooni vs. arkipäivän riskit")
+  arrange(desc(Arvo)) |>
+  mutate(Arvo = sprintf("%.2e", Arvo)) |>
+  knitr::kable(caption = "Riskivertailu: drooni vs. arkipäivän riskit (yksikköhuomio: ks. sarake)")
 ```
 
 ```{r riskivertailu-vis}
@@ -649,7 +684,7 @@ p2_ft <- ev_df |>
 p1_ft / p2_ft
 ```
 
-Perusmalli on tarkoituksella yksinkertainen ensimmäiseksi arvioksi. Neljä tärkeää tarkennusta pienentää todennäköisyyttä — mutta eivät pienennä odotusarvoa nollaan.
+Perusmalli on tarkoituksella yksinkertainen ensimmäiseksi arvioksi. Neljä tärkeää tarkennus­ta pienentää todennäköisyyttä — mutta eivät pienennä odotusarvoa nollaan.
 
 ### 4b.1 TCAS ei näe droonia
 
@@ -864,12 +899,16 @@ Tämä muuttaa optimointiongelman rakenteen täysin:
 > **Ukrainan ongelma:** Ohjelmoi drooni niin, että elektroniikan häiritessä se eksyy mahdollisimman harmittomaan paikkaan Suomessa.
 
 Tämä on spatiaalis-bayesilainen minimointiongelma — ja se on ratkaistavissa avoimella datalla.
+Tämän mallintamiseen voitaisiin käyttää Besag-York-Mollié (BYM2) -mallia INLA:lla. BYM2 on standardi bayesilainen hierarkkinen malli aluedatalle — se lainaa tilastollista voimaa naapurialueilta ICAR-priori-rakenteen kautta, jolloin yksittäisen postinumeroalueen epävarma estimaatti siloittuu naapureidensa avulla. Tähän ei kuitenkaan tällä aikataululla ja laskentaresusseilla ole järkevää mennä, sillä analyysin renderöintiaika kasvaisi suhteettomasti.
 
-### BYM2-malli: spatiaalisesti silotellut riskialueet
+On kolme asiaa, joita pelkkä väestötiheys ei kerro ja joissa BYM21-malli puolustaa paikkaansa:
 
-Käytetään Besag-York-Mollié (BYM2) -mallia INLA:lla. BYM2 on standardi bayesilainen hierarkkinen malli aluedatalle — se lainaa tilastollista voimaa naapurialueilta ICAR-priori-rakenteen kautta, jolloin yksittäisen postinumeroalueen epävarma estimaatti siloittuu naapureidensa avulla.
+**Spatiaalisesti silotellut estimaatit.** Yksittäisen postinumeroalueen riski-estimaatti on epävarma, kun alue on pieni. BYM2 lainaa informaatiota naapureilta ICAR-priori­rakenteen kautta — estimaatti on luotettavampi erityisesti harvaan asutuilla reunalueilla, joissa Ukrainan "turvallinen eksymisalue" todennäköisimmin sijaitsee.
 
-Tämä on kuitenkin laskennallisesti raskasta ja todennäköisyys on jo hyvin lähellä nollaa, joten tähän ei ole tällä aikataululla järkevää lähteä.
+**Spatiaalikorrellaation erotus.** BYM2 jakaa varianssin kahteen osaan: strukturoituun (ω, naapureiden selittämä) ja strukturoimattomaan (ν, alueen oma satunnaistekijä). Tämä kertoo, onko korkea riski systemaattista (koko alue on vaarallinen) vai satunnaista (yksittäinen poikkeava alue). Ukrainan ohjelmoinnin kannalta strukturoitu spatiaaliefekti on se, johon voi navigoida.
+
+**Epävarmuuskartta.** Pelkkä pistemäinen riski-indeksi ei kerro kuinka varma se on. BYM2 tuottaa posteriori-SD:n jokaiselle alueelle — matalan riskin alueen korkea SD tarkoittaa, että "turvallinen alue" on epävarma ja vaatii varovaisempaa tulkintaa.
+
 ---
 
 ## 5. Poika joka huusi sutta — luottamuspääoman kuluminen jakaumana
@@ -1021,6 +1060,6 @@ Tulokset eivät tarkoita, että viranomaiset toimivat väärin — uhka-arvion t
 
 ---
 
-*Analyysi perustuu julkiseen dataan: Tilastokeskus Paavo 2023, Finavia vuosikertomus 2024, HUS budjetti 2024, Väyläviraston VSL-arvio 2021, Liikenneturvan tilastot, UK Home Office fire statistics. Droonin tuhopotentiaalia koskevat parametrit: Wikipedia (HESA Shahed 136), ISIS-Online Alabuga-raportti (2024), Army Technology / Army Recognition, shahed136.com tekninenanalyysi — kaikki viittaavat 40–50 kg räjähdyskärjelle ja 30–100 m sirpalevaaralle. Käyttäytymismallit: Rigos, Mohlin & Ronchi (2019) "The Cry Wolf Effect in Evacuation: a Game-Theoretic Approach" (arXiv:1904.01963), Fire Safety Journal (2024). Kaikki koodi on avoimesti saatavilla. Yhteydenotot: [kristian.vepsalainen@proton.me](mailto:kristian.vepsalainen@proton.me)*
+*Analyysi perustuu julkiseen dataan: Tilastokeskus Paavo 2024, Finavia vuosikertomus 2024, HUS budjetti 2024, Väyläviraston VSL-arvio 2021, Liikenneturvan tilastot, UK Home Office fire statistics. Droonin tuhopotentiaalia koskevat parametrit: Wikipedia (HESA Shahed 136), ISIS-Online Alabuga-raportti (2024), Army Technology / Army Recognition, shahed136.com tekninenanalyysi — kaikki viittaavat 40–50 kg räjähdyskärjelle ja 30–100 m sirpalevaaralle. Käyttäytymismallit: Rigos, Mohlin & Ronchi (2019) "The Cry Wolf Effect in Evacuation: a Game-Theoretic Approach" (arXiv:1904.01963), Fire Safety Journal (2024). Kaikki koodi on avoimesti saatavilla. Yhteydenotot: [kristian.vepsalainen@proton.me](mailto:kristian.vepsalainen@proton.me)*
 
 *Lisää jakaumiin perustuvaa analyysiä: [kristianvepsalainen.com](https://kristianvepsalainen.com)*

@@ -87,7 +87,7 @@ df_uusimaa <- as.data.frame(paavo_raw, column.name.type = "code", variable.value
     # Paavo: pinta_ala-sarakkeen yksikkö vaihtelee taulukon mukaan.
     # Tarkistetaan summa — Uusimaa ~9 400 km². Jos summa >> 10 000, yksikkö on m².
     # m² → km²: jaetaan 1 000 000
-    pinta_ala_km2 = if_else(
+    pinta_ala = if_else(
       sum(pinta_ala, na.rm = TRUE) > 1e5,
       pinta_ala / 1e6,   # m² -> km²
       pinta_ala          # jo km²

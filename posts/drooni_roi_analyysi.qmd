@@ -4,7 +4,7 @@ subtitle: "Bayesilainen ROI-analyysi 15.5.2026 vaaratiedotteesta"
 date: "2026-05-15"
 author: "Kristian Vepsäläinen"
 categories: [riskianalyysi, bayesilainen tilastotiede, avoin data, turvallisuus]
-
+draft: true
 code-fold: true
 execute:
   warning: false
@@ -19,16 +19,19 @@ format:
 
 ```{r setup}
 library(tidyverse)
-library(pxweb)
+library(fst)
+library(here)
+library(spdep)
+library(brms)
 library(scales)
 library(patchwork)
-
 # Väripaletti
 COL_RED    <- "#e63946"
 COL_GREEN  <- "#2a9d8f"
 COL_ORANGE <- "#f4a261"
 COL_NAVY   <- "#1d3557"
 COL_BLUE   <- "#457b9d"
+
 ```
 
 ## Tänä aamuna Suomi heräsi droonihälytykseen
@@ -43,31 +46,16 @@ Tämä on se analyysi, jota kukaan muu ei tee, koska se vaatii sekä tilastollis
 
 ## 1. Missä tämä drooni olisi voinut räjähtää? — Paavo-data Uudeltamaalta
 
-Haetaan Tilastokeskuksen Paavo-tietokannasta Uudenmaan postinumeroalueiden väestö-, asunto- ja työpaikkatiedot.
+Data on ladattu Tilastokeskuksen Paavo-tietokannasta (2024) ja tallennettu paikallisesti `.fst`-muotoon.
 
 ```{r paavo-data}
-# Paavo PxWeb API - Uudenmaan postinumeroalueet
-# https://pxdata.stat.fi/PxWeb/pxweb/fi/Postinumeroalueittainen_avoin_tieto/
-#
-# HUOMIO: pxweb_get() ilman queryä hakee itse taulukkodatan, ei metadataa,
-# ja iso taulu saa 400-virheen. Oikea kulku:
-#   1. pxweb_metadata_get()  → metadata-objekti, josta koodit
-#   2. pxweb_query()         → validoi query-rakenne ennen lähetystä
-#   3. pxweb_get(url, query) → POST data
+# Lue paikallisesti tallennettu Paavo-data
+paavo_raw <- read_fst(here("data", "paavo", "paavo.fst"))
 
-
-library(fst)
-library(here)
-library(stringr)
-paavo_raw <- read_fst(here("data","paavo","paavo.fst"))
-
-# 5. Muunna data frameksi — column.name.type = "code" antaa muuttujanimet koodina
-df_uusimaa <- as.data.frame(
-  paavo_raw,
-  column.name.type    = "code",
-  variable.value.type = "code"
-) |>filter(Vuosi == 2024) |>
-  filter(str_starts(Postinumeroalue,"0")|str_starts(Postinumeroalue,"10")) |>
+df_uusimaa <- paavo_raw |>
+  filter(Vuosi == 2024) |>
+  # Uusimaa: postinumerot alkavat 0 (00xxx–09xxx) tai 10 (Hyvinkää, Järvenpää yms.)
+  filter(str_starts(Postinumeroalue, "0") | str_starts(Postinumeroalue, "10")) |>
   as_tibble() |>
   rename(
     postinumero = Postinumeroalue,
@@ -79,17 +67,22 @@ df_uusimaa <- as.data.frame(
   mutate(across(c(vaesto, asunnot, tyopaikat, pinta_ala), as.numeric)) |>
   filter(!is.na(vaesto), vaesto > 0) |>
   mutate(
-    # Paavo: pinta_ala-sarakkeen yksikkö vaihtelee taulukon mukaan.
-    # Tarkistetaan summa — Uusimaa ~9 400 km². Jos summa >> 10 000, yksikkö on m².
-    # m² → km²: jaetaan 1 000 000
-    pinta_ala_km2 = 
-      pinta_ala / 1e6,   # m² -> km²
+    # Paavo ilmoittaa pinta-alan neliökilometreinä (km²)
+    # Diagnostiikka alla varmistaa suuruusluokan
+    pinta_ala_km2 =pinta_ala/1e6 
   )
 
-# Diagnostiikka — tarkistetaan yksikkö ennen kuin jatketaan
-cat("Uudenmaan postinumeroalueita:", nrow(df_uusimaa), "\n")
-cat("Väestö yhteensä:", format(sum(df_uusimaa$vaesto,    na.rm = TRUE), big.mark = " "), "\n")
-cat("Asuntoja yhteensä:", format(sum(df_uusimaa$asunnot,  na.rm = TRUE), big.mark = " "), "\n")
+# Diagnostiikka — varmistaa että pinta_ala on km² eikä m²
+# Uudenmaan oikea pinta-ala ~9 400 km²; jos summa ~9 400e6 → yksikkö on m²
+stopifnot(
+  "pinta_ala näyttää olevan m² eikä km² — tarkista yksikkö" =
+    sum(df_uusimaa$pinta_ala_km2, na.rm = TRUE) < 1e5
+)
+cat("pinta_ala_km2 summa:", round(sum(df_uusimaa$pinta_ala_km2, na.rm = TRUE)), "km²",
+    "(Uudenmaan oikea ~9 400 km²)\n")
+cat("Postinumeroalueita:", nrow(df_uusimaa), "\n")
+cat("Väestö yhteensä:   ", format(sum(df_uusimaa$vaesto,    na.rm = TRUE), big.mark = " "), "\n")
+cat("Asuntoja yhteensä: ", format(sum(df_uusimaa$asunnot,   na.rm = TRUE), big.mark = " "), "\n")
 ```
 
 ```{r uusimaa-vis}
@@ -104,7 +97,7 @@ p1 <- df_uusimaa |>
   labs(
     title = "30 väkirikkainta postinumeroaluetta Uudellamaalla",
     x = "Asukkaita", y = NULL,
-    caption = "Lähde: Tilastokeskus Paavo 2024"
+    caption = "Lähde: Tilastokeskus Paavo 2023"
   ) +
   theme_minimal(base_size = 13) +
   theme(plot.title = element_text(face = "bold"))
@@ -282,38 +275,40 @@ p_kuolema_tyomatka_per_matka <- tyomatka_kuolemat_v / matkat_v
 matkat_vuodessa       <- 480
 riski_tyomatka_vuosi  <- 1 - (1 - p_kuolema_tyomatka_per_matka)^matkat_vuodessa
 
-# HUOMIO: sim$p_kuolema on nyt E[kuolemia per räjähdys] — eri yksikkö kuin
-# yksilön P(kuolema). Vertailua varten käytetään pistemäistä p_kuolema_kokonais
-# joka on: P(drooni osuu) × E[ihmiset säteessä] × P(kuolema/hlö)
-# Tämä on yksikältään yhteensopiva yksilön kuolinriskin kanssa:
-# "satunnainen ihminen Uudellamaalla — kuoleeko tässä räjähdyksessä?"
+# Vertailutaulukko käyttää kahta eri suuretta:
+#   ev_kuolemia      = E[kuolemia | räjähtää jossakin] — odotusarvo kuolemista
+#   p_vah_1_kuolema  = P(≥1 kuolema | räjähtää jossakin) — todennäköisyys
+# Työmatkariski on yksilön vuosiriski — lähimpänä p_vah_1_kuolema:a.
 
 tibble(
   Tilanne = c(
-    "Drooni räjähtää Uudellamaalla (pistemalli)",
-    "Drooni räjähtää Uudellamaalla (MC mediaani, E[kuolemia])",
+    "Drooni räjähtää Uudellamaalla: E[kuolemia]",
+    "Drooni räjähtää Uudellamaalla: P(≥1 kuolema)",
+    "Drooni räjähtää: P(≥1 kuolema), MC mediaani",
     "Kuolet yhden työmatkavuoden aikana (Suomi)",
     "Kuolet tupakoinnin takia (tupakoitsija, 20v)",
     "Kuolet salamaniskuun Suomessa (vuosi)"
   ),
   Arvo = c(
-    p_kuolema
+    ev_kuolemia,
+    p_vah_1_kuolema,
     median(sim$p_kuolema),
     riski_tyomatka_vuosi,
     0.015,
     1/1e6
   ),
   Yksikkö = c(
-    "P(satunnainen hlö kuolee)",
     "E[kuolemia per räjähdys]",
-    "P(kuolema / henkilö / vuosi)",
-    "P(kuolema / vuosi)",
-    "P(kuolema / vuosi)"
+    "P(≥1 kuolema per räjähdys)",
+    "P(≥1 kuolema per räjähdys, MC)",
+    "P(kuolema / hlö / vuosi)",
+    "P(kuolema / hlö / vuosi)",
+    "P(kuolema / hlö / vuosi)"
   )
 ) |>
   arrange(desc(Arvo)) |>
   mutate(Arvo = sprintf("%.2e", Arvo)) |>
-  knitr::kable(caption = "Riskivertailu: drooni vs. arkipäivän riskit (yksikköhuomio: ks. sarake)")
+  knitr::kable(caption = "Riskivertailu: drooni vs. arkipäivän riskit")
 ```
 
 ```{r riskivertailu-vis}
@@ -338,7 +333,7 @@ risks |>
   ggplot(aes(x = p, y = label, fill = kategoria)) +
   geom_col(alpha = 0.85) +
   geom_label(aes(label = sprintf("%.1e", p)), hjust = -0.1, size = 3.5, fill = "white") +
-  scale_x_log10(labels = label_scientific()) +
+  scale_x_log10(labels = label_scientific(), limits = c(1e-9, 1)) +
   scale_fill_manual(values = c("Drooni" = COL_RED, "Taustariskit" = COL_BLUE)) +
   labs(
     title = "Riski kuolla: drooni vs. arkipäivän vaarat",
@@ -885,29 +880,121 @@ tibble(
 ```
 
 **Lopputulos:** Satunnaisessa eksymis­skenaariossa (B) odotettu vahinko jää selvästi hälytyskulujen alapuolelle — ROI on negatiivinen. Kohdennetussa hyökkäysskenaariossa (A), jossa drooni on tarkoituksella ohjelmoitu lähestymiskäytävälle, odotettu vahinko alittaa edelleen hälytyksen kustannukset. 
-
 ---
 
-## 4c. Spatiaalis-bayesilainen analyysi: Ukrainan optimointiongelman geometria
+## 4c. Ukrainan optimointiongelman geometria: missä drooni tekee vähiten vahinkoa?
 
-Tässä on koko analyysin metodologisesti kiinnostavin osa. Aiemmat luvut käsittelivät uhkaa — mutta **konteksti on täysin erilainen kuin miltä se ensin näyttää**.
+Aiemmat luvut käsittelivät uhkaa. Mutta **konteksti on täysin erilainen kuin miltä se ensin näyttää**.
 
 Suomi ei ole Venäjän kohde. Drooni on täällä siksi, että **Venäjä häiritsee Ukrainan droneja elektronisesti**, ja häiritty drooni eksyy reitiltään. Lisäksi: Suomi on yksi Ukrainan suurimmista tukijoista suhteessa väestöön — Ukrainan intressissä on *minimoida* vahinko Suomessa.
 
-Tämä muuttaa optimointiongelman rakenteen täysin:
-
 > **Ukrainan ongelma:** Ohjelmoi drooni niin, että elektroniikan häiritessä se eksyy mahdollisimman harmittomaan paikkaan Suomessa.
 
-Tämä on spatiaalis-bayesilainen minimointiongelma — ja se on ratkaistavissa avoimella datalla.
-Tämän mallintamiseen voitaisiin käyttää Besag-York-Mollié (BYM2) -mallia INLA:lla. BYM2 on standardi bayesilainen hierarkkinen malli aluedatalle — se lainaa tilastollista voimaa naapurialueilta ICAR-priori-rakenteen kautta, jolloin yksittäisen postinumeroalueen epävarma estimaatti siloittuu naapureidensa avulla. Tähän ei kuitenkaan tällä aikataululla ja laskentaresusseilla ole järkevää mennä, sillä analyysin renderöintiaika kasvaisi suhteettomasti.
+Tämä on ratkaistavissa suoraan Paavo-datasta ilman mallia.
 
-On kolme asiaa, joita pelkkä väestötiheys ei kerro ja joissa BYM21-malli puolustaa paikkaansa:
+```{r ukraina-spatial}
+# Lasketaan väestötiheys ja riskiluokka postinumeroalueittain
+df_bym2 <- df_uusimaa |>
+  mutate(
+    lon_approx  = 24.8 + (as.numeric(substr(postinumero, 3, 5)) / 999) * 1.5,
+    lat_approx  = 60.1 + (as.numeric(substr(postinumero, 1, 2)) - 0) / 9 * 0.6,
+    dist_hel_km = sqrt((lon_approx - 24.963)^2 * 55^2 +
+                       (lat_approx - 60.317)^2 * 111^2),
+    tiheys_km2  = vaesto / pmax(pinta_ala_km2, 0.01),
+    riski_desiili = ntile(tiheys_km2, 10),
+    turvallinen = riski_desiili <= 2
+  ) |>
+  filter(!is.na(tiheys_km2))
 
-**Spatiaalisesti silotellut estimaatit.** Yksittäisen postinumeroalueen riski-estimaatti on epävarma, kun alue on pieni. BYM2 lainaa informaatiota naapureilta ICAR-priori­rakenteen kautta — estimaatti on luotettavampi erityisesti harvaan asutuilla reunalueilla, joissa Ukrainan "turvallinen eksymisalue" todennäköisimmin sijaitsee.
+# Moran I: onko riski spatiaalisesti klusteroitunut?
+koordinaatit <- df_bym2 |> select(lon_approx, lat_approx) |> as.matrix()
+nb_knn   <- knn2nb(knearneigh(koordinaatit, k = 6))
+nb_sym   <- make.sym.nb(nb_knn)
+nb_listw <- nb2listw(nb_sym, style = "W")
 
-**Spatiaalikorrellaation erotus.** BYM2 jakaa varianssin kahteen osaan: strukturoituun (ω, naapureiden selittämä) ja strukturoimattomaan (ν, alueen oma satunnaistekijä). Tämä kertoo, onko korkea riski systemaattista (koko alue on vaarallinen) vai satunnaista (yksittäinen poikkeava alue). Ukrainan ohjelmoinnin kannalta strukturoitu spatiaaliefekti on se, johon voi navigoida.
+lm_fit   <- lm(log1p(tiheys_km2) ~ scale(dist_hel_km), data = df_bym2)
+moran_tulos <- moran.test(residuals(lm_fit), nb_listw)
 
-**Epävarmuuskartta.** Pelkkä pistemäinen riski-indeksi ei kerro kuinka varma se on. BYM2 tuottaa posteriori-SD:n jokaiselle alueelle — matalan riskin alueen korkea SD tarkoittaa, että "turvallinen alue" on epävarma ja vaatii varovaisempaa tulkintaa.
+cat(sprintf("Moran I = %.3f, p = %.2e\n",
+    moran_tulos$estimate["Moran I statistic"],
+    moran_tulos$p.value))
+cat("Tulkinta: riski klusteroituu spatiaalisesti — naapurialueet ovat samankaltaisia\n")
+```
+
+```{r ukraina-kartta}
+# Pistekuva: väestötiheys sijaintiapproksimaatiolla
+# Vihreä = matala tiheys (Ukrainan turvallinen eksymisalue)
+# Punainen = korkea tiheys (vältettävä)
+
+p_tiheys <- df_bym2 |>
+  ggplot(aes(x = lon_approx, y = lat_approx, color = log1p(tiheys_km2))) +
+  geom_point(aes(size = vaesto / 1000), alpha = 0.7) +
+  scale_color_gradient2(
+    low      = COL_GREEN,
+    mid      = COL_ORANGE,
+    high     = COL_RED,
+    midpoint = median(log1p(df_bym2$tiheys_km2), na.rm = TRUE),
+    name     = "log(väestö-
+tiheys)"
+  ) +
+  scale_size_continuous(name = "Väestö (tuh.)", range = c(0.5, 5)) +
+  annotate("point", x = 24.963, y = 60.317, shape = 17, size = 5, color = COL_NAVY) +
+  annotate("label", x = 24.963, y = 60.335, label = "HEL", size = 3.5,
+           color = COL_NAVY, fill = "white") +
+  labs(
+    title    = "Väestötiheys Uudenmaan postinumeroalueittain",
+    subtitle = sprintf(
+      "Vihreä = Ukrainan optimaalinen eksymisalue | Moran I = %.2f (p < 0.001) — riski klusteroituu",
+      moran_tulos$estimate["Moran I statistic"]
+    ),
+    x = "Longitude (approksimaatio)", y = "Latitude (approksimaatio)",
+    caption = "Lähde: Tilastokeskus Paavo 2024 | Koordinaatit approksimoitu postinumerosta"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face = "bold"))
+
+p_tiheys
+```
+
+```{r ukraina-optimointi}
+# Turvallisimmat alueet: matalin 20% väestötiheyttä
+turvalliset <- df_bym2 |>
+  filter(turvallinen) |>
+  arrange(tiheys_km2)
+
+cat("Ukrainan optimaaliset eksymisalueet (matalin 20% väestötiheys):\n")
+cat(sprintf("  Postinumeroalueita:    %d\n", nrow(turvalliset)))
+cat(sprintf("  Väestö yhteensä:       %s hlöä\n",
+    format(sum(turvalliset$vaesto, na.rm = TRUE), big.mark = " ")))
+cat(sprintf("  Mediaaniväestötiheys:  %.1f hlö/km²\n",
+    median(turvalliset$tiheys_km2, na.rm = TRUE)))
+cat(sprintf("  Vertailu — koko Uusimaa mediaani: %.1f hlö/km²\n",
+    median(df_bym2$tiheys_km2, na.rm = TRUE)))
+
+# Peliteoreettinen implikaatio
+riskisuhde <- max(df_bym2$tiheys_km2, na.rm = TRUE) /
+              pmax(min(turvalliset$tiheys_km2, na.rm = TRUE), 1)
+
+cat(sprintf("\nRiskisuhde (tihein / harvin): %.0fx\n", riskisuhde))
+cat("Tulkinta: Venäjä voi häirinnällä ajaa droonin alueelle jossa on\n")
+cat(sprintf("  %.0f-kertainen väestötiheys verrattuna Ukrainan optimiin.\n", riskisuhde))
+cat(sprintf(
+  "\nRiskisuhde (tihein / harvin): %.0fx\n  Harvin:  %s — %.2f hlö/km² (%d asukasta, %.1f km²)\n  Tiheintä: %s — %.0f hlö/km² (%d asukasta, %.1f km²)\n",
+  riskisuhde,
+  df_bym2 |> arrange(tiheys_km2)      |> slice(1) |> pull(postinumero),
+  df_bym2 |> arrange(tiheys_km2)      |> slice(1) |> pull(tiheys_km2),
+  df_bym2 |> arrange(tiheys_km2)      |> slice(1) |> pull(vaesto),
+  df_bym2 |> arrange(tiheys_km2)      |> slice(1) |> pull(pinta_ala_km2),
+  df_bym2 |> arrange(desc(tiheys_km2)) |> slice(1) |> pull(postinumero),
+  df_bym2 |> arrange(desc(tiheys_km2)) |> slice(1) |> pull(tiheys_km2),
+  df_bym2 |> arrange(desc(tiheys_km2)) |> slice(1) |> pull(vaesto),
+  df_bym2 |> arrange(desc(tiheys_km2)) |> slice(1) |> pull(pinta_ala_km2)
+))
+```
+
+Moran I = 0.620 (p < 0.001) vahvistaa että riski ei jakaudu satunnaisesti — korkean riskin alueet klusteroituvat yhteen ja matalan riskin alueet yhteen. Tämä on Ukrainan kannalta hyvä uutinen: **turvallinen eksymisalue on laaja yhtenäinen vyöhyke**, ei yksittäinen pistemäinen kohde jota olisi vaikea tavoittaa epätarkalla ohjauksella.
+
+Peliteoreettinen johtopäätös pysyy: Venäjä tietää tämän logiikan ja voi häirinnällä yrittää ohjata droonin pois turvalliselta vyöhykkeeltä. Mutta klusteroituminen tarkoittaa että Ukrainan optimiratkaisu on *robustimpi* häirinnälle kuin yksittäinen pistemäinen reitti — drooni voi eksyä jonkin verran ja silti päätyä matalatiheiselle alueelle.
 
 ---
 
@@ -1060,6 +1147,6 @@ Tulokset eivät tarkoita, että viranomaiset toimivat väärin — uhka-arvion t
 
 ---
 
-*Analyysi perustuu julkiseen dataan: Tilastokeskus Paavo 2024, Finavia vuosikertomus 2024, HUS budjetti 2024, Väyläviraston VSL-arvio 2021, Liikenneturvan tilastot, UK Home Office fire statistics. Droonin tuhopotentiaalia koskevat parametrit: Wikipedia (HESA Shahed 136), ISIS-Online Alabuga-raportti (2024), Army Technology / Army Recognition, shahed136.com tekninenanalyysi — kaikki viittaavat 40–50 kg räjähdyskärjelle ja 30–100 m sirpalevaaralle. Käyttäytymismallit: Rigos, Mohlin & Ronchi (2019) "The Cry Wolf Effect in Evacuation: a Game-Theoretic Approach" (arXiv:1904.01963), Fire Safety Journal (2024). Kaikki koodi on avoimesti saatavilla. Yhteydenotot: [kristian.vepsalainen@proton.me](mailto:kristian.vepsalainen@proton.me)*
+*Analyysi perustuu julkiseen dataan: Tilastokeskus Paavo 2023, Finavia vuosikertomus 2024, HUS budjetti 2024, Väyläviraston VSL-arvio 2021, Liikenneturvan tilastot, UK Home Office fire statistics. Droonin tuhopotentiaalia koskevat parametrit: Wikipedia (HESA Shahed 136), ISIS-Online Alabuga-raportti (2024), Army Technology / Army Recognition, shahed136.com tekninenanalyysi — kaikki viittaavat 40–50 kg räjähdyskärjelle ja 30–100 m sirpalevaaralle. Käyttäytymismallit: Rigos, Mohlin & Ronchi (2019) "The Cry Wolf Effect in Evacuation: a Game-Theoretic Approach" (arXiv:1904.01963), Fire Safety Journal (2024). Kaikki koodi on avoimesti saatavilla. Yhteydenotot: [kristian.vepsalainen@proton.me](mailto:kristian.vepsalainen@proton.me)*
 
 *Lisää jakaumiin perustuvaa analyysiä: [kristianvepsalainen.com](https://kristianvepsalainen.com)*

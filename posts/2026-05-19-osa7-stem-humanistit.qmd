@@ -2,7 +2,7 @@
 title: "STEM vs humanistiset alat — empiirisesti, ei ideologisesti"
 subtitle: "Osa 7 – Palkkajakaumat, työllistyminen, riski"
 author: "Kristian Vepsäläinen"
-date: 2026-07-01
+date: 2026-05-19
 categories:
   - data science
   - työmarkkinat
@@ -20,7 +20,7 @@ execute:
   warning: false
   message: false
 slug: suomen-tyovoimapula-osa7
-draft: true
+
 ---
 
 ## Tiivistelmä

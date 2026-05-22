@@ -92,6 +92,37 @@ h1.title {
   position: relative;
 }
 
+/* ─── Postauksen hero-alue: tumma tausta → vaalea teksti ───────────────────── */
+.quarto-title-banner {
+  background-color: var(--kv-navy) !important;
+  padding: 3rem 2rem 2.5rem 2rem;
+}
+
+.quarto-title-banner .quarto-title h1,
+.quarto-title-banner h1.title {
+  color: var(--kv-white) !important;
+}
+
+.quarto-title-banner .quarto-title h1::after,
+.quarto-title-banner h1.title::after {
+  background: var(--kv-red);
+}
+
+.quarto-title-banner .description,
+.quarto-title-banner .quarto-title-meta,
+.quarto-title-banner .quarto-title-meta-heading,
+.quarto-title-banner .quarto-title-meta-contents {
+  color: rgba(255, 255, 255, 0.82) !important;
+}
+
+.quarto-title-banner .quarto-title-meta-heading {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: var(--kv-orange) !important;
+}
+
 /* Punainen korostusviiva otsikon alle */
 h1.title::after,
 #quarto-content > * > h1:first-of-type::after {

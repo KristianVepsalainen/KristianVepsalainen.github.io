@@ -2,8 +2,7 @@
 title: "EU:n lainsäädäntö jakaumana — Osa 1: Eksploratiivinen data-analyysi"
 subtitle: "Mitä eurlex-paketti paljastaa, kun kohtelet säädöskorpusta tilastollisena ilmiönä?"
 author: "Kristian Vepsäläinen"
-date: today
-draft: true
+date: 2026-05-21
 lang: fi
 format:
   html:

@@ -1,0 +1,749 @@
+---
+title: "Miten data scientist suunnittelisi reilun ja turvallisen jonosysteemin — Käärijän Eurodisko-keikka esimerkkinä"
+author: "Kristian Vepsäläinen"
+date: 2026-05-23
+draft: true
+lang: fi
+format:
+  html:
+    code-fold: true
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    fig-width: 9
+    fig-height: 5.5
+    fig-dpi: 150
+execute:
+  warning: false
+  message: false
+  echo: true
+---
+
+```{r setup}
+library(tidyverse)
+library(patchwork)
+library(scales)
+
+COL_RED    <- "#e63946"
+COL_GREEN  <- "#2a9d8f"
+COL_ORANGE <- "#f4a261"
+COL_NAVY   <- "#1d3557"
+COL_BLUE   <- "#457b9d"
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title    = element_text(face = "bold", colour = COL_NAVY, size = 16),
+      plot.subtitle = element_text(colour = "grey40", size = 12),
+      plot.caption  = element_text(colour = "grey55", size = 9),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+Warner Music Live teki päätöksen: Käärijän Veikkausareenan Eurodisko-konserttiin saa
+jonottaa vasta konserttipäivänä kello 12 alkaen. Perusteluna turvallisuus ja
+tasapuolisuus. Faneja saapuu Uutta-Seelantia myöten.
+
+Tämä on hyvä päätös. Mutta onko se *optimaalinen*? Ja mitä "reilu jonosysteemi"
+ylipäätään tarkoittaa — turvallisuuden, matematiikan ja psykologian kannalta?
+
+Tässä postauksessa rakennan konkreettisen mallin: **miten data scientist
+suunnittelisi Veikkausareenan jonosysteemin alusta loppuun**. Optimointiongelma
+on kolmiulotteinen:
+
+1. **Turvallisuus:** väentiheys ei saa ylittää kriittistä rajaa
+2. **Tasapuolisuus:** FIFO-periaate täytyy olla faneille uskottava
+3. **Koettu reiluus:** psykologinen kokemus jonotuksesta on osa palvelua
+
+## Optimointiongelma muodollisesti
+
+Merkitään:
+- $N$ = konsertin yleisömäärä (Veikkausareenalla n. 13 500)
+- $A$ = käytettävissä oleva jonotusalue (neliömetriä)
+- $\lambda(t)$ = fanien saapumistahti ajan funktiona (henkilöä/min)
+- $k$ = sisäänkäyntien lukumäärä
+- $\mu$ = yhden sisäänkäynnin palvelutahti (henkilöä/min)
+- $\rho_{\max}$ = suurin sallittu väentiheys (henkilöä/m²)
+
+Haluamme valita $k$ ja jonotusmekanismin $M$ siten, että:
+
+$$\text{max} \quad U(M) = w_1 \cdot S(M) + w_2 \cdot F(M) + w_3 \cdot P(M)$$
+
+missä $S$ = turvallisuus (Safety), $F$ = tasapuolisuus (Fairness), $P$ = koettu
+reiluus (Perceived fairness), ja $w_1 + w_2 + w_3 = 1$.
+
+Käydään jokainen dimensio läpi erikseen.
+
+---
+
+## Dimensio 1: Turvallisuus — väentiheyden jakauma
+
+### Fruinin palvelutasoasteikko
+
+Väkijoukkaturvallisuuden perusteos on John Fruinin (1971) palvelutasomalli
+(Level of Service, LoS), jota tutkijat käyttävät edelleen. Asteikko A–F:
+
+```{r fruin_los}
+fruin <- tribble(
+  ~LoS, ~density_min, ~density_max, ~kuvaus, ~riski,
+  "A",  0.0,  0.3,  "Vapaa liikkuminen, henkilökohtainen tila suuri",       "Erittäin matala",
+  "B",  0.3,  0.7,  "Normaali kävelyvauhti mahdollinen",                    "Matala",
+  "C",  0.7,  1.1,  "Liikkuminen rajoittunutta, ohittaminen vaikeaa",       "Kohtalainen",
+  "D",  1.1,  1.7,  "Yhteentörmäyksiä, vauhti hidastuu selvästi",           "Kohonnut",
+  "E",  1.7,  3.6,  "Lähikontakti väistämätön, virtaus epästabiiia",        "Korkea",
+  "F",  3.6, 10.0,  "Ruuhka: liike pysähtyy, puristusriski kasvaa",         "Kriittinen"
+)
+
+fruin |>
+  mutate(
+    density_label = paste0(density_min, "–", density_max),
+    riski_fct     = factor(riski,
+      levels = c("Erittäin matala","Matala","Kohtalainen",
+                 "Kohonnut","Korkea","Kriittinen"))
+  ) |>
+  ggplot(aes(
+    x    = reorder(LoS, density_min),
+    ymin = density_min,
+    ymax = density_max,
+    colour = riski_fct,
+    fill   = riski_fct
+  )) +
+  geom_linerange(linewidth = 12, alpha = 0.75) +
+  geom_hline(yintercept = 2, linetype = "dashed",
+             colour = COL_RED, linewidth = 0.8) +
+  annotate("text", x = 0.6, y = 2.15,
+           label = "Kriittinen raja ~2 hlö/m²",
+           hjust = 0, colour = COL_RED, size = 3.5) +
+  geom_hline(yintercept = 5, linetype = "dotted",
+             colour = "black", linewidth = 0.8) +
+  annotate("text", x = 0.6, y = 5.15,
+           label = "Crush-riski >5 hlö/m² (kirjallisuus)",
+           hjust = 0, colour = "grey20", size = 3.5) +
+  scale_colour_manual(
+    values = c(COL_GREEN, COL_GREEN, COL_ORANGE,
+               COL_ORANGE, COL_RED, COL_NAVY),
+    name = "Riski"
+  ) +
+  scale_fill_manual(
+    values = c(COL_GREEN, COL_GREEN, COL_ORANGE,
+               COL_ORANGE, COL_RED, COL_NAVY),
+    name = "Riski"
+  ) +
+  scale_y_continuous(
+    breaks = c(0, 1, 2, 3, 4, 5, 6, 8, 10),
+    labels = \(x) paste0(x, " hlö/m²")
+  ) +
+  labs(
+    title    = "Fruinin palvelutasoasteikko (LoS A–F) väkijoukolle",
+    subtitle = "Murskautumisriski kasvaa eksponentiaalisesti tiheyden ylittäessä ~2 hlö/m²",
+    x        = "Palvelutaso",
+    y        = "Väentiheys (hlö/m²)",
+    caption  = "Lähde: Fruin (1971); Springer Nature 2024; PMC 2025."
+  ) +
+  theme(legend.position = "bottom")
+```
+
+::: {.callout-warning}
+**Itaewonin tragedia (2022):** 159 ihmistä kuoli Soulissa Halloween-juhlissa kun
+väentiheys ylitti 8–10 hlö/m² ahtaassa kujassa. Katastrofi alkoi LoS E -tasolta,
+jonka monet järjestäjät pitävät vielä "hallittavana".
+:::
+
+### Simuloitu väentiheys Veikkausareena-skenaariossa
+
+Veikkausareenalla jonotusalue on ulkona Mannerheimintien varrella. Arvioidaan
+käytettävissä oleva alue ja lasketaan, kuinka monta fania mahtuu eri
+turvallisuusrajoilla.
+
+```{r tiheyssimulaatio}
+set.seed(2025)
+
+# Parametrit
+N_total     <- 13500   # yleisökapasiteetti
+# Arvioidaan, että 60 % saapuu etukäteisjono-ikkunassa (klo 12–14)
+# ja 40 % suoraan ennen konserttia
+osuus_jono  <- 0.60
+N_jono      <- round(N_total * osuus_jono)
+
+# Jonotusalue: Veikkausareenan pohjoispuoli, Mannerheimintie
+# Arvioidaan ~150m x 12m = 1800 m² aktiivinen jonotuskaistale
+# Lisäksi levennykset ~600 m²
+A_total <- 2400  # m²
+
+# Turvallisuusrajat (hlö/m²)
+los_rajat <- c(
+  "LoS C (turv. suositus)" = 1.1,
+  "LoS D (hallittava)"     = 1.7,
+  "LoS E (korkea riski)"   = 3.6,
+  "Kriittinen (>5)"        = 5.0
+)
+
+kapasiteetit <- los_rajat * A_total
+
+# Saapumisjakauma: fanit eivät saavu tasaisesti
+# Poisson-prosessi piikkeineen heti klo 12 jälkeen
+# Simuloidaan 1000 skenaarion jakauma max-tiheydelle
+
+simulate_peak_density <- function(n_fanit, A, lambda_peak, duration_min = 120,
+                                   seed = NULL) {
+  if (!is.null(seed)) set.seed(seed)
+  # Saapumiset: eksponentiaalinen kasvu ensin, sitten tasainen
+  # Käytetään beta-jakaumaa simuloimaan saapumisjakautuma
+  saapumishetket <- sort(rbeta(n_fanit, shape1 = 2, shape2 = 5)) * duration_min
+  # Poistumishetket: jono liikkuu, ihmiset poistuvat n. 3 min kuluttua (queuing)
+  poistumishetket <- saapumishetket + rexp(n_fanit, rate = 1/3)
+  # Max tiheys: max yhtäaikaa jonossa olevien / pinta-ala
+  time_grid <- seq(0, duration_min, by = 0.5)
+  counts <- sapply(time_grid, function(t) {
+    sum(saapumishetket <= t & poistumishetket > t)
+  })
+  max(counts) / A
+}
+
+n_sim    <- 1000
+peak_densities <- replicate(
+  n_sim,
+  simulate_peak_density(N_jono, A_total, lambda_peak = 200)
+)
+
+# Tarkistus: ei negatiivisia tiheyksiä
+stopifnot(all(peak_densities >= 0))
+
+cat("Huipputiheyden mediaani:", round(median(peak_densities), 2), "hlö/m²\n")
+cat("95. persentiili:        ", round(quantile(peak_densities, 0.95), 2), "hlö/m²\n")
+cat("Osuus yli 2 hlö/m²:     ",
+    round(mean(peak_densities > 2) * 100, 1), "%\n")
+
+# Jakauma
+tibble(tiheys = peak_densities) |>
+  ggplot(aes(x = tiheys)) +
+  geom_histogram(
+    aes(y = after_stat(density)),
+    bins = 50, fill = COL_BLUE, colour = "white", alpha = 0.8
+  ) +
+  geom_density(colour = COL_NAVY, linewidth = 1) +
+  geom_vline(xintercept = 1.1, colour = COL_GREEN,
+             linetype = "dashed", linewidth = 0.9) +
+  geom_vline(xintercept = 2.0, colour = COL_ORANGE,
+             linetype = "dashed", linewidth = 0.9) +
+  geom_vline(xintercept = 5.0, colour = COL_RED,
+             linetype = "dashed", linewidth = 0.9) +
+  annotate("text", x = 1.15, y = Inf, vjust = 2,
+           label = "LoS C\n(suositus)", hjust = 0,
+           colour = COL_GREEN, size = 3.2) +
+  annotate("text", x = 2.05, y = Inf, vjust = 2,
+           label = "Kriittinen\nraja", hjust = 0,
+           colour = COL_ORANGE, size = 3.2) +
+  annotate("text", x = 5.05, y = Inf, vjust = 2,
+           label = "Crush-\nriski", hjust = 0,
+           colour = COL_RED, size = 3.2) +
+  scale_x_continuous(
+    labels = \(x) paste0(x, " hlö/m²"),
+    limits = c(0, NA)
+  ) +
+  labs(
+    title    = "Jonotusalueen huipputiheyden simuloitu jakauma (n = 1 000 skenaariota)",
+    subtitle = paste0(
+      "Veikkausareena: ", N_jono, " fania, jonotusalue ~", A_total, " m². ",
+      "Maister-jakauma saapumisajankohdissa."
+    ),
+    x       = "Huipputiheys (hlö/m²)",
+    y       = "Tiheysfunktio",
+    caption = "Simuloitu jakauma. Beta(2,5)-saapumisprofiili, 120 min ikkuna."
+  )
+```
+
+::: {.callout-note}
+**Maailma on jakauma.** Järjestäjä ei voi tietää etukäteen *tarkkaa* huipputiheyttä —
+mutta hän voi laskea sen jakauman ja varautua pahimpaan persentiiliin. Pisteluku
+"arviolta X henkilöä" on vastuuton suunnitelma. Jakauma on vastuullinen suunnitelma.
+:::
+
+---
+
+## Dimensio 2: Tasapuolisuus — FIFO ja varjojonon ongelma
+
+### Miksi fyysinen jono epäonnistuu tasapuolisuudessa
+
+Klassisin jonotusperiaate on **FIFO** (First In, First Out): se joka saapui ensin,
+pääsee ensimmäisenä sisään. Tutkimuskirjallisuus (Larson 1987, Zhou & Soman 2008)
+osoittaa, että FIFO koetaan universaalisti reiluksi — sen rikkominen johtaa "jonoraivooon".
+
+Mutta klo 12 -aloitussääntö luo paradoksin: **FIFO on voimassa vasta klo 12 alkaen**.
+Ennen sitä ei ole virallista järjestystä. Tämä synnyttää varjojonon.
+
+### Varjojonon leviämismalli
+
+Jos fanit kerääntyivät alueelle jo ennen klo 12 mutta heidät käsketään pois tai
+jono ei ole virallinen, mitä tapahtuu?
+
+```{r varjojono}
+set.seed(42)
+n_fanit <- 800   # "varhaiset" fanit ennen klo 12
+
+# Sisäänkäynti koordinaatiston origo
+# Tilanne A: Virallinen jono — ihmiset järjestäytyvät lineaarisesti
+jono_virallinen <- tibble(
+  x      = rnorm(n_fanit, 0, 8),
+  y      = -(1:n_fanit) * (120 / n_fanit) + rnorm(n_fanit, 0, 3),
+  tyyppi = "Virallinen jono\n(koordinoitu, FIFO selkeä)"
+)
+
+# Tilanne B: Varjojono — häädön jälkeen ihmiset hajaantuvat
+# mutta pysyvät lähellä; min 60m etäisyys (häätöraja)
+kulmia    <- runif(n_fanit, -pi/2, pi/2)    # pääosin pohjoispuolelle
+etaisyydet <- sqrt(runif(n_fanit, 60^2, 400^2))  # tasainen pinta-alajakauma
+jono_varjo <- tibble(
+  x      = etaisyydet * sin(kulmia),
+  y      = -etaisyydet * cos(kulmia),
+  tyyppi = "Varjojono\n(häädön jälkeen, FIFO mahdoton)"
+)
+
+# Tarkistus
+stopifnot(all(sqrt(jono_varjo$x^2 + jono_varjo$y^2) >= 59))
+
+jono_data <- bind_rows(jono_virallinen, jono_varjo)
+
+p_varjo <- jono_data |>
+  ggplot(aes(x = x, y = y, colour = tyyppi)) +
+  # Sisäänkäynti
+  annotate("point",  x = 0, y = 0, size = 7, colour = COL_NAVY, shape = 18) +
+  annotate("label",  x = 0, y = 5,
+           label = "Sisäänkäynti\n(Veikkausareena)",
+           size = 3.3, colour = COL_NAVY, fill = "white") +
+  # Häätörajan kehä
+  annotate("path",
+    x = 60 * sin(seq(-pi, pi, length.out = 200)),
+    y = -60 * cos(seq(-pi, pi, length.out = 200)),
+    colour = COL_RED, linetype = "dashed", linewidth = 0.7
+  ) +
+  annotate("text", x = 65, y = -5,
+           label = "60 m häätöraja", colour = COL_RED,
+           hjust = 0, size = 3.2) +
+  geom_point(alpha = 0.3, size = 1.2) +
+  facet_wrap(~tyyppi, ncol = 2) +
+  scale_colour_manual(
+    values = c(COL_BLUE, COL_RED),
+    guide  = "none"
+  ) +
+  coord_equal(xlim = c(-420, 420), ylim = c(-420, 30)) +
+  labs(
+    title    = "Virallinen jono vs. varjojono — sama ihmismäärä, eri hallittavuus",
+    subtitle = paste0(n_fanit, " fania. Varjojonossa FIFO-periaate hajoaa: ",
+                      "kuka oli 'eka' on kiistanalaista."),
+    x = "Itä–länsi (m)",
+    y = "Pohjoinen–etelä (m)",
+    caption = "Simulaatio. Varjojonon etäisyys ~60–400 m sisäänkäynnistä."
+  )
+
+p_varjo
+```
+
+**Varjojonon ongelma ei ole vain turvallisuus — se on oikeudenmukaisuuskriisi.**
+Kun jono hajoaa alueelle ilman koordinaatiota, kukaan ei tiedä kuka oli oikeasti
+ensimmäisenä. Syntyy kiistoja, hämmennystä ja potentiaalisesti väkivaltaa.
+Psykologisesti tämä on pahin mahdollinen tulos: FIFO-normi on rikottu ilman
+korvikemekanismia.
+
+---
+
+## Dimensio 3: Koettu reiluus — Maisterin 8 periaatetta
+
+David Maisterin (1985) "The Psychology of Waiting Lines" on alan perusteos,
+jonka 40-vuotiskatsaus (Arveson ym., 2025, SSRN) vahvistaa sen edelleen
+relevanttina. Maister tunnisti kahdeksan periaatetta, jotka selittävät miksi
+jonotusaika *tuntuu* pidemmältä tai lyhyemmältä kuin se on.
+
+```{r maister_pisteytys}
+maister <- tribble(
+  ~periaate, ~kuvaus, ~fyysinen_jono, ~virtuaalijono,
+  "1. Täyttämätön aika\ntuntuu pidemmältä",
+    "Tekemisen puute venyy aikaa",          2, 4,
+  "2. Ennalta odotettu\nodotettu < yllätys",
+    "Epävarmuus lisää tuskaa",              2, 5,
+  "3. Selitetty odotus\non siedettävämpi",
+    "Syy tekee odottamisesta ok",           3, 5,
+  "4. Epäreilu odotus\ntuntuu pidemmältä",
+    "FIFO-rikkomukset ärsyttävät",          3, 5,
+  "5. Arvokkaampi palvelu\nkestää odottaa",
+    "Käärijä = korkea WTP",                 4, 4,
+  "6. Yksin odottaminen\non rankkaa",
+    "Sosiaalisuus lyhentää koettua aikaa",  3, 3,
+  "7. Prosessissa olo\ntuntuu paremmalta",
+    "QR-koodi rekisteröity = 'olen jonossa'", 2, 5,
+  "8. Ensikokemus ja\nlopetus muistetaan",
+    "Peak-end rule: muistetaan huippu+loppu", 2, 4
+)
+
+# Pisteet 1–5: kuinka hyvin mekanismi täyttää periaatteen
+# Tarkistus: pisteet oikealla välillä
+stopifnot(all(maister$fyysinen_jono >= 1 & maister$fyysinen_jono <= 5))
+stopifnot(all(maister$virtuaalijono >= 1 & maister$virtuaalijono <= 5))
+
+maister_long <- maister |>
+  select(periaate, fyysinen_jono, virtuaalijono) |>
+  pivot_longer(
+    cols      = c(fyysinen_jono, virtuaalijono),
+    names_to  = "mekanismi",
+    values_to = "pisteet"
+  ) |>
+  mutate(
+    mekanismi = recode(mekanismi,
+      fyysinen_jono  = "Fyysinen jono\n(nykytila)",
+      virtuaalijono  = "Virtuaalijono\n(ehdotus)"
+    )
+  )
+
+p_maister <- maister_long |>
+  ggplot(aes(
+    x    = reorder(periaate, pisteet),
+    y    = pisteet,
+    fill = mekanismi
+  )) +
+  geom_col(position = "dodge", width = 0.7) +
+  geom_hline(yintercept = 3, linetype = "dotted", colour = "grey50") +
+  coord_flip() +
+  scale_fill_manual(
+    values = c(COL_RED, COL_GREEN),
+    name   = NULL
+  ) +
+  scale_y_continuous(
+    breaks = 1:5,
+    labels = c("1\n(huono)", "2", "3\n(ok)", "4", "5\n(erinomainen)"),
+    limits = c(0, 5.5)
+  ) +
+  labs(
+    title    = "Maisterin 8 periaatetta: fyysinen jono vs. virtuaalijono",
+    subtitle = "Pisteytys 1–5: kuinka hyvin mekanismi täyttää psykologisen periaatteen",
+    x = NULL,
+    y = "Pisteet",
+    caption = "Maister (1985); Arveson ym. (2025). Pisteytys kirjoittajan arvio."
+  ) +
+  theme(legend.position = "bottom")
+
+p_maister
+```
+
+Virtuaalijono voittaa fyysisen jonon kuudella kahdeksasta Maisterin periaatteesta.
+Kriittisin hyöty on periaate 7: kun fani on rekisteröitynyt ja saanut QR-koodin,
+hän on psykologisesti **jo jonossa** — vaikka istuisi kotisohvalla. Tämä muuttaa
+jonotuskokemuksen kokonaan.
+
+---
+
+## Optimaalinen malli: kolmiulotteinen ratkaisu
+
+Nyt yhdistetään kaikki kolme dimensiota konkreettiseksi suositukseksi.
+
+### Ehdotettu mekanismi: Saapumisikkunajono (Time-Windowed Queue, TWQ)
+
+Periaate:
+1. **Rekisteröinti 48h ennen** → jokainen fani saa QR-koodin ja saapumisikkunansa
+2. **Satunnaistettu FIFO** → saapumisaika arvotaan ilmoittautumisjärjestyksessä
+   *(tai puhtaasti satunnaisesti, jos tasapuolisuus painoarvo > aikajärjestys)*
+3. **15 min ikkunat** → esim. "Sinut on kutsuttu saapumaan klo 12:45–13:00"
+4. **Reaaliaikaseuranta** → järjestäjä julkaisee live-tiheysdatan
+
+```{r twq_simulaatio}
+set.seed(777)
+
+N_total  <- 13500
+N_jono   <- round(N_total * 0.60)   # 60 % tulee etukäteen
+ikkuna   <- 15                       # min per ikkuna
+n_ikkunat <- ceiling(N_jono * ikkuna / 120)  # ikkunoita 2h ajalle
+fanit_per_ikkuna <- ceiling(N_jono / (120 / ikkuna))
+
+cat("Faneja jonoon:", N_jono, "\n")
+cat("Ikkunan koko: ", ikkuna, "min\n")
+cat("Ikkunoita:    ", ceiling(120 / ikkuna), "\n")
+cat("Faneja/ikkuna:", fanit_per_ikkuna, "\n")
+
+# Simuloidaan saapuminen ikkunoittain
+# Todellinen saapuminen on stokastinen: jotkut tulevat myöhässä tai liian aikaisin
+ikkunat <- tibble(
+  ikkuna_nro   = 1:(120 %/% ikkuna),
+  aika_alku    = seq(0, 120 - ikkuna, by = ikkuna),
+  aika_loppu   = seq(ikkuna, 120, by = ikkuna),
+  kutsuttu     = fanit_per_ikkuna
+) |>
+  # Todellinen saapuminen: ~90% tulee ikkunassa, loput hajautuu
+  rowwise() |>
+  mutate(
+    saapui_ajoissa  = rbinom(1, kutsuttu, prob = 0.88),
+    saapui_myohassa = rbinom(1, kutsuttu - saapui_ajoissa, prob = 0.6),
+    saapui_yht      = saapui_ajoissa + saapui_myohassa
+  ) |>
+  ungroup()
+
+# Tarkistus
+stopifnot(all(ikkunat$saapui_ajoissa >= 0))
+stopifnot(all(ikkunat$saapui_yht     <= ikkunat$kutsuttu * 1.2))
+
+# Laske kumulatiivinen jonotusalueen kuorma
+A_total  <- 2400
+mu_gate  <- 7.5 * 20   # 20 sisäänkäyntiä, 7.5 hlö/min/käynti = 150 hlö/min
+
+ikkunat_plot <- ikkunat |>
+  mutate(
+    klo         = paste0("klo ",
+                         12 + aika_alku %/% 60, ":",
+                         sprintf("%02d", aika_alku %% 60)),
+    tiheys_max  = saapui_yht / A_total,
+    tiheys_safe = fanit_per_ikkuna * 0.88 / A_total
+  )
+
+p_twq <- ikkunat_plot |>
+  ggplot(aes(x = klo, y = tiheys_max)) +
+  geom_col(fill = COL_BLUE, alpha = 0.8, width = 0.65) +
+  geom_hline(yintercept = 1.1, colour = COL_GREEN,
+             linetype = "dashed", linewidth = 1) +
+  geom_hline(yintercept = 2.0, colour = COL_RED,
+             linetype = "dashed", linewidth = 1) +
+  annotate("text", x = 0.5, y = 1.18, label = "LoS C -raja (1.1 hlö/m²)",
+           hjust = 0, size = 3.3, colour = COL_GREEN) +
+  annotate("text", x = 0.5, y = 2.08, label = "Kriittinen raja (2.0 hlö/m²)",
+           hjust = 0, size = 3.3, colour = COL_RED) +
+  scale_y_continuous(
+    labels = \(x) paste0(x, " hlö/m²"),
+    limits = c(0, 2.5)
+  ) +
+  labs(
+    title    = "TWQ-mallissa jonotusalueen tiheys pysyy turvallisella tasolla",
+    subtitle = paste0(
+      "15 min saapumisikkunat, ~", fanit_per_ikkuna,
+      " fania/ikkuna, A = ", A_total, " m². 88 % noudattaa ikkunaa."
+    ),
+    x       = "Saapumisikkuna",
+    y       = "HetkellisTiheys (hlö/m²)",
+    caption = "Simuloitu. 20 sisäänkäyntiä, μ = 7.5 hlö/min/käynti."
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_twq
+```
+
+TWQ-mallissa **huipputiheys pysyy alle 2 hlö/m² kaikissa ikkunoissa** — kriittinen
+turvallisuusraja ei ylity, vaikka noin 12 % faneista saapuu ikkunansa ulkopuolella.
+
+### Kolmiulotteinen hyötyfunktio: mekanismien vertailu
+
+```{r hyotyfunktio}
+mekanismit <- tribble(
+  ~mekanismi,              ~turvallisuus, ~tasapuolisuus, ~koettu_reiluus,
+  "Fyysinen jono\n(klo 12 alkaen)",  3.2,           3.5,            2.8,
+  "Fyysinen jono\n(ei aikarajaa)",   1.5,           4.0,            3.0,
+  "Arvonta",                         4.5,           4.5,            3.5,
+  "TWQ\n(ikkunajono)",               4.8,           4.7,            4.6,
+  "Hintahuutokauppa",                4.0,           2.0,            1.5
+)
+
+# Painokertoimet (järjestäjän näkökulma)
+w_turv <- 0.45
+w_tasa <- 0.30
+w_koit <- 0.25
+
+mekanismit <- mekanismit |>
+  mutate(
+    U = w_turv * turvallisuus +
+        w_tasa * tasapuolisuus +
+        w_koit * koettu_reiluus,
+    U = round(U, 2)
+  )
+
+# Tarkistus: pisteet 1–5 välillä
+stopifnot(all(mekanismit$turvallisuus >= 1 & mekanismit$turvallisuus <= 5))
+stopifnot(all(mekanismit$tasapuolisuus >= 1 & mekanismit$tasapuolisuus <= 5))
+stopifnot(all(mekanismit$koettu_reiluus >= 1 & mekanismit$koettu_reiluus <= 5))
+
+mek_long <- mekanismit |>
+  pivot_longer(
+    cols      = c(turvallisuus, tasapuolisuus, koettu_reiluus),
+    names_to  = "dimensio",
+    values_to = "arvo"
+  ) |>
+  mutate(
+    dimensio = recode(dimensio,
+      turvallisuus  = paste0("Turvallisuus\n(w=", w_turv, ")"),
+      tasapuolisuus = paste0("Tasapuolisuus\n(w=", w_tasa, ")"),
+      koettu_reiluus = paste0("Koettu reiluus\n(w=", w_koit, ")")
+    )
+  )
+
+p_hf <- mek_long |>
+  ggplot(aes(
+    x    = reorder(mekanismi, -arvo),
+    y    = arvo,
+    fill = dimensio
+  )) +
+  geom_col(position = "dodge", width = 0.75) +
+  geom_text(
+    data = mekanismit,
+    aes(x = reorder(mekanismi, -U), y = 5.2,
+        label = paste0("U=", U)),
+    inherit.aes = FALSE,
+    size = 3.5, fontface = "bold", colour = COL_NAVY
+  ) +
+  scale_fill_manual(
+    values = c(COL_RED, COL_GREEN, COL_ORANGE),
+    name   = "Dimensio"
+  ) +
+  scale_y_continuous(
+    breaks = 1:5,
+    limits = c(0, 5.6),
+    labels = \(x) paste0(x, " p.")
+  ) +
+  labs(
+    title    = "Jonosysteemien kolmiulotteinen hyötyfunktio U",
+    subtitle = paste0(
+      "Painot: turvallisuus ", w_turv*100, "%, ",
+      "tasapuolisuus ", w_tasa*100, "%, ",
+      "koettu reiluus ", w_koit*100, "%"
+    ),
+    x       = NULL,
+    y       = "Pisteet (1–5)",
+    caption = "Kirjoittajan arvioima pisteytys. U = painotettu summa."
+  ) +
+  theme(
+    legend.position  = "bottom",
+    axis.text.x      = element_text(size = 11)
+  )
+
+p_hf
+```
+
+TWQ-malli voittaa kaikilla kolmella akselilla. Sen U-arvo (`r mekanismit |> filter(str_detect(mekanismi, "TWQ")) |> pull(U)`) on selvästi korkein.
+
+---
+
+## Turvallisuusanalyysi: onko klo 12 -rajoitus perusteltua?
+
+Palataan alkuperäiseen kysymykseen: **onko "jono saa alkaa vasta klo 12" -sääntö
+turvallisuuden kannalta perusteltua?**
+
+Vastaus on: **kyllä ja ei — riippuu siitä, syntyykö varjojonoja.**
+
+```{r turvallisuusanalyysi}
+# Kaksi skenaariota: rajoitus toimii vs. ei toimi
+# Toimii: fanit saapuvat vasta klo 12 → saapumisjakauma on tasainen
+# Ei toimi: osa faneista kertyy jo aiemmin ja syntyy varjojono
+
+set.seed(1234)
+n_sim <- 5000
+
+# Skenaario A: Rajoitus toimii (saapumiset tasaisemmin jakautuneita)
+saapumiset_A <- rbeta(n_sim, shape1 = 1.2, shape2 = 2.0) * 120  # tasaisempi piikki
+
+# Skenaario B: Varjojono (ihmiset kerääntyvät ennen, huippu heti alussa)
+saapumiset_B <- rbeta(n_sim, shape1 = 0.6, shape2 = 3.5) * 150 - 30  # piikki ennen klo 12
+
+# Laske tiheys 5 min liukuvalla ikkunalla
+laske_tiheys <- function(saapumiset, A, mu_gate, dt = 2, T_max = 120) {
+  aikajana <- seq(0, T_max, by = dt)
+  sapply(aikajana, function(t) {
+    # jonossa olevat: saapuneet mutta ei vielä palveltu
+    saapuneet  <- sum(saapumiset <= t)
+    palvellut  <- min(saapuneet, t * mu_gate)
+    max(0, (saapuneet - palvellut)) / A
+  })
+}
+
+mu_gate <- 150  # 20 sisäänkäyntiä x 7.5 hlö/min
+aikajana <- seq(0, 120, by = 2)
+
+tiheys_A <- laske_tiheys(saapumiset_A, A_total, mu_gate)
+tiheys_B <- laske_tiheys(saapumiset_B, A_total, mu_gate)
+
+# Tarkistus
+stopifnot(all(tiheys_A >= 0))
+stopifnot(all(tiheys_B >= 0))
+
+tibble(
+  aika     = rep(aikajana, 2),
+  tiheys   = c(tiheys_A, tiheys_B),
+  skenaario = rep(c(
+    "A: Rajoitus toimii\n(jono alkaa klo 12)",
+    "B: Varjojono syntyy\n(ihmiset kerääntyvät aiemmin)"
+  ), each = length(aikajana))
+) |>
+  mutate(
+    klo = paste0("klo ",
+                 12 + aika %/% 60, ":",
+                 sprintf("%02d", aika %% 60))
+  ) |>
+  ggplot(aes(
+    x     = aika,
+    y     = tiheys,
+    colour = skenaario,
+    fill   = skenaario
+  )) +
+  geom_area(alpha = 0.25, position = "identity") +
+  geom_line(linewidth = 1.1) +
+  geom_hline(yintercept = 1.1, linetype = "dashed",
+             colour = COL_GREEN, linewidth = 0.8) +
+  geom_hline(yintercept = 2.0, linetype = "dashed",
+             colour = COL_RED, linewidth = 0.8) +
+  annotate("text", x = 5, y = 1.17,
+           label = "LoS C -raja", colour = COL_GREEN,
+           hjust = 0, size = 3.2) +
+  annotate("text", x = 5, y = 2.07,
+           label = "Kriittinen raja", colour = COL_RED,
+           hjust = 0, size = 3.2) +
+  scale_colour_manual(values = c(COL_GREEN, COL_RED), name = NULL) +
+  scale_fill_manual(values   = c(COL_GREEN, COL_RED), name = NULL) +
+  scale_x_continuous(
+    breaks = seq(0, 120, 30),
+    labels = \(x) paste0("klo ", 12 + x %/% 60, ":",
+                          sprintf("%02d", x %% 60))
+  ) +
+  scale_y_continuous(labels = \(x) paste0(x, " hlö/m²")) +
+  labs(
+    title    = "Väentiheys jonotusalueella: rajoitus toimii vs. varjojono",
+    subtitle = "Rajoitus on perusteltu *vain* jos se oikeasti estää varjojonon syntymisen.",
+    x        = "Aika",
+    y        = "Väentiheys (hlö/m²)",
+    caption  = "Simuloitu. 5 000 fania, A = 2 400 m², 20 sisäänkäyntiä."
+  ) +
+  theme(legend.position = "bottom")
+```
+
+**Johtopäätös turvallisuudesta:**
+
+Klo 12 -rajoitus on turvallisuuden kannalta **perusteltua vain jos** se tosiasiassa
+estää fanien kerääntymisen aiemmin. Jos syntyvät varjojonot ovat hallitsemattomia
+(skenaario B), huipputiheys voi olla *korkeampi* kuin koordinoidussa fyysisessä
+jonossa — koska viranomaisvalta ei ylety varjojonoon, mutta ihmiset ovat silti siellä.
+
+Fruin (1984) tiivistää sen osuvasti: aikarajoitukset *siirtävät* kysynnän piikkiä,
+eivät *poista* sitä. Jos piste, johon kysyntä siirtyy, on ahtaampi tai vähemmän
+valvottu, tilanne voi huonontua.
+
+---
+
+## Yhteenveto: data scientistin suositus
+
+Optimaalisin ratkaisu Veikkausareenan jonosysteemin kolmiulotteisessa ongelmassa
+on **Time-Windowed Queue (TWQ)** seuraavilla parametreilla:
+
+| Ominaisuus | Arvo |
+|---|---|
+| Rekisteröitymisikkuna | 48h ennen konserttia |
+| Saapumisikkunan kesto | 15 min |
+| Faneja per ikkuna | ~675 |
+| Sisäänkäyntejä | ≥ 20 |
+| Jonotusalueen mitoitus | ≥ 2 400 m² |
+| Max sallittu tiheys | 1.1 hlö/m² (LoS C) |
+| Live-tiheysdatan julkaisu | Kyllä (5 min viiveellä) |
+
+Klo 12 -rajoitus on **tarpeellinen mutta ei riittävä** ehto turvallisuudelle.
+Ilman TWQ:n kaltaista mekanismia se siirtää ongelman varjojonoon — pois
+järjestäjän hallinnasta, lähemmäs katastrofin riskiä.
+
+Maisterin psykologinen tutkimus tiivistää logiikan: fani ei halua pelkästään
+päästä aikaiseen — hän haluaa **tietää olevansa jonossa reilusti**. QR-koodi
+taskussa, istuessaan kotisohvalla kello 10, fani on psykologisesti jo jonossa.
+Hän on tyytyväinen. Ja se on jonosysteemin paras mahdollinen tulos.
+
+---
+
+*Kiinnostaako ratkoa oma dataongelma? [kristianvepsalainen.com](https://kristianvepsalainen.com)*

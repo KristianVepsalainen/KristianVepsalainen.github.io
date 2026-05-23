@@ -90,5 +90,5 @@ print(count(df, vuosi, sort = TRUE) |> head(10))
 
 # Tallenna
 saveRDS(df, paste0(getwd(),"/data/finlex/finlex_saadokset.rds"))
-write.csv(df, paste0(getwd(),"/data/finlex/finlex_saadokset.csv", row.names = FALSE))
+write.csv(df, paste0(getwd(),"/data/finlex/finlex_saadokset.csv"), row.names = FALSE)
 cat("\nTallennettu: finlex_saadokset.rds ja finlex_saadokset.csv\n")

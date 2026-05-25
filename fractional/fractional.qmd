@@ -56,6 +56,14 @@ include-in-header:
         transition: background 0.2s, transform 0.15s;
       }
       .btn-primary:hover { background: #c1121f !important; transform: translateY(-2px); color: #fff !important; }
+      .btn-secondary {
+        display: inline-block; background: transparent !important; color: #a09890 !important;
+        padding: 0.85rem 1.4rem; font-family: 'IBM Plex Mono', monospace !important;
+        font-size: 0.72rem !important; letter-spacing: 0.06em;
+        text-decoration: none !important; border: 1px solid rgba(160,152,144,0.3) !important; border-radius: 0 !important;
+        margin-left: 0.6rem; transition: color 0.2s, border-color 0.2s;
+      }
+      .btn-secondary:hover { color: #2a9d8f !important; border-color: #2a9d8f !important; }
       .hero-aside { background: rgba(42,157,143,0.05); border: 1px solid rgba(42,157,143,0.15); padding: 2rem; }
       .aside-item { margin-bottom: 1.5rem; }
       .aside-item:last-child { margin-bottom: 0; }
@@ -89,7 +97,8 @@ include-in-header:
       .tier-name { font-family: 'IBM Plex Mono', monospace !important; font-size: 0.65rem !important; letter-spacing: 0.14em; text-transform: uppercase; color: #457b9d !important; margin-bottom: 0.4rem; }
       .tier.featured .tier-name { color: #e63946 !important; }
       .tier-title { font-family: 'Playfair Display', serif !important; font-size: 1.3rem !important; color: #f0ebe3 !important; margin-bottom: 0.8rem; }
-      .tier-price { font-family: 'IBM Plex Mono', monospace !important; font-size: 0.74rem !important; color: #f4a261 !important; margin-bottom: 1.2rem; }
+      .tier-price { font-family: 'IBM Plex Mono', monospace !important; font-size: 0.74rem !important; color: #f4a261 !important; margin-bottom: 0.3rem; }
+      .tier-price-note { font-family: 'IBM Plex Mono', monospace !important; font-size: 0.62rem !important; color: #6b6560 !important; margin-bottom: 1.2rem; letter-spacing: 0.04em; }
       .tier ul { list-style: none !important; padding: 0 !important; margin: 0 0 1.5rem !important; flex: 1; }
       .tier ul li { font-size: 0.86rem; color: #857e76 !important; padding: 0.45rem 0 0.45rem 1rem; border-bottom: 1px solid rgba(232,224,213,0.05); position: relative; }
       .tier ul li::before { content: '✓'; position: absolute; left: 0; color: #2a9d8f; font-size: 0.72rem; }
@@ -108,7 +117,9 @@ include-in-header:
       }
       .cta-block h2 { font-family: 'Playfair Display', serif !important; font-size: clamp(1.5rem, 4vw, 2rem) !important; color: #f0ebe3 !important; margin-bottom: 1rem; }
       .cta-block p { color: #a09890 !important; max-width: 460px; margin: 0 auto 2rem; line-height: 1.8; font-size: 0.95rem; }
-      .cta-block .btn-primary { display: inline-block !important; width: auto !important; font-size: 0.72rem !important; padding: 0.85rem 1.4rem !important; word-break: break-all; }
+      .cta-block .btn-primary { display: inline-block !important; width: auto !important; font-size: 0.72rem !important; padding: 0.85rem 1.4rem !important; }
+      .cta-block .cta-email { display: block; margin-top: 1.2rem; font-family: 'IBM Plex Mono', monospace !important; font-size: 0.72rem !important; color: #857e76 !important; text-decoration: none !important; }
+      .cta-block .cta-email:hover { color: #2a9d8f !important; }
     </style>
 ---
 
@@ -136,7 +147,8 @@ include-in-header:
         aligned to your goals — bringing the statistical rigour and open-data
         methodology of a senior data scientist without the full-time cost.
       </p>
-      <a href="mailto:kristian.vepsalainen@proton.me" class="btn-primary">Start the conversation →</a>
+      <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">Book a free 20-min call →</a>
+      <a href="mailto:kristian.vepsalainen@proton.me" class="btn-secondary">Or email me</a>
     </div>
     <aside class="hero-aside">
       <div class="aside-item">
@@ -193,19 +205,21 @@ include-in-header:
     <div class="tier">
       <div class="tier-name">Diagnostic</div>
       <div class="tier-title">Data Audit</div>
-      <div class="tier-price">Fixed scope · 2–3 weeks</div>
+      <div class="tier-price">From &euro;3,500 + VAT</div>
+      <div class="tier-price-note">Fixed scope &middot; 2&ndash;4 weeks</div>
       <ul>
         <li>Map current data assets and gaps</li>
         <li>Identify top three analytical opportunities</li>
         <li>Prioritised roadmap with effort/impact estimates</li>
         <li>Written report + presentation</li>
       </ul>
-      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Enquire →</a>
+      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Enquire &rarr;</a>
     </div>
     <div class="tier featured">
       <div class="tier-name">Core offering</div>
       <div class="tier-title">Fractional Head of Data</div>
-      <div class="tier-price">1–2 days/week · rolling</div>
+      <div class="tier-price">From &euro;1,200&thinsp;+&thinsp;VAT&thinsp;/&thinsp;day</div>
+      <div class="tier-price-note">1&ndash;2 days/week &middot; rolling</div>
       <ul>
         <li>Embedded strategic data partner</li>
         <li>Model building, forecasting, Bayesian inference</li>
@@ -214,19 +228,20 @@ include-in-header:
         <li>Monthly decision-support reports</li>
         <li>Async availability between days</li>
       </ul>
-      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Start the conversation →</a>
+      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Start the conversation &rarr;</a>
     </div>
     <div class="tier">
       <div class="tier-name">Project</div>
       <div class="tier-title">Defined Analysis</div>
-      <div class="tier-price">Scoped per project</div>
+      <div class="tier-price">From &euro;2,500 + VAT</div>
+      <div class="tier-price-note">Scoped per project</div>
       <ul>
         <li>One focused deliverable: model, forecast, or analysis</li>
         <li>Suitable for academic collaborations</li>
         <li>Publication-ready output</li>
         <li>Full code and documentation handover</li>
       </ul>
-      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Enquire →</a>
+      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Enquire &rarr;</a>
     </div>
   </div>
 
@@ -263,8 +278,11 @@ include-in-header:
       The first conversation costs nothing. We discuss your data, your decisions,
       and whether a fractional engagement makes sense for your stage.
     </p>
-    <a href="mailto:kristian.vepsalainen@proton.me" class="btn-primary">
-      kristian.vepsalainen@proton.me
+    <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">
+      Book a free 20-min call &rarr;
+    </a>
+    <a href="mailto:kristian.vepsalainen@proton.me" class="cta-email">
+      or email kristian.vepsalainen@proton.me
     </a>
   </div>
 </div>

@@ -417,24 +417,41 @@ tr:hover td {
 
 /* ─── Footer ────────────────────────────────────────────────────────────────── */
 #quarto-footer,
-footer {
-  background-color: var(--kv-navy);
-  color: rgba(255,255,255,0.7);
-  padding: 2rem 1.5rem;
+footer,
+body > footer,
+.nav-footer {
+  background-color: var(--kv-navy) !important;
+  color: rgba(255,255,255,0.85) !important;
+  padding: 2rem 1.5rem !important;
   font-size: 0.88rem;
-  border-top: 3px solid var(--kv-teal);
+  border-top: 3px solid var(--kv-teal) !important;
   margin-top: var(--section-gap);
 }
 
+/* Kaikki tekstielementit footerissa */
+#quarto-footer *,
+footer *,
+.nav-footer *,
+.nav-footer p,
+.nav-footer span,
+.nav-footer div {
+  color: rgba(255,255,255,0.85) !important;
+}
+
 #quarto-footer a,
-footer a {
-  color: rgba(255,255,255,0.85);
+footer a,
+.nav-footer a,
+.nav-footer .nav-link {
+  color: rgba(255,255,255,0.85) !important;
   border-bottom: none;
+  text-decoration: none;
 }
 
 #quarto-footer a:hover,
-footer a:hover {
-  color: var(--kv-orange);
+footer a:hover,
+.nav-footer a:hover,
+.nav-footer .nav-link:hover {
+  color: var(--kv-orange) !important;
 }
 
 /* ─── "Edit this page" -linkkien piilotus tuotannossa ───────────────────────── */

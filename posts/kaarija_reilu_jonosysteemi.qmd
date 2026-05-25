@@ -2,7 +2,6 @@
 title: "Miten data scientist suunnittelisi reilun ja turvallisen jonosysteemin — Käärijän Eurodisko-keikka esimerkkinä"
 author: "Kristian Vepsäläinen"
 date: 2026-05-23
-draft: true
 lang: fi
 format:
   html:

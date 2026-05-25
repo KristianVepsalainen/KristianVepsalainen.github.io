@@ -3,7 +3,6 @@ title: "Voittaminen kannattaa aina – vai kannattaako? Lohkojärjestelmien peli
 subtitle: "Miksi MM-kiekon turnausformaatti luo tilanteita, joissa häviäminen on rationaalista – ja miten se korjataan"
 author: "Kristian Vepsäläinen"
 date: "2026-05-26"
-draft: true
 categories: [peliteoria, urheilu, bayesläinen analyysi, päätöksenteko]
 image: "preview.png"
 code-fold: true

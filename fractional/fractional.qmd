@@ -278,7 +278,7 @@ include-in-header:
       The first conversation costs nothing. We discuss your data, your decisions,
       and whether a fractional engagement makes sense for your stage.
     </p>
-    <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">
+    <a href="https://cal.eu/kristianvepsalainen" class="btn-primary">
       Book a free 20-min call &rarr;
     </a>
     <a href="mailto:kristian.vepsalainen@proton.me" class="cta-email">

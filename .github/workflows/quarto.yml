@@ -96,6 +96,7 @@ jobs:
             "scoringRules",
             "here",
             "wbstats",
+            "strucchange",
             "countrycode",
             "janitor",
             "ggalluvial",

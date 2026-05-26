@@ -19,7 +19,6 @@ execute:
   warning: false
   message: false
 slug: suomen-tyovoimapula-osa8
-draft: true
 ---
 
 ## Tiivistelmä

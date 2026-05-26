@@ -3,7 +3,6 @@ title: "EU:n lainsäädäntö jakaumana — Osa 2: Direktiivien implementointivi
 subtitle: "Onko myöhästyminen pahentunut? Beeta-jakauma paljastaa, mitä keskiarvo piilottaa."
 author: "Kristian Vepsäläinen"
 date: 2026-05-28
-draft: true
 lang: fi
 format:
   html:

@@ -1,0 +1,690 @@
+---
+title: "EU:n lainsäädäntö jakaumana — Osa 2: Direktiivien implementointiviive"
+subtitle: "Onko myöhästyminen pahentunut? Beeta-jakauma paljastaa, mitä keskiarvo piilottaa."
+author: "Kristian Vepsäläinen"
+date: 2026-05-28
+draft: true
+lang: fi
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5.5
+    fig-dpi: 150
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: true
+---
+
+```{r setup}
+library(tidyverse)
+library(eurlex)
+library(here)
+library(lubridate)
+library(scales)
+library(ggtext)
+library(patchwork)
+
+col_red    <- "#e63946"
+col_green  <- "#2a9d8f"
+col_orange <- "#f4a261"
+col_navy   <- "#1d3557"
+col_blue   <- "#457b9d"
+col_purple <- "#6d597a"  
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title       = element_markdown(face = "bold", size = 15),
+      plot.subtitle    = element_markdown(color = "grey40"),
+      plot.caption     = element_text(color = "grey55", size = 9),
+      axis.title       = element_text(color = "grey30"),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+## Implementointiviive on jakauma, ei poikkeus
+
+Julkisessa keskustelussa EU:n direktiivien implementointi esitetään binäärisenä:
+jäsenvaltio joko implementoi ajoissa tai ei. Komissio julkaisee vuosittain *Single Market
+Scoreboard* -raportin, jossa maat saavat trahkan punaisesta tai vihreästä merkistä.
+
+Tämä on täsmälleen se tapa tarkastella dataa, joka piilottaa kaiken kiinnostavan.
+
+**Implementointiviive ei ole poikkeus — se on jakauma.** Ja jakauman muoto kertoo enemmän
+kuin mikään yksittäinen pistemäinen mittari:
+
+- Onko viiveen jakauma *vinoutunut*? Jos pitkät viiveet ovat harvinaisia mutta
+  äärimmäisiä, se viittaa rakenteellisiin ongelmiin tietyissä direktiivityypeissä.
+- Onko jakauma *muuttunut ajan myötä*? Jos 2010-luvun direktiivit implementoidaan
+  systemaattisesti hitaammin kuin 1990-luvun, se on poliittinen signaali.
+- Onko maakohtainen implementointiaste *beeta-jakautunut*? Beeta-jakauma on luonteva
+  malli osuuksille — se sallii epäsymmetrian ja kvantifioi epävarmuuden.
+
+Tässä osassa käytetään kahta rinnakkaista datalähdettä ja verrataan niitä:
+`include_date_transpos` hakee direktiivikohtaisen transposointipäivämäärän suoraan
+EUR-Lexistä, ja `national_impl` hakee kansallisten implementointidokumenttien metatiedon.
+Vertailu paljastaa, mittaavatko ne samaa asiaa.
+
+---
+
+## Datan haku: kaksi näkökulmaa samaan ilmiöön
+
+### Lähde 1: Direktiivien transposointipäivämäärät (`include_date_transpos`)
+
+`include_date_transpos` palauttaa direktiivikohtaisen määräpäivän — sen päivän, johon
+mennessä jäsenvaltion olisi pitänyt implementoida direktiivi kansalliseen lainsäädäntöön.
+Tämä on direktiivin *oma* tieto, ei jäsenvaltiokohtainen.
+
+```{r hae_direktiivit}
+#| cache: false
+# Ehdollinen haku: haetaan verkosta vain jos paikallista tiedostoa ei ole.
+# Tämä tekee CI-renderöinnistä deterministisen — GitHub Actions ei pysty
+# luotettavasti ottamaan yhteyttä EUR-Lexin SPARQL-endpointiin.
+# Aja kerran lokaalisti (ilman data/-tiedostoa) tallentaaksesi datan.
+
+dir_path <- here::here("data/eu_dir_raw.rds")
+
+if (!file.exists(dir_path)) {
+  message("Haetaan direktiivit EUR-Lexistä...")
+  raw_dir <- elx_make_query(
+    resource_type         = "directive",
+    include_date          = TRUE,
+    include_date_transpos = TRUE,
+    include_force         = TRUE,
+    include_celex         = TRUE
+  ) |> elx_run_query()
+  dir.create(dirname(dir_path), showWarnings = FALSE, recursive = TRUE)
+  saveRDS(raw_dir, dir_path)
+  message("Tallennettu: ", nrow(raw_dir), " riviä → ", dir_path)
+} else {
+  raw_dir <- readRDS(dir_path)
+  message("Ladattu tiedostosta: ", nrow(raw_dir), " riviä")
+}
+
+cat("Direktiivejä:", nrow(raw_dir), "\n")
+cat("Sarakkeet:", paste(names(raw_dir), collapse = ", "), "\n")
+```
+
+```{r siivoa_direktiivit}
+dir_df <- raw_dir |>
+  filter(!is.na(celex), !is.na(date)) |>
+  mutate(
+    date_adopted   = as.Date(date),
+    date_transpos  = as.Date(datetranspos),
+    vuosi_hyvaks   = year(date_adopted),
+    # Transposointiaika = aika hyväksymisestä määräpäivään (kuukausia)
+    transpos_kk    = as.numeric(date_transpos - date_adopted) / 30.44,
+    voimassa = case_when(
+      force == "true"  ~ "Voimassa",
+      force == "false" ~ "Kumottu / vanhentunut",
+      TRUE             ~ "Tuntematon"
+    )
+  ) |>
+  filter(
+    vuosi_hyvaks >= 1975,
+    vuosi_hyvaks <= 2023,
+    # Poistetaan selvästi virheelliset arvot
+    transpos_kk > 0,
+    transpos_kk < 240   # alle 20 vuotta
+  )
+
+cat("Direktiivejä transposointipäivämäärällä:", nrow(dir_df), "\n")
+cat("Puuttuvat transposointipäivät:",
+    sum(is.na(raw_dir$date_transpos)), "/", nrow(raw_dir), "\n")
+```
+
+### Lähde 2: Kansalliset implementointidokumentit (`national_impl`)
+
+`national_impl` hakee ne dokumentit, joilla jäsenvaltiot ovat ilmoittaneet
+EUR-Lexiin toteuttaneensa implementoinnin. Nämä dokumentit sisältävät tiedon
+siitä, *mihin direktiiviin* ne vastaavat — joten voimme laskea, kuinka kauan
+implementointi todellisuudessa kesti.
+
+```{r hae_national_impl}
+#| cache: false
+nimpl_path <- here::here("data/eu_nimpl_raw.rds")
+
+if (!file.exists(nimpl_path)) {
+  message("Haetaan kansalliset implementoinnit suoralla SPARQL-kyselyllä...")
+
+  # Korjattu kysely — elx_make_query("national_impl") tuottaa virheellisen
+  # SPARQL:n (puuttuva sulkeva sulku FILTER-lauseessa, bugi eurlex-paketissa)
+  nimpl_query <- '
+  PREFIX cdm: <http://publications.europa.eu/ontology/cdm#>
+  select distinct ?work ?celex ?date where {
+    ?work cdm:work_has_resource-type
+      <http://publications.europa.eu/resource/authority/resource-type/MEAS_NATION_IMPL> .
+    OPTIONAL { ?work cdm:work_date_document ?date. }
+    OPTIONAL { ?work cdm:resource_legal_id_celex ?celex. }
+  }
+'
+
+raw_nimpl <- elx_run_query(nimpl_query)
+
+  raw_nimpl <- elx_run_query(nimpl_query)
+  dir.create(dirname(nimpl_path), showWarnings = FALSE, recursive = TRUE)
+  saveRDS(raw_nimpl, nimpl_path)
+  message("Tallennettu: ", nrow(raw_nimpl), " riviä → ", nimpl_path)
+
+} else {
+  raw_nimpl <- readRDS(nimpl_path)
+  message("Ladattu tiedostosta: ", nrow(raw_nimpl), " riviä")
+}
+
+cat("Kansallisia implementointidokumentteja:", nrow(raw_nimpl), "\n")
+cat("Sarakkeet:", paste(names(raw_nimpl), collapse = ", "), "\n")
+```
+
+```{r siivoa_nimpl}
+# Kansallisista implementointidokumenteista poimitaan:
+# 1. Dokumentin päivämäärä = implementoinnin ilmoituspäivä
+# 2. CELEX-numero kertoo, mihin direktiiviin se viittaa
+# Maakoodi löytyy CELEX-rakenteesta tai work-URI:sta
+
+nimpl_df <- raw_nimpl |>
+  filter(!is.na(celex), !is.na(date)) |>
+  mutate(
+    date          = as.Date(date),
+    vuosi_impl    = year(date),
+    # CELEX-rakenne: 7 + direktiivin_celex + maakoodi + _järjestysnro
+    # esim. 72015L2366HRV_279843
+    maakoodi      = str_extract(celex, "[A-Z]{2,3}(?=_)"),
+    dir_celex_raw = str_extract(celex, "(?<=^7)[0-9]{4}[A-Z][0-9]+"),
+    # Muodostetaan direktiivin täydellinen CELEX (sektori 3)
+    dir_celex     = paste0("3", dir_celex_raw)
+  ) |>
+  filter(!is.na(maakoodi), !is.na(dir_celex_raw))
+
+cat("Kansallisia implementointeja siivottuna:", nrow(nimpl_df), "\n")
+cat("\nMaat (top 15 lukumäärän mukaan):\n")
+count(nimpl_df, maakoodi, sort = TRUE) |> head(15) |> print()
+```
+
+### Kahden lähteen vertailu
+
+```{r vertailu_diagnostiikka}
+# Kuinka monta direktiiviä löytyy molemmista lähteistä?
+celex_dir   <- dir_df |> pull(celex) |> unique()
+celex_nimpl <- nimpl_df |>
+  # national_impl CELEX viittaa kansalliseen dokumenttiin, ei direktiiviin
+  # — tarvitsemme linkkiä. Käytetään work-URI:n pohjaa heuristisena vertailuna.
+  pull(celex) |> unique()
+
+cat("Direktiivejä lähteessä 1 (date_transpos):", length(celex_dir), "\n")
+cat("Uniikkeja CELEX:ejä lähteessä 2 (national_impl):", length(celex_nimpl), "\n\n")
+
+cat(
+  "Huomio: national_impl-CELEX viittaa *kansalliseen* dokumenttiin,",
+  "ei direktiivin CELEX:iin.\n",
+  "Kaksi lähdettä mittaavat implementoinnin eri vaihetta:\n",
+  "  Lähde 1 = direktiivin asettama MÄÄRÄPÄIVÄ\n",
+  "  Lähde 2 = kansallisen dokumentin ILMOITUSPÄIVÄ\n",
+  "Yhdistäminen vaatisi elx_fetch_data()-kutsuja linkkidatan hakemiseksi.\n",
+  "Tässä analyysissa käytetään molempia erikseen ja verrataan niiden kertomaa tarinaa.\n"
+)
+```
+
+::: {.callout-note}
+**Kahden lähteen rajoite:** `include_date_transpos` kertoo direktiivin *asettaman
+määräpäivän* mutta ei sitä, implementoitiinko se ajallaan. `national_impl` taas kertoo
+*milloin* kansallinen dokumentti ilmoitettiin, mutta sen linkittäminen tiettyyn
+direktiiviin vaatii lisähakuja. Tässä osassa analysoidaan molempia itsenäisinä
+jakaumina — yhdistäminen on osa 3:n tehtävä.
+:::
+
+---
+
+## EDA 1: Transposointiajan jakauma — kuinka kauan direktiiveillä on aikaa?
+
+Ennen kuin analysoidaan myöhästymistä, on ymmärrettävä *annettu aika*: kuinka kauan
+direktiiveillä tyypillisesti on transposointiin hyväksymisestä?
+
+```{r fig_transpos_aika}
+#| fig-cap: "Direktiiville annetun transposointiajan jakauma 1975–2023. Pystyviiva = mediaani."
+
+mediaani_kk <- median(dir_df$transpos_kk, na.rm = TRUE)
+
+ggplot(dir_df, aes(transpos_kk)) +
+  geom_histogram(
+    aes(y = after_stat(density)),
+    binwidth = 3, fill = col_blue, alpha = 0.7, color = "white"
+  ) +
+  geom_density(color = col_red, linewidth = 1.1) +
+  geom_vline(xintercept = mediaani_kk, linetype = "dashed",
+             color = col_navy, linewidth = 0.8) +
+  annotate("text", x = mediaani_kk + 4, y = Inf, vjust = 1.5,
+           label = paste0("Mediaani: ", round(mediaani_kk, 0), " kk"),
+           color = col_navy, size = 3.5) +
+  scale_x_continuous(breaks = seq(0, 240, 24),
+                     labels = function(x) paste0(x, " kk\n(", x/12, " v)")) +
+  labs(
+    title    = "Direktiiveille annettu **transposointiaika** ei ole vakio",
+    subtitle = "Jakauma on oikealle vino — joillekin direktiiveille annetaan yli 10 vuotta",
+    x = "Kuukausia hyväksymisestä transposointimääräpäivään",
+    y = "Tiheys",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+```{r fig_transpos_trendi}
+#| fig-cap: "Direktiiveille annettu transposointiaika vuosikymmenittäin. Onko EU kiristänyt vai löysännyt aikatauluja?"
+
+dir_df |>
+  mutate(vuosikymmen = factor(paste0(floor(vuosi_hyvaks / 10) * 10, "-luku"))) |>
+  ggplot(aes(vuosikymmen, transpos_kk, fill = vuosikymmen)) +
+  geom_violin(alpha = 0.6, color = "white", show.legend = FALSE) +
+  geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA,
+               color = "grey30", show.legend = FALSE) +
+  scale_fill_manual(values = c(col_navy, col_blue, col_green, col_orange, col_red, col_purple)) +
+  scale_y_continuous(
+    breaks = seq(0, 200, 24),
+    labels = function(x) paste0(x / 12, "v")
+  ) +
+  labs(
+    title    = "**Transposointiajan jakauma** vuosikymmenittäin",
+    subtitle = "Viuludiagrammi paljastaa muodon muutokset, joita mediaani ei näytä",
+    x = NULL, y = "Transposointiaika (vuosia)",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## EDA 2: Kansallisten implementointien ajallinen jakauma
+
+Siirrytään `national_impl`-dataan. Kysymys: onko implementointi-ilmoitusten
+rytmi tasainen vai purskahteleeko se tiettyinä vuosina?
+
+```{r fig_nimpl_vuosi}
+#| fig-cap: "Kansallisten implementointidokumenttien lukumäärä vuosittain. Piikit voivat kertoa lainsäädäntöaalloista tai ilmoituskäytäntöjen muutoksista."
+
+nimpl_df |>
+  count(vuosi_impl) |>
+  ggplot(aes(vuosi_impl, n)) +
+  geom_col(fill = col_blue, alpha = 0.8) +
+  geom_smooth(method = "loess", span = 0.3, se = TRUE,
+              color = col_red, fill = col_red, alpha = 0.15,
+              linewidth = 1.0) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  scale_x_continuous(breaks = seq(1990, 2024, 5)) +
+  labs(
+    title    = "**Kansalliset implementoinnit** vuosittain 1990–2024",
+    subtitle = "Punertava nauha = LOESS-sovite 95 % luottamusväleineen",
+    x = NULL, y = "Dokumenttien lukumäärä",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+```{r fig_nimpl_maa}
+#| fig-cap: "Implementointidokumenttien lukumäärä maittain. Suuret luvut voivat kertoa aktiivisuudesta tai ilmoituskäytännöistä."
+
+nimpl_df |>
+  count(maakoodi, sort = TRUE) |>
+  filter(n > 50) |>
+  mutate(maakoodi = fct_reorder(maakoodi, n)) |>
+  ggplot(aes(n, maakoodi, fill = n)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = comma(n, big.mark = " ")),
+            hjust = -0.1, size = 3.2) +
+  scale_fill_gradient(low = col_blue, high = col_red) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.15)),
+                     labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "**Implementointidokumentteja** maittain (kaikki vuodet)",
+    subtitle = "Luvut heijastavat sekä aktiivisuutta että ilmoituskäytäntöjen eroja",
+    x = "Dokumenttien lukumäärä", y = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## EDA 3: Onko implementointitahti muuttunut ajan myötä?
+
+Pääkysymys: onko implementointi systemaattisesti hidastunut vai nopeutunut?
+
+```{r fig_nimpl_trendi_maa}
+#| fig-cap: "Implementointidokumenttien trendi maittain — top 12 maata. Pisteviiva = LOESS-trendi."
+#| fig-height: 8
+
+top_maat <- nimpl_df |>
+  count(maakoodi, sort = TRUE) |>
+  slice_head(n = 12) |>
+  pull(maakoodi)
+
+nimpl_df |>
+  filter(maakoodi %in% top_maat) |>
+  count(maakoodi, vuosi_impl) |>
+  ggplot(aes(vuosi_impl, n)) +
+  geom_col(fill = col_blue, alpha = 0.65) +
+  geom_smooth(method = "loess", span = 0.5, se = FALSE,
+              color = col_red, linewidth = 0.9, linetype = "dashed") +
+  facet_wrap(~maakoodi, ncol = 3, scales = "free_y") +
+  scale_x_continuous(breaks = c(1995, 2005, 2015)) +
+  labs(
+    title    = "**Implementointitahti** 12 suurimmassa maassa 1990–2024",
+    subtitle = "Pisteviiva = LOESS-trendi. Y-akseli vaihtelee maiden välillä.",
+    x = NULL, y = "Dokumentteja vuodessa",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## Bayesilainen malli: beeta-jakauma implementointiasteelle
+
+Tähän asti olemme katsoneet lukumääriä. Mutta lukumäärä ei kerro *osuutta* — maa, jolla
+on paljon implementointeja, voi silti olla suhteellisesti huono suoriutuja, jos direktiivejä
+on enemmän.
+
+Muodostetaan maakohtainen **implementointiaste**: kuinka suuri osuus kunkin maan
+implementoinneista on kirjattu alle 24 kuukauden kuluessa direktiivin hyväksymisestä?
+
+Tämä on osuus-data — luonteva malli on **beeta-jakauma**. Bayesilainen lähestymistapa
+antaa meille:
+
+1. *Posteriorijakauman* maan implementointiasteelle — ei pistemäistä arvausta
+2. *Epävarmuuden kvantifioinnin* — pienet maat saavat leveämmän posteriorin
+3. *Shrinkage-efektin* — pienten maiden estimaatit vedetään kohti globaalia keskiarvoa
+
+```{r laske_osuudet}
+# Käytetään direktiividatan transposointipäivämääriä yhdistettynä
+# national_impl-datan vuosiin.
+# Laskemme: per maa, kuinka moni implementointi on tapahtunut
+# alle 24 kk:ssa direktiivin hyväksymisestä.
+#
+# Koska suora linkitys vaatisi elx_fetch_data()-kutsuja,
+# käytetään approksimatiivista menetelmää:
+# - Direktiivin hyväksymispäivä = dir_df$date_adopted
+# - Implementoinnin ilmoituspäivä = nimpl_df$date_impl
+# - Osuus = niiden implementointien osuus, joissa ilmoitus on tehty
+#   alle 24 kk:ssa lähimmästä direktiivin hyväksymispäivästä
+#
+# Tarkempi analyysi käyttäisi täyttä yhdistämistä CELEX-linkkien kautta.
+
+# Lasketaan per maa, per vuosi: kuinka moni implementointi on tehty
+# kyseisen vuoden aikana vs. direktiivien mediaanihyväksymisestä laskettuna
+nimpl_vuosi <- nimpl_df |>
+  filter(maakoodi %in% top_maat) |>
+  mutate(
+    # Approksimoidaan "nopeus": onko implementointi tehty ennen vuotta,
+    # jolloin direktiivit tyypillisesti astuvat voimaan (mediaaniviive + 2v)
+    vuosi_kynnys = vuosi_impl
+  ) |>
+  group_by(maakoodi) |>
+  summarise(
+    n_impl        = n(),
+    vuosi_min     = min(vuosi_impl),
+    vuosi_max     = max(vuosi_impl),
+    .groups       = "drop"
+  )
+
+# Laskemme implementointiasteelle beeta-posteriorijakauman
+# Käytetään "ajoissa" = implementointi vuoteen 2020 mennessä direktiiveistä,
+# jotka hyväksyttiin ennen 2018 (2 vuoden transposointiaikavara)
+early_dir_vuodet <- dir_df |>
+  filter(
+    vuosi_hyvaks >= 1995,
+    vuosi_hyvaks <= 2018,
+    transpos_kk <= 36        # alle 3 vuoden transposointivaatimus
+  ) |>
+  pull(vuosi_hyvaks)
+
+# Per maa: implementointeja 1995-2020 suhteessa direktiivien määrään
+# (approksimatiivinen osuus, koska suora linkitys puuttuu)
+maa_impl_osuus <- nimpl_df |>
+  filter(
+    maakoodi %in% top_maat,
+    vuosi_impl >= 1995,
+    vuosi_impl <= 2023
+  ) |>
+  group_by(maakoodi) |>
+  summarise(
+    # "Nopeat" = implementoinnit, jotka on tehty ennen ao. vuoden loppua
+    n_nopea  = sum(vuosi_impl <= (vuosi_impl + 1)),   # kaikki tässä approx.
+    n_yht    = n(),
+    .groups  = "drop"
+  ) |>
+  # Laskemme vuosikohtaisen vaihtelun beeta-priorin lähteeksi
+  left_join(
+    nimpl_df |>
+      filter(maakoodi %in% top_maat, vuosi_impl >= 1995, vuosi_impl <= 2023) |>
+      group_by(maakoodi, vuosi_impl) |>
+      summarise(n_vuosi = n(), .groups = "drop") |>
+      group_by(maakoodi) |>
+      summarise(
+        vuosi_osuus_ka  = mean(n_vuosi),
+        vuosi_osuus_sd  = sd(n_vuosi),
+        n_aktiiviv      = n(),
+        .groups         = "drop"
+      ),
+    by = "maakoodi"
+  )
+
+cat("Maakohtaiset perustilastot:\n")
+print(maa_impl_osuus)
+```
+
+```{r bayesian_beta}
+# Bayesilainen beeta-malli implementointiasteelle
+#
+# Priori: Beta(alpha0, beta0) — käytetään heikkoa prioria Beta(2, 2),
+# joka sanoo "todennäköisesti jossain välillä, ei ääripäissä"
+#
+# Likelihoods: per maa havaitaan k onnistumista n yrityksestä
+# Posteriori: Beta(alpha0 + k, beta0 + (n - k))
+#
+# "Onnistuminen" = implementointi on tehty ao. vuonna tai aikaisemmin
+# "n" = direktiivejä, jotka olisivat vaatineet implementoinnin
+#
+# Koska suora linkitys puuttuu, käytämme vuosittaista implementointimäärää
+# suhteessa oletettuun "tarpeeseen" (per-maa normalisoitu lukumäärä).
+
+alpha0 <- 2   # heikko priori
+beta0  <- 2
+
+# Normalisoidaan: kukin maa suhteessa maksimaaliseen implementointimääräänsä
+# (tämä approksimoi "osuutta direktiiveistä implementoitu")
+maa_beta <- nimpl_df |>
+  filter(maakoodi %in% top_maat, vuosi_impl >= 1995, vuosi_impl <= 2023) |>
+  group_by(maakoodi, vuosi_impl) |>
+  summarise(n_vuosi = n(), .groups = "drop") |>
+  group_by(maakoodi) |>
+  mutate(
+    maa_max   = max(n_vuosi),
+    osuus_vuosi = n_vuosi / maa_max    # relatiivinen aktiivisuus per vuosi
+  ) |>
+  summarise(
+    # "k" = kuinka monen vuoden osuus ylittää 50 % maksimiaktiivisuudesta
+    k         = sum(osuus_vuosi >= 0.5),
+    n_vuosia  = n(),
+    alpha_post = alpha0 + k,
+    beta_post  = beta0 + (n_vuosia - k),
+    # Posteriorimoodi
+    moodi      = (alpha_post - 1) / (alpha_post + beta_post - 2),
+    # 95 % HDI (highest density interval)
+    hdi_lo     = qbeta(0.025, alpha_post, beta_post),
+    hdi_hi     = qbeta(0.975, alpha_post, beta_post),
+    .groups    = "drop"
+  ) |>
+  arrange(desc(moodi))
+
+cat("Bayesilainen posteriori implementointiasteelle (relatiivinen aktiivisuus):\n")
+print(maa_beta |> select(maakoodi, k, n_vuosia, moodi, hdi_lo, hdi_hi))
+```
+
+```{r fig_beta_posteriori}
+#| fig-cap: "Bayesilainen posteriorijakauma maakohtaiselle implementointiasteelle. Leveys = epävarmuus. Pienet maat saavat leveämmän jakauman."
+
+# Piirretään posteriorijakaumat
+n_pisteet <- 500
+beta_curves <- maa_beta |>
+  rowwise() |>
+  mutate(
+    x    = list(seq(0.01, 0.99, length.out = n_pisteet)),
+    dens = list(dbeta(seq(0.01, 0.99, length.out = n_pisteet),
+                      alpha_post, beta_post))
+  ) |>
+  unnest(cols = c(x, dens)) |>
+  ungroup()
+
+# Järjestetään maakoodi modiin perustuen
+maa_jarjestys <- maa_beta |> arrange(desc(moodi)) |> pull(maakoodi)
+beta_curves   <- beta_curves |>
+  mutate(maakoodi = factor(maakoodi, levels = maa_jarjestys))
+
+ggplot(beta_curves, aes(x, dens, color = maakoodi, fill = maakoodi)) +
+  geom_line(linewidth = 0.9, show.legend = FALSE) +
+  geom_area(alpha = 0.12, show.legend = FALSE) +
+  facet_wrap(~maakoodi, ncol = 3, scales = "free_y") +
+  scale_color_manual(values = rep(
+    c(col_navy, col_blue, col_green, col_orange, col_red), 3
+  )) +
+  scale_fill_manual(values = rep(
+    c(col_navy, col_blue, col_green, col_orange, col_red), 3
+  )) +
+  scale_x_continuous(labels = percent_format()) +
+  labs(
+    title    = "**Bayesilainen posteriorijakauma** maakohtaiselle implementointiasteelle",
+    subtitle = "Kapea jakauma = varma estimaatti. Leveä = vähän dataa tai suuri vaihtelu.",
+    x = "Implementointiaste (relatiivinen aktiivisuus)", y = "Posterioritiheys",
+    caption  = "Malli: Beta(2,2)-priori + binomiaalinen likelihoood. Lähde: EUR-Lex SPARQL via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+```{r fig_beta_pisteet}
+#| fig-cap: "Posteriorimoodi ja 95 % luottamusväli maittain. Pisteet ovat parempi tapa verrata maita kuin palkkikaavio — ne näyttävät epävarmuuden."
+
+maa_beta |>
+  mutate(maakoodi = factor(maakoodi, levels = rev(maa_jarjestys))) |>
+  ggplot(aes(moodi, maakoodi)) +
+  geom_segment(aes(x = hdi_lo, xend = hdi_hi, y = maakoodi, yend = maakoodi),
+               color = col_blue, linewidth = 1.2, alpha = 0.6) +
+  geom_point(size = 3.5, color = col_red) +
+  geom_vline(xintercept = mean(maa_beta$moodi), linetype = "dashed",
+             color = "grey50", linewidth = 0.6) +
+  scale_x_continuous(labels = percent_format(), limits = c(0, 1)) +
+  annotate("text", x = mean(maa_beta$moodi) + 0.02, y = Inf,
+           vjust = 1.5, hjust = 0, color = "grey50", size = 3,
+           label = "Ryhmäkeskiarvo") +
+  labs(
+    title    = "**Implementointiaste maittain** — posteriorimoodi ja 95 % HDI",
+    subtitle = "Viiva = epävarmuusväli. Pistearvon sijaan näemme koko jakauman.",
+    x = "Implementointiaste", y = NULL,
+    caption  = "Malli: Beta(2,2)-priori + binomiaalinen likelihoood. Lähde: EUR-Lex SPARQL via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## EDA 4: Onko implementointitahti muuttunut ajan myötä?
+
+Pääkysymyksemme: onko 2010-luvun implementointiaktiivisuus systemaattisesti erilainen
+kuin 1990-luvun?
+
+```{r fig_trendi_aggregaatti}
+#| fig-cap: "Implementointien vuosittainen kokonaismäärä ja LOESS-trendi. Taustaväri erottaa vuosikymmenet."
+
+nimpl_vuosiyhteensa <- nimpl_df |>
+  filter(maakoodi %in% top_maat) |>
+  count(vuosi_impl)
+
+ggplot(nimpl_vuosiyhteensa, aes(vuosi_impl, n)) +
+  # Vuosikymmenvärit taustalle
+  annotate("rect", xmin = 1990, xmax = 2000, ymin = -Inf, ymax = Inf,
+           fill = col_navy, alpha = 0.04) +
+  annotate("rect", xmin = 2000, xmax = 2010, ymin = -Inf, ymax = Inf,
+           fill = col_blue, alpha = 0.04) +
+  annotate("rect", xmin = 2010, xmax = 2020, ymin = -Inf, ymax = Inf,
+           fill = col_green, alpha = 0.04) +
+  annotate("rect", xmin = 2020, xmax = 2025, ymin = -Inf, ymax = Inf,
+           fill = col_orange, alpha = 0.06) +
+  geom_col(fill = col_blue, alpha = 0.7) +
+  geom_smooth(method = "loess", span = 0.4, se = TRUE,
+              color = col_red, fill = col_red, alpha = 0.15, linewidth = 1.1) +
+  scale_x_continuous(breaks = seq(1990, 2024, 5)) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "**Implementointiaktiivisuus** top-12 maissa 1990–2024",
+    subtitle = "Onko tahti muuttunut? LOESS-käyrä ja luottamusväli paljastavat trendin.",
+    x = NULL, y = "Dokumentteja vuodessa",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+```{r fig_vuosikymmen_vertailu}
+#| fig-cap: "Implementointimäärän jakauma vuosikymmenittäin — viuludiagrammi paljastaa muodon muutokset."
+
+nimpl_df |>
+  filter(maakoodi %in% top_maat) |>
+  count(maakoodi, vuosi_impl) |>
+  mutate(vuosikymmen = factor(paste0(floor(vuosi_impl / 10) * 10, "-luku"))) |>
+  ggplot(aes(vuosikymmen, n, fill = vuosikymmen)) +
+  geom_violin(alpha = 0.65, color = "white", show.legend = FALSE) +
+  geom_boxplot(width = 0.12, fill = "white", outlier.shape = NA,
+               color = "grey30", show.legend = FALSE) +
+  scale_fill_manual(values = scale_fill_manual(values = colorRampPalette(c(col_navy, col_blue, col_green, col_orange))(16))) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "**Implementointimäärien jakauma** vuosikymmenittäin (top-12 maat)",
+    subtitle = "Mediaanin lisäksi jakauman muoto: onko hajonta kasvanut?",
+    x = NULL, y = "Dokumentteja vuodessa (per maa)",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## Yhteenveto ja metodinen rehellisyys
+
+Tässä osassa käytettiin kahta datalähdettä, ja niiden välinen suhde ansaitsee rehellisen
+arvion:
+
+| | Lähde 1: `date_transpos` | Lähde 2: `national_impl` |
+|---|---|---|
+| **Mittaa** | Direktiivin asettaman määräpäivän | Kansallisen ilmoitusdokumentin päivämäärän |
+| **Kattavuus** | Kaikki direktiivit, joilla on transposointipäivä | Kaikki maat, jotka ovat ilmoittaneet EUR-Lexiin |
+| **Rajoite** | Ei kerro, tapahtuiko implementointi ajallaan | Ei suoraan linkity tiettyyn direktiiviin ilman lisähakuja |
+| **Analyyttinen arvo** | Kertoo annetun ajan jakaumasta | Kertoo implementointitahdin ja maiden välisistä eroista |
+
+Beeta-malli on tässä *approksimatiivinen* — se mallintaa relatiivista aktiivisuutta, ei
+tarkkaa myöhästymisastetta. Tarkempi malli — jossa jokainen implementointi linkitetään
+tiettyyn direktiiviin ja lasketaan tarkka viive — on osa 3:n tehtävä.
+
+::: {.callout-warning}
+**Metodinen varoitus:** `national_impl`-CELEX-numerot viittaavat *kansallisiin*
+dokumentteihin, eivät direktiiveihin. Maakoodi on poimittu CELEX-etuliitteestä, ja se
+saattaa sisältää epätarkkuuksia dokumenttityypin mukaan. Ennen politiikkapäätelmien
+tekemistä data tulisi validoida `elx_fetch_data()`-kutsuilla.
+:::
+
+---
+
+## Mitä seuraavaksi?
+
+**Osa 3 — Bayesilainen muutospiste-analyysi**
+Milloin EU:n lainsäädäntötahti muuttui rakenteellisesti? MCMC-malli kvantifioi
+epävarmuuden muutosajankohdassa. Lisäksi: täydellinen implementointiviiveanalyysi
+`elx_fetch_data()`-linkkidatalla.
+
+**Osa 4 — Eloonjäämisanalyysi**
+Kaplan-Meier + Cox-regressio säädösten elinajalle.
+
+**Osa 5 — Viittausverkosto**
+Mitkä säädökset ovat EU-oikeuden solmupisteitä?
+
+---
+
+*Kaikki analyysi on toistettavissa. Koodi on avoin.*
+
+*Tarvitsetko vastaavan analyysin omasta toimialastasi tai regulatory compliance
+-näkökulmasta? —
+[kristianvepsalainen.com](https://kristianvepsalainen.com)*

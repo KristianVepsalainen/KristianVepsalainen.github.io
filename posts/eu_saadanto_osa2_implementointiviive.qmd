@@ -24,7 +24,7 @@ execute:
 
 ```{r setup}
 library(tidyverse)
-library(eurlex)
+#library(eurlex)
 library(here)
 library(lubridate)
 library(scales)

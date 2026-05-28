@@ -1,0 +1,25 @@
+lang: en
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-tools: true
+  pdf:
+    documentclass: article
+    papersize: a4
+    fontsize: 11pt
+    geometry:
+      - margin=2.5cm
+    toc: true
+    toc-depth: 3
+    colorlinks: true
+    code-overflow: wrap
+    pdf-engine: xelatex
+    mainfont: "Source Serif Pro"
+    sansfont: "Source Sans Pro"
+    monofont: "Source Code Pro"
+author: "Kristian Vepsäläinen"
+date-format: "D MMMM YYYY"
+title-block-banner: true
+freeze: true

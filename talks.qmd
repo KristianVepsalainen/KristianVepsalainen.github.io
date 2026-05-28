@@ -1,0 +1,45 @@
+---
+title: "Talks"
+lang: en
+draft: true
+---
+
+A selection of talks, conference presentations, and workshops I have given on data science, Bayesian methods, and open data analytics.
+
+Slides are available as PDF. Where applicable, code repositories and recordings are linked.
+
+If you are organising a conference, seminar, or in-house workshop and would like me to speak on Bayesian modelling, open data analytics, or uncertainty quantification in decision-making, please get in touch: **kristian.vepsalainen@proton.me**
+
+---
+
+## 2026
+
+::: {.callout-note appearance="simple" icon=false}
+### Example title of an upcoming or recent talk
+
+**Event:** Name of conference or seminar
+**Location:** City, Country (or Online)
+**Date:** Month YYYY
+
+Short abstract: 2–3 sentences describing the talk and its key argument.
+
+[Slides (PDF)](talks/2026-example.pdf) · [Code](https://github.com/...) · [Recording](https://...)
+:::
+
+---
+
+## 2019
+
+::: {.callout-note appearance="simple" icon=false}
+### Assessing the Quality of Finnish Primary Health Care Registers
+
+**Event:** 9th Nordic Conference of Epidemiology and Register-Based Health Research
+**Location:** Tampere University, Finland
+**Date:** 2019
+
+Conference presentation on the quality and limitations of Finnish primary health care registers, based on work conducted at the Finnish Institute for Health and Welfare (THL).
+:::
+
+---
+
+*This page will be updated as new talks are scheduled. To invite me to speak, please contact kristian.vepsalainen@proton.me.*

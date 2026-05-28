@@ -1,0 +1,20 @@
+---
+title: "Whitepapers"
+lang: en
+draft: true
+listing:
+  contents: whitepapers
+  type: default
+  sort: "date desc"
+  fields: [date, title, reading-time, description, categories]
+  categories: true
+  sort-ui: true
+  filter-ui: true
+  feed: true
+---
+
+In-depth analyses combining open data, statistical modelling, and domain context. Most papers focus on questions where conventional approaches rely on point estimates — and where distributional thinking changes the conclusion.
+
+Each whitepaper is available as an HTML page (with reproducible code) and as a downloadable PDF.
+
+Topics range from regulatory and legal data to public sector analytics, with method emphasis on Bayesian hierarchical models, causal inference, and uncertainty quantification.

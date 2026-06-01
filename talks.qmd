@@ -22,7 +22,7 @@ If you are organising a conference, seminar, or in-house workshop and would like
 
 A Bayesian forward simulation of aerodynamic drag at the 1980 Olympic men's 15 km cross-country skiing race. The talk uses the famous one-hundredth-of-a-second margin between Thomas Wassberg and Juha Mieto as a vehicle for a broader point: when inference is impossible but the physics is known, forward simulation with R turns counterfactual questions into distributions.
 
-[View slides (HTML)](2026-07-user-mieto-wassberg/mieto-wassberg-useR2026.html){target="_blank"} · [Download PDF](2026-07-user-mieto-wassberg/mieto-wassberg-useR2026.pdf) · [Source on GitHub](https://github.com/KristianVepsalainen/KristianVepsalainen.github.io/tree/main/talks/2026-07-user-mieto-wassberg)
+[View slides (HTML)](/talks/2026-07-user-mieto-wassberg/mieto-wassberg-useR2026.html){target="_blank"} · [Download PDF](/talks/2026-07-user-mieto-wassberg/mieto-wassberg-useR2026.pdf) · [Source on GitHub](https://github.com/KristianVepsalainen/KristianVepsalainen.github.io/tree/main/talks/2026-07-user-mieto-wassberg)
 :::
 
 ---

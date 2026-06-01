@@ -1,0 +1,178 @@
+/*-- scss:defaults --*/
+
+// Fonts — distinctive but professional
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+$font-family-sans-serif: "Inter", "Helvetica Neue", sans-serif !default;
+$font-family-serif:      "Fraunces", Georgia, serif !default;
+$font-family-monospace:  "JetBrains Mono", Consolas, monospace !default;
+
+// Palette — Lake Placid in winter
+$ice-navy:   #0b1d2e;
+$ice-deep:   #13314a;
+$ice-blue:   #3a7ca5;
+$ice-pale:   #eaf2f8;
+$ice-silver: #c9d6df;
+$accent:     #d9a441;   // gold medal
+$paper:      #fbfbfa;
+$ink:        #1a1a1a;
+
+$body-bg:           $paper !default;
+$body-color:        $ink !default;
+$link-color:        $ice-blue !default;
+$selection-bg:      $accent !default;
+$selection-color:   $ice-navy !default;
+
+$presentation-heading-font:   "Fraunces", Georgia, serif !default;
+$presentation-heading-color:  $ice-navy !default;
+$presentation-heading-weight: 600 !default;
+
+$presentation-font-size-root: 32px !default;
+$presentation-line-height:    1.4 !default;
+
+/*-- scss:rules --*/
+
+.reveal {
+  font-family: $font-family-sans-serif;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}
+
+.reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+  font-family: $presentation-heading-font;
+  font-feature-settings: "ss01", "ss02";
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  text-transform: none;
+}
+
+.reveal h2 {
+  border-bottom: 1px solid $ice-silver;
+  padding-bottom: 0.25em;
+  margin-bottom: 0.6em;
+  font-size: 1.6em;
+}
+
+.reveal .slide-number {
+  font-family: $font-family-monospace;
+  font-size: 0.7em;
+  color: $ice-blue;
+  background: transparent;
+}
+
+// Code blocks
+.reveal pre {
+  box-shadow: 0 2px 12px rgba(11, 29, 46, 0.08);
+  border-radius: 6px;
+  font-size: 0.62em;
+  line-height: 1.35;
+}
+
+.reveal pre code {
+  font-family: $font-family-monospace;
+  padding: 1em 1.2em;
+  max-height: 560px;
+}
+
+.reveal code {
+  font-family: $font-family-monospace;
+  color: $ice-deep;
+  background: rgba(58, 124, 165, 0.08);
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+}
+
+// Tables
+.reveal table {
+  border-collapse: collapse;
+  font-size: 0.85em;
+  margin: 0.6em 0;
+}
+
+.reveal table th {
+  background: $ice-navy;
+  color: $paper;
+  border: none;
+  padding: 0.55em 0.9em;
+  font-weight: 600;
+  text-align: left;
+  font-family: $font-family-sans-serif;
+}
+
+.reveal table td {
+  border-bottom: 1px solid $ice-silver;
+  padding: 0.45em 0.9em;
+}
+
+.reveal table tr:last-child td {
+  border-bottom: 2px solid $ice-navy;
+}
+
+// Blockquote
+.reveal blockquote {
+  border-left: 3px solid $accent;
+  background: transparent;
+  font-family: $presentation-heading-font;
+  font-style: italic;
+  font-size: 1.1em;
+  color: $ice-navy;
+  padding: 0.4em 0 0.4em 1.2em;
+  margin: 0.8em 0;
+  box-shadow: none;
+}
+
+// Links
+.reveal a {
+  color: $ice-blue;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(58, 124, 165, 0.35);
+  transition: border-color 0.2s ease;
+}
+
+.reveal a:hover {
+  border-bottom-color: $accent;
+  color: $ice-navy;
+}
+
+// Title slide refinement
+.reveal .title-slide h1 {
+  color: white;
+}
+
+// Subtle paper-grain on light slides
+.reveal .slides > section:not([data-background-color]) {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(11,29,46,0.025) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+// Fragment animation refinement
+.reveal .fragment.fade-in {
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  transform: translateY(4px);
+}
+.reveal .fragment.fade-in.visible {
+  transform: translateY(0);
+}
+
+// Figure captions
+.reveal .figure-caption,
+.reveal figcaption {
+  font-family: $font-family-sans-serif;
+  font-size: 0.7em;
+  color: #666;
+  font-style: italic;
+  margin-top: 0.4em;
+}
+
+// Math
+.reveal .math {
+  color: $ice-navy;
+}
+
+// Footer note style (used inline)
+.note {
+  font-size: 0.8em;
+  color: #666;
+  font-style: italic;
+}

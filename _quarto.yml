@@ -1,5 +1,10 @@
 project:
   type: website
+  render:
+    - "*.qmd"
+    - "posts/"
+    - "whitepapers/"
+    - "!talks/**/*.qmd"
 
 website:
   title: "Kristian Vepsäläinen – Maailma on jakauma"
@@ -25,8 +30,8 @@ website:
         text: Blogi
       #- href: whitepapers.qmd
       #  text: Whitepapers
-      #- href: talks.qmd
-      #  text: Talks
+      - href: talks.qmd
+        text: Talks
       - href: about.qmd
         text: Minusta
     right:

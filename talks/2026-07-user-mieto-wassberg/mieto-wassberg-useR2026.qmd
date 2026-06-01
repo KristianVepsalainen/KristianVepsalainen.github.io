@@ -1,0 +1,572 @@
+---
+title: "One Hundredth of a Second"
+subtitle: "A Bayesian forward simulation of aerodynamic drag at the 1980 Olympics"
+author: "Kristian Vepsäläinen"
+date: "2026-07"
+format:
+  revealjs:
+    theme: [default, custom.scss]
+    slide-number: c/t
+    width: 1280
+    height: 720
+    transition: fade
+    background-transition: fade
+    incremental: false
+    code-line-numbers: false
+    highlight-style: github
+    fig-align: center
+    fig-cap-location: bottom
+    title-slide-attributes:
+      data-background-color: "#0b1d2e"
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: true
+knitr:
+  opts_chunk:
+    dev: "png"
+    fig.width: 9
+    fig.height: 5
+    dpi: 150
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(scales)
+
+theme_talk <- function() {
+  theme_minimal(base_size = 16, base_family = "sans") +
+    theme(
+      plot.title = element_text(face = "bold", size = 20),
+      plot.subtitle = element_text(color = "grey30"),
+      panel.grid.minor = element_blank(),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    )
+}
+
+ice_blue   <- "#3a7ca5"
+ice_navy   <- "#0b1d2e"
+ice_silver <- "#c9d6df"
+accent     <- "#d9a441"
+```
+
+## {.center background-color="#0b1d2e"}
+
+::: {style="color:#c9d6df; text-align:center;"}
+<h1 style="color:#ffffff; font-size: 3.2em; line-height: 1.05; margin-bottom: 0.2em;">
+One hundredth<br>of a second.
+</h1>
+
+<p style="font-size: 1.3em; color:#d9a441; margin-top: 0.5em;">
+Lake Placid, 17 February 1980
+</p>
+
+<p style="margin-top: 2em; opacity: 0.85;">
+Kristian Vepsäläinen &nbsp;·&nbsp; useR! 2026
+</p>
+:::
+
+---
+
+## The race {background-color="#0b1d2e" style="color:#c9d6df"}
+
+::: {.columns}
+::: {.column width="55%"}
+**Men's 15 km cross-country skiing**
+
+- Gold: **Thomas Wassberg** &nbsp; 41:57.63
+- Silver: **Juha Mieto** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 41:57.64
+
+<br>
+
+::: {style="font-size: 2em; color:#d9a441; font-weight:700;"}
+Δ = 0.01 s
+:::
+
+<br>
+
+After 42 minutes of skiing, one hundredth of a second.
+The IOC changed the rules. Times are now rounded to 0.1 s.
+:::
+
+::: {.column width="45%"}
+::: {style="background:#13314a; padding: 1.5em; border-left: 3px solid #d9a441; font-size: 0.95em;"}
+**The folk theory**
+
+Juha Mieto had a beard.
+A large, full beard.
+
+For decades Finnish skiing folklore has asked:
+
+*Did the beard cost him the gold?*
+:::
+:::
+:::
+
+---
+
+## This is not a history talk
+
+::: {.fragment .fade-in}
+We **cannot** know what happened on 17 February 1980.
+:::
+
+::: {.fragment .fade-in}
+<br>
+We **can** ask a different, sharper question:
+:::
+
+::: {.fragment .fade-in}
+<br>
+
+> Under physically plausible assumptions,
+> is **0.01 s** a *typical* outcome of additional aerodynamic drag,
+> or an *extreme* one?
+
+:::
+
+::: {.fragment .fade-in}
+<br>
+This is a **modeling** question — and it is exactly the kind of question
+R is good at.
+:::
+
+---
+
+## Why this is a useR talk
+
+This is a story about three things every applied modeller meets:
+
+::: {.incremental}
+1. **Sparse data.** We have three split times. That's it.
+2. **Unknown nuisance parameters.** Course profile, wind, body shape, power output.
+3. **A claim about a small margin.** "Negligible" vs. "plausible" — who decides?
+:::
+
+::: {.fragment}
+The toolkit:
+
+::: {style="font-size:1.1em;"}
+**Bayesian forward simulation** + **R** + **honest priors** + **a single plot**.
+:::
+:::
+
+---
+
+## The plan
+
+::: {.columns}
+::: {.column width="33%"}
+### 1. Physics
+
+A drag-power model
+of cross-country skiing.
+
+Frontal area · drag coefficient · velocity³ · power.
+:::
+
+::: {.column width="33%"}
+### 2. Priors
+
+Honest, wide,
+defensible ranges
+for every unknown.
+
+Not point estimates.
+:::
+
+::: {.column width="33%"}
+### 3. Propagate
+
+100,000 simulated races.
+
+Look at the posterior
+of the time loss
+attributable to drag.
+:::
+:::
+
+::: {.fragment style="margin-top:1.5em; text-align:center; font-size:1.1em; color:#3a7ca5;"}
+No Stan. No JAGS. Just `runif`, `rnorm`, and a loop.
+:::
+
+---
+
+## What we know
+
+::: {style="font-size: 0.95em;"}
+
+**Three split times for Juha Mieto** (sports-reference.com archive)
+
+| Distance | Cumulative time | Split speed |
+|---------:|----------------:|------------:|
+|   5 km   |       13:25.00  |  6.21 m/s   |
+|  10 km   |       25:51.97  |  6.70 m/s   |
+|  15 km   |       41:57.64  |  5.18 m/s   |
+
+<br>
+
+**Venue:** Mt. Van Hoevenberg, Lake Placid, NY.
+The trails still exist.
+
+**Everything else is a prior.**
+:::
+
+---
+
+## The physics
+
+The power needed to overcome aerodynamic drag:
+
+$$
+P_\text{drag} \;=\; \tfrac{1}{2}\,\rho\,C_d\,A\,v^{3}
+$$
+
+::: {style="font-size: 0.95em; margin-top: 1em;"}
+| Symbol | Meaning | Treatment |
+|:-------|:--------|:----------|
+| $\rho$ | Air density | Fixed at 1.2 kg/m³ |
+| $C_d$ | Drag coefficient (body) | Prior: U(0.7, 0.9) |
+| $A$ | Frontal area (body) | Fixed at 0.5 m² |
+| $A_\text{beard}$ | Additional frontal area from beard | Prior: U(0.005, 0.015) m² |
+| $v$ | Local velocity | Derived from splits + terrain |
+| $P$ | Total power output | Prior: N(400, 30) W |
+:::
+
+::: {.fragment style="margin-top: 1em; color:#3a7ca5;"}
+The beard adds frontal area. The body still has to push through air.
+$\Delta P = \tfrac{1}{2}\rho C_d A_\text{beard} v^3 \cdot \alpha^{3}$ where $\alpha < 1$ accounts for slipstream shielding.
+:::
+
+---
+
+## Anchoring v to the split times
+
+The splits give us **average segment speeds**. We don't know how the speed
+was distributed within each segment.
+
+So we model it:
+
+```{r anchor-demo, echo=TRUE, eval=FALSE}
+profile     <- c(up = 0.4, flat = 0.3, down = 0.3)   # course mix
+speed_mult  <- c(up = 0.7, flat = 1.0, down = 1.3)   # relative speeds
+
+for (k in 1:3) {                                      # for each split
+  v_obs <- v_segments[k]
+  scale <- v_obs / sum(profile * speed_mult)          # match the split
+  for (seg in names(profile)) {
+    v <- rnorm(N, speed_mult[seg] * scale, 0.2)       # local v
+    v[v < 1] <- 1
+    v3_mean <- v3_mean + profile[seg] * v^3           # accumulate E[v³]
+  }
+}
+```
+
+::: {.fragment style="margin-top:0.5em; color:#3a7ca5;"}
+Jensen's inequality matters: drag depends on $\mathbb{E}[v^3]$, not $\mathbb{E}[v]^3$.
+Modelling within-segment variation is **not optional**.
+:::
+
+---
+
+## The priors, visualized
+
+```{r prior-viz, echo=FALSE, fig.height=4.2}
+set.seed(2026)
+N <- 100000
+priors <- tibble(
+  draw = 1:N,
+  A_beard = runif(N, 0.005, 0.015),
+  Cd_body = runif(N, 0.7, 0.9),
+  P_total = rnorm(N, 400, 30),
+  alpha   = runif(N, 0.25, 0.40)
+) |> pivot_longer(-draw)
+
+label_lookup <- c(
+  A_beard = "Beard frontal area (m²)\nU(0.005, 0.015)",
+  Cd_body = "Drag coefficient C_d\nU(0.7, 0.9)",
+  P_total = "Total power P (W)\nN(400, 30)",
+  alpha   = "Slipstream factor α\nU(0.25, 0.40)"
+)
+priors$name <- factor(priors$name, levels = names(label_lookup),
+                      labels = label_lookup)
+
+ggplot(priors, aes(value)) +
+  geom_histogram(bins = 40, fill = ice_blue, color = "white", linewidth = 0.2) +
+  facet_wrap(~name, scales = "free", nrow = 1) +
+  labs(x = NULL, y = NULL) +
+  theme_talk() +
+  theme(axis.text.y = element_blank(),
+        strip.text = element_text(face = "bold"))
+```
+
+::: {style="font-size: 0.9em; color:#555; margin-top:0.5em;"}
+Wide on purpose. The goal is to ask: *does the conclusion survive
+honest uncertainty?* — not to pretend we have a tight estimate.
+:::
+
+---
+
+## The model — one screen of R
+
+```{r model, echo=TRUE}
+set.seed(1980)
+N <- 100000;  rho <- 1.2;  A_body <- 0.5
+T_total <- 41*60 + 57.64
+
+v_segments <- c(5000 / (13*60 + 25.00),
+                5000 / ((25*60 + 51.97) - (13*60 + 25.00)),
+                5000 / ((41*60 + 57.64) - (25*60 + 51.97)))
+
+profile    <- c(up = 0.4, flat = 0.3, down = 0.3)
+speed_mult <- c(up = 0.7, flat = 1.0, down = 1.3)
+
+A_beard <- runif(N, 0.005, 0.015)
+Cd_body <- runif(N, 0.7, 0.9)
+P_total <- rnorm(N, 400, 30)
+alpha   <- runif(N, 0.25, 0.40)
+
+v3_mean <- numeric(N)
+for (k in 1:3) {
+  v_obs <- v_segments[k]
+  scale <- v_obs / sum(profile * speed_mult)
+  for (seg in names(profile)) {
+    v <- rnorm(N, speed_mult[seg] * scale, 0.2);  v[v < 1] <- 1
+    v3_mean <- v3_mean + profile[seg] * v^3
+  }
+}
+v3_mean <- v3_mean / 3
+
+P_drag_body  <- 0.5 * rho * Cd_body * A_body * v3_mean
+P_drag_beard <- P_drag_body * (A_beard / A_body) * alpha^3
+delta_time   <- T_total * (P_drag_beard / P_total)
+
+p_active        <- runif(N, 0.05, 0.20)   # fraction of race in beard-exposed posture
+delta_time_real <- delta_time * p_active
+```
+
+---
+
+## The result
+
+```{r posterior-plot, echo=FALSE, fig.height=4.6}
+df <- tibble(delta_time_real = delta_time_real)
+
+p_loss <- mean(delta_time_real >= 0.01)
+
+ggplot(df, aes(delta_time_real)) +
+  geom_density(fill = ice_blue, color = ice_navy, alpha = 0.85, linewidth = 0.4) +
+  geom_vline(xintercept = 0.01, linetype = "dashed",
+             color = accent, linewidth = 1.1) +
+  annotate("label", x = 0.01, y = Inf, vjust = 1.4,
+           label = "0.01 s\nthe actual margin",
+           color = accent, fill = "white", size = 4.5,
+           label.size = 0, fontface = "bold") +
+  scale_x_continuous(labels = label_number(accuracy = 0.01, suffix = " s"),
+                     limits = c(0, quantile(df$delta_time_real, 0.995))) +
+  labs(
+    title = "Posterior of time loss attributable to beard drag",
+    subtitle = sprintf("100,000 simulated races · P(Δt ≥ 0.01 s) = %.2f",
+                       p_loss),
+    x = "Δt (seconds)",
+    y = "Posterior density"
+  ) +
+  theme_talk()
+```
+
+::: {style="font-size: 1.05em; text-align:center; margin-top:0.5em;"}
+**0.01 s is well inside the bulk** of the distribution.
+:::
+
+---
+
+## What the plot says — and doesn't say
+
+::: {.columns}
+::: {.column width="50%"}
+::: {style="background:#eaf2f8; padding: 1em; border-left: 3px solid #3a7ca5;"}
+**What it says**
+
+A margin of 0.01 s is **not anomalous** under
+physically plausible drag assumptions.
+
+The folk theory is not absurd.
+It is *consistent* with the physics.
+:::
+:::
+
+::: {.column width="50%"}
+::: {style="background:#fdf4e3; padding: 1em; border-left: 3px solid #d9a441;"}
+**What it does NOT say**
+
+The beard *caused* Mieto to lose.
+
+We have no counterfactual race
+without the beard.
+We have a *distribution* of
+plausible drag-time costs.
+:::
+:::
+:::
+
+::: {.fragment style="margin-top: 1.5em; text-align:center; font-size:1.05em; color:#0b1d2e;"}
+The right Bayesian sentence: *"0.01 s is consistent with this model."*
+The wrong one: *"the beard cost him gold."*
+:::
+
+---
+
+## The general lesson
+
+This is a **template** for a very common task in applied data science:
+
+::: {.incremental}
+- You have a small effect.
+- Someone tells you it is "negligible."
+- You have no clean experiment available.
+- You have **physics, plausible ranges, and R**.
+:::
+
+::: {.fragment style="margin-top:1.5em;"}
+Forward simulation lets you ask:
+
+> *Is the observed effect within the distribution of outcomes that
+> the system can plausibly produce?*
+:::
+
+::: {.fragment style="margin-top:1em; color:#3a7ca5;"}
+You don't need a posterior over parameters.
+You need a posterior over **consequences**.
+:::
+
+---
+
+## Where this approach earns its keep
+
+::: {style="font-size: 0.95em;"}
+| Domain | "Negligible" effect | Forward simulation question |
+|:-------|:--------------------|:-----------------------------|
+| Finance | A 2 bp execution slippage | What return distribution would erase it? |
+| Compliance | A rule threshold tweak | How many flagged cases shift, plausibly? |
+| Manufacturing | A 0.1 °C drift | Yield consequence under realistic load? |
+| Healthcare | A 1 % adherence change | Population-level outcome distribution? |
+| Sports | 0.01 s | Drag, wax, draft, terrain — which matters? |
+:::
+
+::: {.fragment style="margin-top:1em; text-align:center; color:#0b1d2e;"}
+Every row is the **same R script** with different priors.
+:::
+
+---
+
+## Why R, specifically
+
+::: {.columns}
+::: {.column width="50%"}
+**The model fits on one screen.**
+
+- `runif`, `rnorm`, a `for` loop, `ggplot2`.
+- No probabilistic programming framework needed for the forward pass.
+- Reviewers can read it in 30 seconds.
+:::
+
+::: {.column width="50%"}
+**The plot is the argument.**
+
+- `geom_density` + `geom_vline` =
+the entire claim.
+- Reproducible from one `.qmd` file.
+- Priors visible, code visible, conclusion visible.
+:::
+:::
+
+::: {.fragment style="margin-top:1.5em; text-align:center; font-size:1.1em; color:#3a7ca5;"}
+**Transparency is the deliverable.** The number is secondary.
+:::
+
+---
+
+## Honest limitations
+
+::: {.incremental}
+- **Course profile is a proxy.** The 1980 Mt. Van Hoevenberg trail is approximated by today's terrain mix (40/30/30).
+- **Weather is assumed calm.** Wind would dominate any beard effect.
+- **The `alpha` slipstream factor** is a back-of-envelope shielding estimate, not a CFD result.
+- **`p_active`** — the fraction of the race in beard-exposed posture — is the weakest prior.
+- **No correlation structure** between the four uncertain parameters.
+:::
+
+::: {.fragment style="margin-top: 1em;"}
+Every one of these is a knob. Every knob is a `runif(...)` away from being tested.
+:::
+
+---
+
+## Extensions (homework, if you like)
+
+::: {.incremental}
+- **Sensitivity analysis**: which prior moves $P(\Delta t \geq 0.01\,s)$ most?
+- **Replace `runif` with empirical distributions** for $C_d$ from wind-tunnel literature.
+- **Add wind.** A 1 m/s headwind dwarfs the beard.
+- **Add Wassberg.** Two skiers, two posteriors, one difference distribution.
+- **Hierarchical version**: pool across the four cross-country events at Lake Placid.
+:::
+
+::: {.fragment style="margin-top:1em; color:#3a7ca5;"}
+All of this is plain R. None of it requires more than 100 lines.
+:::
+
+---
+
+## Takeaways
+
+::: {style="font-size: 1.05em;"}
+
+1. **Forward simulation is underused.**
+   When data is sparse but physics is known, simulate first, fit later.
+
+2. **A prior is a hypothesis.**
+   Wide priors are not weakness — they are an honest test of robustness.
+
+3. **The plot is the argument.**
+   A single density with a single dashed line settled a 46-year-old question.
+
+:::
+
+::: {.fragment style="margin-top:1.5em; text-align:center; font-size:1.2em; color:#0b1d2e;"}
+*A negligible margin is only negligible relative to a model.*
+:::
+
+---
+
+## {background-color="#0b1d2e"}
+
+::: {style="color:#c9d6df; text-align:center; padding-top:1em;"}
+
+<h2 style="color:#ffffff;">Thank you.</h2>
+
+<p style="font-size:1.15em; margin-top:1em;">
+Kristian Vepsäläinen
+</p>
+
+<p style="opacity:0.85;">
+M.Sc. Mathematics · M.Eng. Cyber Security<br>
+Data scientist · open-data & simulation specialist
+</p>
+
+<br>
+
+<p style="font-size:1.05em;">
+🌐 <a href="https://www.kristianvepsalainen.com" style="color:#d9a441;">kristianvepsalainen.com</a><br>
+✉️ kristian.vepsalainen@proton.me
+</p>
+
+<br>
+
+<p style="opacity:0.7; font-size:0.9em;">
+Code & slides: github.com/kristianvepsalainen/useR2026 &nbsp;·&nbsp; CC BY 4.0
+</p>
+
+:::

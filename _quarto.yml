@@ -6,6 +6,7 @@ project:
     - "fractional/"
     - "en/"
     - "whitepapers/"
+    - "talks/"
     - "!talks/**/*.qmd"
 website:
   title: "Kristian Vepsäläinen – Maailma on jakauma"

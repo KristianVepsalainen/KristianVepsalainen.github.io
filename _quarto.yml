@@ -3,9 +3,10 @@ project:
   render:
     - "*.qmd"
     - "posts/"
+    - "fractional/"
+    - "en/"
     - "whitepapers/"
     - "!talks/**/*.qmd"
-
 website:
   title: "Kristian Vepsäläinen – Maailma on jakauma"
   description: "Datatieteen konsultointi pk-yrityksille. Avoimen datan analytiikka, bayeslainen mallinnus ja fractional Head of Data -palvelut."
@@ -19,13 +20,14 @@ website:
   reader-mode: true
   search: true
   page-navigation: true
-
   navbar:
     left:
       - href: index.qmd
         text: Etusivu
       - href: pricing.qmd
         text: Palvelut
+      - href: fractional/fractional.qmd
+        text: Fractional Head of Data
       - href: blog.qmd
         text: Blogi
       #- href: whitepapers.qmd
@@ -35,10 +37,12 @@ website:
       - href: about.qmd
         text: Minusta
     right:
+      - text: "🇬🇧 EN"
+        href: en/index.qmd
       - text: "Ota yhteyttä"
         href: "mailto:kristian.vepsalainen@proton.me"
       - icon: linkedin
-        href: https://www.linkedin.com/in/kristian-vepsalainen
+        href: https://www.linkedin.com/in/kristian-vepsäläinen
         aria-label: LinkedIn
       - icon: github
         href: https://github.com/KristianVepsalainen
@@ -46,17 +50,15 @@ website:
       - icon: rss
         href: blog.xml
         aria-label: RSS
-
   page-footer:
     left: "© 2026 Kristian Vepsäläinen"
     right:
       - icon: envelope
         href: "mailto:kristian.vepsalainen@proton.me"
       - icon: linkedin
-        href: https://www.linkedin.com/in/kristian-vepsalainen
+        href: https://www.linkedin.com/in/kristian-vepsäläinen
       - icon: github
         href: https://github.com/KristianVepsalainen
-
   comments:
     giscus:
       repo: KristianVepsalainen/KristianVepsalainen.github.io
@@ -67,12 +69,10 @@ website:
       reactions-enabled: true
       input-position: bottom
       theme: light
-
 format:
   html:
-    theme:
-      - litera
-      - styles.scss
+    theme: flatly
+    css: kristian-theme.css
     toc: true
     toc-depth: 3
     code-copy: true
@@ -83,7 +83,6 @@ format:
     link-external-newwindow: true
     fig-responsive: true
     image-lazy-loading: true
-
 execute:
   freeze: auto
   cache: true

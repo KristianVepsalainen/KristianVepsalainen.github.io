@@ -2,7 +2,7 @@
 title: "Onko osaamistaso heikentynyt?"
 subtitle: "Osa 8 – PISA, keskeyttäminen ja arvosanainflaatio"
 author: "Kristian Vepsäläinen"
-date: 2026-07-15
+date: 2026-05-27
 categories:
   - data science
   - koulutus

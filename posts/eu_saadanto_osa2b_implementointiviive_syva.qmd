@@ -1,0 +1,370 @@
+---
+title: "EU:n lainsäädäntö jakaumana — Osa 3: Implementointiviive täydellä aineistolla"
+subtitle: "Maakohtainen trendi, transposointiajan vaikutus ja viiveen selittäjät"
+author: "Kristian Vepsäläinen"
+date: 2026-06-04
+draft: true
+lang: fi
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5.5
+    fig-dpi: 150
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(lubridate)
+library(scales)
+library(ggtext)
+library(patchwork)
+
+col_red    <- "#e63946"
+col_green  <- "#2a9d8f"
+col_orange <- "#f4a261"
+col_navy   <- "#1d3557"
+col_blue   <- "#457b9d"
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title       = element_markdown(face = "bold", size = 15),
+      plot.subtitle    = element_markdown(color = "grey40"),
+      plot.caption     = element_text(color = "grey55", size = 9),
+      axis.title       = element_text(color = "grey30"),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+## Osassa 2 rakennettiin pohja — tässä osassa syvennetään
+
+Edellisessä osassa osoitimme että kansallisten implementointidokumenttien
+CELEX-numero sisältää sekä direktiivin tunnisteen että maakodin. Tämä
+mahdollistaa tarkan viivemittauksen ilman erillisiä linkityshakuja.
+
+Tässä osassa vastataan syvempiin kysymyksiin:
+
+- Mitkä maat ovat **johdonmukaisesti myöhässä** — ei vain yhtenä vuonna
+  vaan vuosikymmenestä toiseen?
+- Onko myöhästyminen **pahentunut ajan myötä** tietyissä maissa?
+- Vaikuttaako **direktiiville annettu transposointiaika** siihen, miten
+  nopeasti se implementoidaan?
+
+---
+
+## Data: ladataan ja yhdistetään
+
+```{r lataa_ja_yhdista}
+dir_path   <- here("data/eu_dir_raw.rds")
+nimpl_path <- here("data/eu_nimpl_raw.rds")
+
+if (!file.exists(dir_path))   stop("Aja ensin osa 1: ", dir_path, " puuttuu.")
+if (!file.exists(nimpl_path)) stop("Aja ensin osa 2: ", nimpl_path, " puuttuu.")
+
+raw_dir   <- readRDS(dir_path)
+raw_nimpl <- readRDS(nimpl_path)
+message("Data ladattu.")
+
+# --- Direktiivit ---
+dir_df <- raw_dir |>
+  filter(!is.na(celex), !is.na(date)) |>
+  mutate(
+    date_adopted  = as.Date(date),
+    date_transpos = as.Date(datetranspos),
+    vuosi_hyvaks  = year(date_adopted),
+    transpos_kk   = as.numeric(date_transpos - date_adopted) / 30.44
+  ) |>
+  filter(vuosi_hyvaks >= 1975, vuosi_hyvaks <= 2023,
+         transpos_kk > 0, transpos_kk < 240)
+
+# --- Kansalliset implementoinnit ---
+nimpl_df <- raw_nimpl |>
+  filter(!is.na(celex), !is.na(date)) |>
+  mutate(
+    date_impl     = as.Date(date),
+    vuosi_impl    = year(date_impl),
+    maakoodi      = str_extract(celex, "[A-Z]{2,3}(?=_)"),
+    dir_celex_raw = str_extract(celex, "(?<=^7)[0-9]{4}[A-Z][0-9]+"),
+    dir_celex     = paste0("3", dir_celex_raw)
+  ) |>
+  filter(vuosi_impl >= 1986, vuosi_impl <= 2024,
+         !is.na(maakoodi), !is.na(dir_celex_raw))
+
+# --- Yhdistäminen ---
+viive_df <- nimpl_df |>
+  inner_join(
+    dir_df |> select(celex, date_adopted, date_transpos,
+                     vuosi_hyvaks, transpos_kk),
+    by = c("dir_celex" = "celex")
+  ) |>
+  mutate(
+    viive_pv    = as.numeric(date_impl - date_transpos),
+    viive_kk    = viive_pv / 30.44,
+    myohassa    = viive_pv > 0,
+    vuosikymmen = factor(paste0(floor(vuosi_hyvaks / 10) * 10, "-luku")),
+    # Transposointiajan ryhmä
+    transpos_ryhma = case_when(
+      transpos_kk <= 12 ~ "≤12 kk",
+      transpos_kk <= 24 ~ "13–24 kk",
+      transpos_kk <= 36 ~ "25–36 kk",
+      TRUE              ~ ">36 kk"
+    ) |> factor(levels = c("≤12 kk", "13–24 kk", "25–36 kk", ">36 kk"))
+  ) |>
+  filter(!is.na(viive_pv), abs(viive_kk) < 600)
+
+# Maat joilla riittävästi dataa
+top_maat <- viive_df |>
+  count(maakoodi, sort = TRUE) |>
+  filter(n >= 200) |>
+  pull(maakoodi)
+
+cat("Direktiivi–maa-pareja:", nrow(viive_df), "\n")
+cat("Maita analyysissa:", length(top_maat), "\n")
+```
+
+---
+
+## Analyysi 1: Maakohtainen trendi vuosikymmenittäin
+
+Yksittäinen maa voi olla historiallisesti myöhässä mutta parantunut viimeksi —
+tai päinvastoin. Trendi on yhtä tärkeä kuin taso.
+
+```{r fig_maa_trendi}
+#| fig-cap: "Maakohtainen mediaaniviive vuosikymmenittäin. Vihreä piste = ajoissa. Punainen = myöhässä."
+#| fig-height: 9
+
+viive_df |>
+  filter(maakoodi %in% top_maat) |>
+  group_by(maakoodi, vuosikymmen) |>
+  summarise(
+    mediaani = median(viive_kk, na.rm = TRUE),
+    n        = n(),
+    .groups  = "drop"
+  ) |>
+  filter(n >= 10) |>
+  ggplot(aes(vuosikymmen, mediaani, group = maakoodi)) +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "grey70", linewidth = 0.5) +
+  geom_line(color = col_navy, linewidth = 0.8) +
+  geom_point(aes(color = mediaani > 0), size = 2.5, show.legend = FALSE) +
+  scale_color_manual(values = c(col_green, col_red)) +
+  scale_y_continuous(labels = function(x) paste0(x, " kk")) +
+  facet_wrap(~maakoodi, ncol = 4) +
+  labs(
+    title    = "**Implementointiviiveen trendi** vuosikymmenittäin",
+    subtitle = "Vihreä piste = mediaani ajoissa tai etuajassa. Punainen = myöhässä.",
+    x = NULL, y = "Mediaaniviive (kuukausia)",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1, size = 7))
+```
+
+---
+
+## Analyysi 2: Johdonmukaisesti myöhässä olevat maat
+
+Mikä maa on ollut myöhässä *jokaisella* vuosikymmenellä? Johdonmukaisuus
+on rakenteellinen piirre — ei satunnainen poikkeama.
+
+```{r johdonmukaisuus}
+johdon_df <- viive_df |>
+  filter(maakoodi %in% top_maat) |>
+  group_by(maakoodi, vuosikymmen) |>
+  summarise(
+    myohassa_osuus = mean(myohassa, na.rm = TRUE),
+    n              = n(),
+    .groups        = "drop"
+  ) |>
+  filter(n >= 20) |>
+  group_by(maakoodi) |>
+  summarise(
+    n_vuosikymm        = n(),
+    n_myohassa_vk      = sum(myohassa_osuus > 0.5),
+    johdonmukaisuus    = n_myohassa_vk / n_vuosikymm,
+    ka_myohassa_osuus  = mean(myohassa_osuus),
+    .groups            = "drop"
+  ) |>
+  arrange(desc(johdonmukaisuus), desc(ka_myohassa_osuus))
+
+cat("Johdonmukaisesti myöhässä olevat maat:\n")
+print(johdon_df)
+```
+
+```{r fig_johdonmukaisuus}
+#| fig-cap: "Johdonmukaisuus vs. keskimääräinen myöhästymisaste. Oikeassa yläkulmassa = rakenteellinen ongelma."
+
+johdon_df |>
+  mutate(
+    etiketti = maakoodi,
+    johdonmukainen = johdonmukaisuus >= 0.75 & ka_myohassa_osuus >= 0.5
+  ) |>
+  ggplot(aes(ka_myohassa_osuus, johdonmukaisuus)) +
+  geom_hline(yintercept = 0.75, linetype = "dashed",
+             color = "grey60", linewidth = 0.5) +
+  geom_vline(xintercept = 0.5, linetype = "dashed",
+             color = "grey60", linewidth = 0.5) +
+  geom_point(aes(size = n_vuosikymm, color = johdonmukainen),
+             alpha = 0.8, show.legend = FALSE) +
+  ggrepel::geom_text_repel(aes(label = etiketti), size = 3.2,
+                            max.overlaps = 20) +
+  scale_color_manual(values = c(col_blue, col_red)) +
+  scale_size_continuous(range = c(3, 7)) +
+  scale_x_continuous(labels = percent_format()) +
+  scale_y_continuous(labels = percent_format()) +
+  annotate("text", x = 0.85, y = 0.95,
+           label = "Rakenteellinen\nongelma", color = col_red,
+           size = 3.5, fontface = "bold") +
+  annotate("text", x = 0.15, y = 0.15,
+           label = "Johdonmukaisesti\najoissa", color = col_green,
+           size = 3.5, fontface = "bold") +
+  labs(
+    title    = "**Johdonmukaisuus vs. myöhästymisaste** maittain",
+    subtitle = "X = keskimääräinen myöhästymisaste. Y = kuinka usein myöhässä eri vuosikymmeninä.",
+    x = "Keskimääräinen myöhästymisaste", y = "Johdonmukaisuus (osuus vuosikymmenistä myöhässä)",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## Analyysi 3: Vaikuttaako annettu transposointiaika viiveeseen?
+
+Intuitio sanoo: pidempi transposointiaika → pienempi viive. Mutta onko tämä
+totta? Voi olla että tiukka aikataulu pakottaa tehokkuuteen, tai että pitkä
+aika kertoo jo lähtökohtaisesti hankalasta direktiivistä.
+
+```{r fig_transpos_vs_viive}
+#| fig-cap: "Direktiiville annettu transposointiaika vs. toteutunut viive. Pisteet = otanta 5000 direktiivi-maa-parista."
+
+viive_df |>
+  slice_sample(n = min(5000, nrow(viive_df))) |>
+  ggplot(aes(transpos_kk, viive_kk)) +
+  geom_point(alpha = 0.12, size = 0.7, color = col_navy) +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = col_red, linewidth = 0.7) +
+  geom_smooth(method = "lm", se = TRUE,
+              color = col_orange, fill = col_orange,
+              alpha = 0.2, linewidth = 1.1) +
+  scale_x_continuous(labels = function(x) paste0(x / 12, " v"),
+                     breaks = seq(0, 180, 24)) +
+  scale_y_continuous(labels = function(x) paste0(x, " kk"),
+                     limits = c(-24, 120)) +
+  labs(
+    title    = "**Annettu transposointiaika vs. toteutunut viive**",
+    subtitle = "Oranssi = lineaarinen sovite. Onko pidempi aika yhteydessä pienempään viiveeseen?",
+    x = "Direktiiville annettu transposointiaika",
+    y = "Toteutunut viive (kuukausia)",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+```{r fig_transpos_ryhma}
+#| fig-cap: "Viivejakauma transposointiaikaryhmittäin. Onko lyhyen aikataulun direktiiveillä suurempi viive?"
+
+viive_df |>
+  filter(!is.na(transpos_ryhma)) |>
+  ggplot(aes(transpos_ryhma, viive_kk, fill = transpos_ryhma)) +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "grey60", linewidth = 0.6) +
+  geom_violin(alpha = 0.65, color = "white", show.legend = FALSE) +
+  geom_boxplot(width = 0.12, fill = "white", outlier.shape = NA,
+               color = "grey30", show.legend = FALSE) +
+  scale_fill_manual(values = c(col_red, col_orange, col_blue, col_navy)) +
+  scale_y_continuous(limits = c(-24, 120),
+                     labels = function(x) paste0(x, " kk")) +
+  labs(
+    title    = "**Viivejakauma transposointiaikaryhmittäin**",
+    subtitle = "Onko tiukka aikataulu yhteydessä suurempaan viiveeseen vai pienempään?",
+    x = "Direktiiville annettu transposointiaika", y = "Viive (kuukausia)",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## Analyysi 4: GBR-erikoistarkastelu — Brexit näkyy datassa
+
+GBR (Iso-Britannia) on datassa vuoteen 2020 asti. Brexit on luonnonkoe:
+implementointikäyttäytyminen ennen ja jälkeen Brexit-äänestyksen (2016)
+voi poiketa toisistaan.
+
+```{r fig_gbr}
+#| fig-cap: "Ison-Britannian implementointiviive vuosittain. Pystyviiva = Brexit-äänestys 2016."
+
+viive_df |>
+  filter(maakoodi == "GBR") |>
+  group_by(vuosi_impl) |>
+  summarise(
+    mediaani = median(viive_kk, na.rm = TRUE),
+    q25      = quantile(viive_kk, 0.25, na.rm = TRUE),
+    q75      = quantile(viive_kk, 0.75, na.rm = TRUE),
+    n        = n(),
+    .groups  = "drop"
+  ) |>
+  filter(n >= 5) |>
+  ggplot(aes(vuosi_impl, mediaani)) +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             color = "grey60", linewidth = 0.7) +
+  geom_vline(xintercept = 2016, linetype = "dotted",
+             color = col_red, linewidth = 0.8) +
+  annotate("text", x = 2016.2, y = Inf, vjust = 1.5, hjust = 0,
+           label = "Brexit-\näänestys", color = col_red, size = 3) +
+  geom_ribbon(aes(ymin = q25, ymax = q75),
+              fill = col_blue, alpha = 0.2) +
+  geom_line(color = col_navy, linewidth = 1.0) +
+  geom_point(aes(color = mediaani > 0), size = 2.5, show.legend = FALSE) +
+  scale_color_manual(values = c(col_green, col_red)) +
+  scale_x_continuous(breaks = seq(1990, 2022, 5)) +
+  scale_y_continuous(labels = function(x) paste0(x, " kk")) +
+  labs(
+    title    = "**Iso-Britannian implementointiviive** 1990–2022",
+    subtitle = "Muuttuiko käyttäytyminen Brexit-äänestyksen (2016) jälkeen?",
+    x = NULL, y = "Mediaaniviive (kuukausia)",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## Yhteenveto
+
+Tässä ja edellisessä osassa rakennettiin kattava kuva EU-direktiivien
+implementointiviiveestä. Pipeline on suoraviivainen:
+
+```
+SPARQL → direktiivit + transposointipäivät   (eu_dir_raw.rds)
+SPARQL → national_impl + CELEX               (eu_nimpl_raw.rds)
+JOIN   → dir_celex linkittää suoraan          (viive_df)
+```
+
+Metodinen huomio: `national_impl`-data kattaa vain ne implementoinnit, jotka
+jäsenvaltiot ovat **ilmoittaneet** EUR-Lexiin. Ilmoittamatta jättäminen on
+itsessään informatiivinen — mutta se ei näy tässä aineistossa. Tulokset
+heijastavat ilmoitettua, eivät välttämättä toteutunutta implementointia.
+
+---
+
+## Mitä seuraavaksi?
+
+**Osa 4 — Bayesilainen muutospiste-analyysi säädöstuotannolle**
+Milloin EU:n lainsäädäntötahti muuttui rakenteellisesti? MCMC-malli
+kvantifioi epävarmuuden muutosajankohdassa.
+
+---
+
+*Kaikki analyysi on toistettavissa. Koodi on avoin.*
+
+*Tarvitsetko implementointiseurantaa tai regulatory compliance -analytiikkaa? —
+[kristianvepsalainen.com](https://kristianvepsalainen.com)*

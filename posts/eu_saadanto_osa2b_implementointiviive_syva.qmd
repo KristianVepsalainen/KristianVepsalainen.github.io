@@ -3,7 +3,6 @@ title: "EU:n lainsäädäntö jakaumana — Osa 3: Implementointiviive täydell�
 subtitle: "Maakohtainen trendi, transposointiajan vaikutus ja viiveen selittäjät"
 author: "Kristian Vepsäläinen"
 date: 2026-06-04
-draft: true
 lang: fi
 format:
   html:

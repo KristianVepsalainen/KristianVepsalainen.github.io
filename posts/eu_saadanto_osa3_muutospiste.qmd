@@ -1,0 +1,530 @@
+---
+title: "EU:n lainsäädäntö jakaumana — Osa 4: Bayesilainen muutospiste-analyysi"
+subtitle: "Milloin EU:n lainsäädäntötahti muuttui rakenteellisesti? Posteriorijakauma kertoo enemmän kuin silmämääräinen arvaus."
+author: "Kristian Vepsäläinen"
+date: 2026-06-11
+draft: true
+lang: fi
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5.5
+    fig-dpi: 150
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r setup}
+library(tidyverse)
+library(eurlex)
+library(here)
+library(lubridate)
+library(scales)
+library(ggtext)
+library(patchwork)
+library(bcp)        # Bayesian Change Point analysis
+
+col_red    <- "#e63946"
+col_green  <- "#2a9d8f"
+col_orange <- "#f4a261"
+col_navy   <- "#1d3557"
+col_blue   <- "#457b9d"
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title       = element_markdown(face = "bold", size = 15),
+      plot.subtitle    = element_markdown(color = "grey40"),
+      plot.caption     = element_text(color = "grey55", size = 9),
+      axis.title       = element_text(color = "grey30"),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+## Miksi muutospisteanalyysi — eikä pelkkä trendiviiva?
+
+Osassa 1 piirrettiin EU:n vuosittainen säädöstuotanto ja lisättiin LOESS-käyrä.
+Se näytti suuntaa. Mutta LOESS-käyrä ei vastaa oikeaan kysymykseen:
+
+> *Milloin täsmälleen EU:n lainsäädäntötahti muuttui rakenteellisesti — ja
+> kuinka varma voimme siitä olla?*
+
+Trendiviiva on visuaalinen apuväline, ei tilastollinen testi. Se ei kerro
+epävarmuudesta muutoksen ajankohdasta. Se ei erota rakenteellista murrosta
+satunnaisesta vuosivaihtelusta.
+
+**Bayesilainen muutospiste-analyysi tekee tämän oikein.**
+
+`bcp`-paketti (*Barry & Hartigan 1993*) laskee MCMC-simulaatiolla
+**posterioritodennäköisyyden sille, että kussakin ajankohdassa tapahtuu
+rakenteellinen muutos** tason tai varianssin suhteen. Tuloksena ei ole yksi
+pistemäinen "muutospiste" — tuloksena on **jakauma mahdollisista muutospisteistä**,
+joka kvantifioi epävarmuuden eksplisiittisesti.
+
+Tämä on juuri se mitä "maailma on jakauma" tarkoittaa sovellettuna
+aikasarja-analyysiin.
+
+---
+
+## Data: osa 1:n säädöstuotanto
+
+```{r lataa_data}
+data_path <- here("data/eu/eu_saadanto_raw.rds")
+
+if (!file.exists(data_path)) {
+  stop(
+    "Tiedostoa ", data_path, " ei löydy.\n",
+    "Aja ensin osa 1 lokaalisti tallentaaksesi datan."
+  )
+}
+
+raw <- readRDS(data_path)
+message("Data ladattu: ", nrow(raw), " riviä")
+
+# Siivotaan ja lasketaan vuosittaiset tuotantoluvut
+df <- raw |>
+  filter(!is.na(date)) |>
+  mutate(
+    date         = as.Date(date),
+    vuosi        = year(date),
+    saadostyyppi = case_when(
+      resource_type == "regulation"     ~ "Asetus",
+      resource_type == "directive"      ~ "Direktiivi",
+      resource_type == "decision"       ~ "Päätös",
+      resource_type == "recommendation" ~ "Suositus"
+    )
+  ) |>
+  filter(vuosi >= 1960, vuosi <= 2023)
+
+# Vuosittainen tuotanto tyypeittäin
+vuosi_df <- df |>
+  count(vuosi, saadostyyppi) |>
+  # Varmistetaan täydellinen vuosisarja — puuttuvat vuodet saavat nollan
+  complete(vuosi = 1960:2023, saadostyyppi, fill = list(n = 0))
+
+# Kokonaistuotanto (kaikki tyypit yhteensä)
+vuosi_yht <- vuosi_df |>
+  group_by(vuosi) |>
+  summarise(n_yht = sum(n), .groups = "drop")
+
+cat("Vuosia analyysissa:", nrow(vuosi_yht), "\n")
+cat("Säädöksiä yhteensä:", sum(vuosi_yht$n_yht), "\n")
+```
+
+---
+
+## Vaihe 1: Visuaalinen esitutkimus
+
+Ennen muutospisteanalyysiä katsotaan aikasarjaa; ei LOESS:n kanssa vaan ilman,
+jotta silmä ei totu odottamaan tiettyä muotoa.
+
+```{r fig_raaka_aikasarja}
+#| fig-cap: "EU:n vuosittainen säädöstuotanto 1960–2023 ilman trendikäyrää. Mitä rakennetta näet?"
+
+p1 <- ggplot(vuosi_yht, aes(vuosi, n_yht)) +
+  geom_col(fill = col_blue, alpha = 0.75, width = 0.8) +
+  scale_x_continuous(breaks = seq(1960, 2023, 5)) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "**EU:n vuosittainen säädöstuotanto** 1960–2023",
+    subtitle = "Kaikki neljä tyyppiä yhteensä — ilman trendikäyrää",
+    x = NULL, y = "Säädösten lukumäärä",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+
+p2 <- vuosi_df |>
+  filter(saadostyyppi %in% c("Asetus", "Direktiivi", "Päätös")) |>
+  ggplot(aes(vuosi, n, color = saadostyyppi)) +
+  geom_line(linewidth = 0.9, alpha = 0.85) +
+  scale_color_manual(values = c(col_red, col_green, col_blue)) +
+  scale_x_continuous(breaks = seq(1960, 2023, 5)) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "Tyypeittäin: **muutokset eivät ole synkronisia**",
+    subtitle = "Asetusten, direktiivien ja päätösten tuotanto on eri prosesseja",
+    x = NULL, y = "Säädösten lukumäärä", color = NULL,
+    caption  = ""
+  ) +
+  theme(legend.position = "top")
+
+p1 / p2
+```
+
+---
+
+## Vaihe 2: `bcp`-malli kokonaistuotannolle
+
+Analyysiin käytetään R:n funktiota `bcp()`, joka saa syötteenä numerovektorin (vuosittaiset lukumäärät järjestyksessä) ja palauttaa jokaiselle ajankohdalle posterioritodennäköisyyden muutokselle.
+Käytämme oletusprioria `p0 = 0.2` (20 % todennäköisyys muutokselle ennen dataa)
+— tämä on kohtalaisen heikko priori joka antaa datan puhua.
+
+```{r bcp_kokonais}
+# Valmistetaan syötedata: järjestetty aikasarja
+n_vec <- vuosi_yht |>
+  arrange(vuosi) |>
+  pull(n_yht)
+
+vuodet <- vuosi_yht |>
+  arrange(vuosi) |>
+  pull(vuosi)
+
+# bcp-malli
+set.seed(42)
+bcp_fit <- bcp(
+  y    = as.numeric(n_vec),
+  p0   = 0.2,      # priori muutospisteen todennäköisyydelle
+  burnin = 500,
+  mcmc   = 5000
+)
+
+# Tarkistus
+cat("bcp-malli ajettu.\n")
+cat("Korkein posterioritodennäköisyys muutokselle:\n")
+max_prob <- max(bcp_fit$posterior.prob, na.rm = TRUE)
+max_vuosi <- vuodet[which.max(bcp_fit$posterior.prob)]
+cat("  Vuosi:", max_vuosi, "— posteriori p:", round(max_prob, 3), "\n\n")
+
+# Kootaan tulokset data frameksi
+bcp_df <- tibble(
+  vuosi         = vuodet,
+  n_yht         = n_vec,
+  post_prob     = bcp_fit$posterior.prob,
+  post_mean     = bcp_fit$posterior.mean[, 1],
+  post_var      = bcp_fit$posterior.var[, 1]
+) |>
+  mutate(
+    # Muutospisteen kynnysarvo: p > 0.5 = vahva evidenssi
+    muutospiste_vahva    = post_prob > 0.5,
+    muutospiste_kohtalainen = post_prob > 0.2
+  )
+
+cat("Vahvat muutospisteet (p > 0.5):\n")
+bcp_df |> filter(muutospiste_vahva) |> select(vuosi, post_prob) |> print()
+
+cat("\nKohtalaisen vahvat muutospisteet (p > 0.2):\n")
+bcp_df |> filter(muutospiste_kohtalainen) |> select(vuosi, post_prob) |> print()
+```
+
+```{r fig_bcp_kokonais}
+#| fig-cap: "Bayesilainen muutospiste-analyysi EU:n kokonaistuotannolle. Yläkuva: aikasarja posteriori-keskiarvolla. Alakuva: muutospisteen posterioritodennäköisyys per vuosi."
+
+# Institutionaaliset tapahtumat kontekstia varten
+tapahtumat <- tribble(
+  ~vuosi, ~teksti,
+  1973,   "UK/DK/IE\nliittyminen",
+  1986,   "Yhtenäis-\neuroppa-asiak.",
+  1993,   "Sisämarkkinat\n(Maastricht)",
+  1995,   "AT/FI/SE\nliittyminen",
+  2004,   "Itä-Eurooppa\nliittyminen",
+  2009,   "Lissabon"
+)
+
+p_ts <- ggplot(bcp_df, aes(vuosi, n_yht)) +
+  # Taustamerkinnät institutionaalisille tapahtumille
+  geom_vline(data = tapahtumat, aes(xintercept = vuosi),
+             linetype = "dotted", color = "grey70", linewidth = 0.4) +
+  geom_col(fill = col_blue, alpha = 0.5, width = 0.8) +
+  # Posteriori-keskiarvo = mallin estimoima "taso" kullakin hetkellä
+  geom_line(aes(y = post_mean), color = col_red,
+            linewidth = 1.2) +
+  geom_text(data = tapahtumat,
+            aes(x = vuosi, y = Inf, label = teksti),
+            vjust = 1.3, size = 2.4, color = "grey50", linewidth = 0.3) +
+  scale_x_continuous(breaks = seq(1960, 2023, 5)) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  labs(
+    title    = "EU:n säädöstuotanto ja **posteriori-keskiarvo**",
+    subtitle = "Punainen viiva = bcp-mallin estimoima taso. Hypyt kertovat rakenteellisista muutoksista.",
+    x = NULL, y = "Säädösten lukumäärä"
+  )
+
+p_prob <- ggplot(bcp_df, aes(vuosi, post_prob)) +
+  geom_hline(yintercept = c(0.2, 0.5), linetype = "dashed",
+             color = c(col_orange, col_red), linewidth = 0.6) +
+  geom_col(aes(fill = post_prob > 0.5), width = 0.8, show.legend = FALSE) +
+  scale_fill_manual(values = c(col_blue, col_red)) +
+  annotate("text", x = 1962, y = 0.52, label = "Vahva evidenssi (p > 0.5)",
+           color = col_red, size = 3, hjust = 0) +
+  annotate("text", x = 1962, y = 0.22, label = "Kohtalainen evidenssi (p > 0.2)",
+           color = col_orange, size = 3, hjust = 0) +
+  scale_x_continuous(breaks = seq(1960, 2023, 5)) +
+  scale_y_continuous(labels = percent_format(), limits = c(0, 1)) +
+  labs(
+    title    = "**Posterioritodennäköisyys muutospisteelle** vuosittain",
+    subtitle = "Tämä on se, mitä trendiviiva ei näytä: epävarmuus muutoksen ajankohdasta",
+    x = NULL, y = "P(muutospiste)",
+    caption  = "Malli: bcp (Barry & Hartigan 1993), p0 = 0.2, MCMC = 5000. Lähde: EUR-Lex via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  )
+
+p_ts / p_prob + plot_layout(heights = c(2, 1))
+```
+
+---
+
+## Vaihe 3: Tyyppikohtaiset muutospisteen analyysit
+
+Kokonaistuotanto peittää alleen eri prosessit. Asetuksilla, direktiiveillä ja
+päätöksillä on todennäköisesti omat rakenteelliset murroskohtansa — eikä niiden
+tarvitse osua samaan vuoteen.
+
+```{r bcp_tyypit}
+# Ajetaan bcp erikseen kullekin säädöstyypille
+tyypit_analyysissa <- c("Asetus", "Direktiivi", "Päätös")
+
+aja_bcp <- function(tyyppi) {
+  sarja <- vuosi_df |>
+    filter(saadostyyppi == tyyppi) |>
+    arrange(vuosi) |>
+    pull(n)
+
+  set.seed(42)
+  fit <- bcp(
+    y      = as.numeric(sarja),
+    p0     = 0.2,
+    burnin = 500,
+    mcmc   = 5000
+  )
+
+  tibble(
+    vuosi        = 1960:2023,
+    n            = sarja,
+    post_prob    = fit$posterior.prob,
+    post_mean    = fit$posterior.mean[, 1],
+    saadostyyppi = tyyppi
+  )
+}
+
+bcp_tyypit <- map_dfr(tyypit_analyysissa, aja_bcp)
+
+# Yhteenveto tyypeittäin
+cat("Vahvimmat muutospisteet tyypeittäin:\n")
+bcp_tyypit |>
+  group_by(saadostyyppi) |>
+  slice_max(post_prob, n = 3) |>
+  select(saadostyyppi, vuosi, post_prob) |>
+  mutate(post_prob = round(post_prob, 3)) |>
+  print()
+```
+
+```{r fig_bcp_tyypit}
+#| fig-cap: "Muutospisteen posterioritodennäköisyys tyypeittäin. Eri tyypit reagoivat eri institutionaalisiin tapahtumiin."
+#| fig-height: 7
+
+ggplot(bcp_tyypit, aes(vuosi, post_prob, fill = post_prob > 0.5)) +
+  geom_col(width = 0.8, show.legend = FALSE) +
+  geom_hline(yintercept = 0.5, linetype = "dashed",
+             color = col_red, linewidth = 0.5) +
+  scale_fill_manual(values = c(col_blue, col_red)) +
+  scale_x_continuous(breaks = seq(1960, 2023, 10)) +
+  scale_y_continuous(labels = percent_format(), limits = c(0, 1)) +
+  facet_wrap(~saadostyyppi, ncol = 1) +
+  labs(
+    title    = "**Muutospisteen posterioritodennäköisyys tyypeittäin**",
+    subtitle = "Osuvatko murrokset samaan aikaan? Vai onko kullakin tyypillä oma dynamiikkansa?",
+    x = NULL, y = "P(muutospiste)",
+    caption  = "Malli: bcp (Barry & Hartigan 1993), p0 = 0.2, MCMC = 5000. Lähde: EUR-Lex via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+```{r fig_bcp_tyypit_ts}
+#| fig-cap: "Aikasarja ja posteriori-keskiarvo tyypeittäin. Punaiset pystyviivat = vahvat muutospisteet (p > 0.5)."
+#| fig-height: 7
+
+# Poimitaan vahvat muutospisteet pystyviivoja varten
+vahvat_mp <- bcp_tyypit |>
+  filter(post_prob > 0.5) |>
+  select(saadostyyppi, vuosi, post_prob)
+
+ggplot(bcp_tyypit, aes(vuosi, n)) +
+  geom_col(fill = col_blue, alpha = 0.5, width = 0.8) +
+  geom_line(aes(y = post_mean), color = col_red, linewidth = 1.1) +
+  geom_vline(data = vahvat_mp, aes(xintercept = vuosi),
+             color = col_red, linetype = "dashed",
+             linewidth = 0.6, alpha = 0.7) +
+  scale_x_continuous(breaks = seq(1960, 2023, 10)) +
+  scale_y_continuous(labels = comma_format(big.mark = " ")) +
+  facet_wrap(~saadostyyppi, ncol = 1, scales = "free_y") +
+  labs(
+    title    = "**Aikasarjat ja posteriori-keskiarvot** tyypeittäin",
+    subtitle = "Punainen viiva = mallin estimoima taso. Pisteviivat = vahvat muutospisteet.",
+    x = NULL, y = "Säädösten lukumäärä",
+    caption  = "Malli: bcp (Barry & Hartigan 1993), p0 = 0.2, MCMC = 5000. Lähde: EUR-Lex via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## Vaihe 4: Prioriherkkyyden tarkastelu
+
+Hyvä bayesilainen analyysi raportoi, kuinka herkästi tulokset muuttuvat priorin
+suhteen. Ajetaan sama malli kolmella eri `p0`-arvolla kokonaistuotannolle:
+
+- `p0 = 0.1` — konservatiivinen priori: muutospisteitä on harvoin
+- `p0 = 0.2` — perusmalli
+- `p0 = 0.4` — liberaali priori: muutospisteitä voi olla usein
+
+```{r prioriherkkyys}
+priorit <- c(0.1, 0.2, 0.4)
+priorit_nimet <- c("Konservatiivinen (p0=0.1)",
+                   "Perusmalli (p0=0.2)",
+                   "Liberaali (p0=0.4)")
+
+aja_bcp_priori <- function(p0_arvo, nimi) {
+  set.seed(42)
+  fit <- bcp(
+    y      = as.numeric(n_vec),
+    p0     = p0_arvo,
+    burnin = 500,
+    mcmc   = 5000
+  )
+  tibble(
+    vuosi     = vuodet,
+    post_prob = fit$posterior.prob,
+    post_mean = fit$posterior.mean[, 1],
+    priori    = nimi
+  )
+}
+
+herkkyys_df <- map2_dfr(priorit, priorit_nimet, aja_bcp_priori) |>
+  mutate(priori = factor(priori, levels = priorit_nimet))
+```
+
+```{r fig_prioriherkkyys}
+#| fig-cap: "Prioriherkkyyden tarkastelu: kolme eri p0-arvoa. Robustit muutospisteet näkyvät kaikilla prioreilla."
+
+ggplot(herkkyys_df, aes(vuosi, post_prob, color = priori)) +
+  geom_line(linewidth = 0.9, alpha = 0.85) +
+  geom_hline(yintercept = 0.5, linetype = "dashed",
+             color = "grey50", linewidth = 0.5) +
+  scale_color_manual(values = c(col_green, col_navy, col_red)) +
+  scale_x_continuous(breaks = seq(1960, 2023, 5)) +
+  scale_y_continuous(labels = percent_format(), limits = c(0, 1)) +
+  labs(
+    title    = "**Prioriherkkyyden tarkastelu** — robustit muutospisteet pysyvät",
+    subtitle = "Muutospisteet, jotka näkyvät kaikilla kolmella priorilla, ovat datavahvistettuja",
+    x = NULL, y = "P(muutospiste)", color = NULL,
+    caption  = "Malli: bcp (Barry & Hartigan 1993), MCMC = 5000. Lähde: EUR-Lex via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+---
+
+## Vaihe 5: Tulkinta — mitä muutospisteet kertovat?
+
+```{r tulkintataulu}
+# Rakennetaan tulkintataulukko vahvoista muutospisteistä
+# Yhdistetään institutionaaliset tapahtumat lähimpään muutospisteeseen
+
+vahvat_kokonais <- bcp_df |>
+  filter(post_prob > 0.2) |>
+  select(vuosi, post_prob, post_mean) |>
+  mutate(
+    taso_muutos = c(NA, diff(post_mean)),
+    suunta      = if_else(taso_muutos > 0, "↑ Kasvu", "↓ Lasku"),
+    konteksti   = case_when(
+      between(vuosi, 1971, 1975) ~ "Ensimmäinen laajentuminen (UK/DK/IE 1973)",
+      between(vuosi, 1985, 1989) ~ "Yhtenäinen Eurooppa-asiakirja (1986)",
+      between(vuosi, 1991, 1996) ~ "Maastricht + sisämarkkinat (1993)",
+      between(vuosi, 1994, 1997) ~ "AT/FI/SE liittyminen (1995)",
+      between(vuosi, 2002, 2006) ~ "Itä-Euroopan laajentuminen (2004)",
+      between(vuosi, 2007, 2011) ~ "Finanssikriisi + Lissabon (2007–2009)",
+      between(vuosi, 2018, 2023) ~ "Brexit + COVID-19 (2020)",
+      TRUE                       ~ "—"
+    )
+  )
+
+cat("Muutospisteet (p > 0.2) ja institutionaalinen konteksti:\n\n")
+vahvat_kokonais |>
+  select(vuosi, post_prob, suunta, konteksti) |>
+  mutate(post_prob = round(post_prob, 3)) |>
+  print(n = 30)
+```
+
+```{r fig_tulkinta}
+#| fig-cap: "Muutospisteet institutionaalisessa kontekstissa. Pylvään korkeus = evidenssin vahvuus. Väri = suunta."
+
+bcp_df |>
+  filter(post_prob > 0.1) |>
+  left_join(
+    vahvat_kokonais |> select(vuosi, suunta, konteksti),
+    by = "vuosi"
+  ) |>
+  mutate(
+    suunta = replace_na(suunta, "↑ Kasvu"),
+    label  = if_else(post_prob > 0.3,
+                     paste0(vuosi, "\n", str_wrap(konteksti, 15)),
+                     NA_character_)
+  ) |>
+  ggplot(aes(vuosi, post_prob, fill = suunta)) +
+  geom_col(width = 0.9, alpha = 0.85) +
+  geom_text(aes(label = label), vjust = -0.3, size = 2.5,
+            lineheight = 0.9, na.rm = TRUE) +
+  scale_fill_manual(values = c(col_red, col_green)) +
+  scale_x_continuous(breaks = seq(1960, 2023, 5)) +
+  scale_y_continuous(labels = percent_format(),
+                     limits = c(0, 1.1),
+                     expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    title    = "**Muutospisteet institutionaalisessa kontekstissa**",
+    subtitle = "Vihreä = tuotanto kasvoi, punainen = laski. Korkeus = evidenssin vahvuus.",
+    x = NULL, y = "P(muutospiste)", fill = NULL,
+    caption  = "Malli: bcp (Barry & Hartigan 1993), p0 = 0.2, MCMC = 5000. Lähde: EUR-Lex via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+---
+
+## Yhteenveto
+
+Neljä sarjan osaa on nyt tehty. Tässä osassa vastattiin kysymykseen, jota
+trendiviiva ei pysty vastaamaan:
+
+> *"Milloin EU:n lainsäädäntötahti muuttui rakenteellisesti — ja kuinka
+> varma voimme siitä olla?"*
+
+Vastaus ei ole yksi pistemäinen vuosi. Se on **posteriorijakauma**, jossa
+kukin vuosi saa todennäköisyyden muutospisteelle. Robustit muutospisteet —
+ne jotka näkyvät kaikilla kolmella priorilla — ovat datavahvistettuja.
+Muut ovat heikomman evidenssin kohteita.
+
+Keskeinen metodinen lisäarvo suhteessa tavalliseen trendianalyysiin:
+
+| | Trendiviiva | bcp-malli |
+|---|---|---|
+| **Kysymys** | "Millainen trendi on?" | "Missä trendi muuttuu rakenteellisesti?" |
+| **Epävarmuus** | Ei kvantifioitu | Posterioritodennäköisyys per ajankohta |
+| **Priori** | Implisiittinen | Eksplisiittinen ja testattavissa |
+| **Tulos** | Visuaalinen apuväline | Tilastollinen päättely |
+
+---
+
+## Mitä seuraavaksi?
+
+**Osa 5 — Eloonjäämisanalyysi: Kuinka kauan EU-säädös elää?**
+Kaplan-Meier-käyrä + Cox-regressio selvittää, mitkä tekijät ennustavat
+säädöksen pitkää elinikää. Onko asetus sitkeämpi kuin direktiivi?
+Vaikuttaako hyväksymisvuosi eliniänodotteeseen?
+
+**Osa 6 — Viittausverkosto**
+Mitkä säädökset ovat EU-oikeuden solmupisteitä? Verkostoanalyysi
+(`igraph`/`tidygraph`) paljastaa juridiset riippuvuudet, joita ei voi nähdä
+yksittäistä säädöstä lukemalla.
+
+---
+
+*Kaikki analyysi on toistettavissa. Koodi on avoin.*
+
+*Kiinnostaako bayesilainen aikasarja-analyysi omassa organisaatiossasi — esimerkiksi
+regulatory-tapahtumien vaikutuksen kvantifiointi? —
+[kristianvepsalainen.com](https://kristianvepsalainen.com)*

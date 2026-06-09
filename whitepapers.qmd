@@ -1,7 +1,6 @@
 ---
 title: "Whitepapers"
 lang: en
-draft: true
 listing:
   contents: whitepapers
   type: default

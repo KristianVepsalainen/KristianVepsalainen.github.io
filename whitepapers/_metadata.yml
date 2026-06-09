@@ -17,10 +17,6 @@ format:
     toc-depth: 3
     colorlinks: true
     code-overflow: wrap
-    pdf-engine: xelatex
-    mainfont: "TeX Gyre Termes"      # Times-tyylinen, aina saatavilla
-    sansfont: "TeX Gyre Heros"       # Helvetica-tyylinen
-    monofont: "TeX Gyre Cursor"      # monospace
 author: "Kristian Vepsäläinen"
 date-format: "D MMMM YYYY"
 title-block-banner: true

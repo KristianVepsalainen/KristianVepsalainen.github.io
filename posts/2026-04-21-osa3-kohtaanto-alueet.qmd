@@ -175,10 +175,13 @@ df_maakunnat <- df |>
     !str_detect(alue, "(?i)seutukunta"),
     !str_detect(alue, "(?i)tuntematon")
   ) |>
-  mutate(kohtaantosuhde = avoimet / tyottomat)
+  filter(str_starts(alue,"MK"))|>
+  filter(!grepl("Joustava",alue))|>
+  #poistetaan alusta turhat merkit
+  mutate(alue = trimws(substring(alue,5)),
+    kohtaantosuhde = avoimet / tyottomat)
 ```
 
-*Huom:* jos `rename`-rivissä tulee virhe ("column not found"), sarakenimet ovat voineet muuttua API-päivityksen jälkeen. Tarkista silloin `names(raw)` ja päivitä nimet vastaavasti. Tavallisimmat variantit ovat `tiedot_arvo` / `avoimet_tyopaikat_kuukauden_laskentapaivana_lkm`.
 
 ## Kohtaantosuhde maakunnittain
 

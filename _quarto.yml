@@ -31,8 +31,8 @@ website:
         text: Fractional Head of Data
       - href: blog.qmd
         text: Blogi
-      #- href: whitepapers.qmd
-      #  text: Whitepapers
+      - href: whitepapers.qmd
+        text: Whitepapers
       - href: talks.qmd
         text: Talks
       - href: about.qmd

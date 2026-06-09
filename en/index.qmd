@@ -150,8 +150,8 @@ include-in-header:
   <a href="/en/about.html">About</a>
   <a href="/en/work.html">Work</a>
   <a href="/fractional/fractional.html">Fractional HoD</a>
-  <a href="whitepapers.html">Whitepapers</a>
-  <a href="talks.html">Talks</a>
+  <a href="/whitepapers.html">Whitepapers</a>
+  <a href="/talks.html">Talks</a>
   <a href="/" class="nav-fi">🇫🇮 Suomeksi</a>
 </nav>
 

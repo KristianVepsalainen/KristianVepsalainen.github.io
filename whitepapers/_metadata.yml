@@ -5,6 +5,8 @@ format:
     toc-depth: 3
     code-fold: true
     code-tools: true
+    theme: cosmo
+    css: kristian-theme.css
   pdf:
     documentclass: article
     papersize: a4

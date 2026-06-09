@@ -20,6 +20,7 @@ execute:
   warning: false
   message: false
 slug: suomen-tyovoimapula-osa3
+draft: true
 ---
 
 ## Tiivistelmä
@@ -61,7 +62,7 @@ library(tidyverse)
 library(pxweb)
 library(scales)
 library(janitor)
-
+library(here)
 theme_set(theme_minimal(base_size = 14))
 ```
 
@@ -73,47 +74,93 @@ Miksi Tilastokeskus eikä Eurostat? Eurostatin alueellinen jaottelu Suomelle on 
 
 ```{r}
 #| label: data-haku
-#| code-summary: "Datan haku Tilastokeskuksen rajapinnasta"
+#| code-summary: "Datan haku Tilastokeskuksen rajapinnasta (cache-tuella)"
 
-url <- "https://pxdata.stat.fi/PxWeb/api/v1/fi/StatFin/tyonv/statfin_tyonv_pxt_12ti.px"
+# Tilastokeskus on päivittänyt PxWeb-rajapinnan muuttujien nimet.
+# Vanhat nimet ("Kuukausi", "Tiedot") on korvattu standardoiduilla koodeilla
+# ("timeperiod_m", "contentscode").
+# Myös URL on lyhentynyt: "statfin_tyonv_pxt_12ti.px" → "12ti.px"
 
-# Haetaan kaikki alueet, SSS = kaikki ammatit yhteensä
-query <- pxweb_query(list(
-  "Alue"         = c("*"),
-  "Ammattiryhmä" = c("SSS"),
-  "Kuukausi"     = c("*"),
-  "Tiedot"       = c("*")
-))
+# Paikallinen cache: jos data on jo levyllä, luetaan se sieltä.
+# Muuten haetaan rajapinnasta ja tallennetaan. Tämä tekee GitHub Actions
+# -ajoista vakaampia (Tilastokeskus saattaa estää API-pyynnöt CI-ympäristöistä)
+# ja nopeampia.
 
-raw <- pxweb_get_data(
-  url          = url,
-  query        = query,
-  column.name.type = "text"
-) |>
-  as_tibble() |>
-  clean_names()
+data_path <- 
+  here(
+  "data", "raw", "unemployment", "maakunnat_kohtaanto.rds")
+
+if (file.exists(data_path)) {
+  raw <- readRDS(data_path)
+  cat("Luettu cache-tiedostosta:", data_path, "\n")
+} else {
+  url <- "https://pxdata.stat.fi/PxWeb/api/v1/fi/StatFin/tyonv/12ti.px"
+
+  # Haetaan kaikki alueet, SSS = kaikki ammatit yhteensä
+  query <- pxweb_query(list(
+    "Alue"          = c("*"),
+    "Ammattiryhmä"  = c("SSS"),
+    "timeperiod_m"  = c("*"),
+    "contentscode"  = c("*")
+  ))
+
+  raw <- pxweb_get_data(
+    url              = url,
+    query            = query,
+    column.name.type = "text"
+  ) |>
+    as_tibble() |>
+    clean_names()
+
+  # Luodaan kansio jos sitä ei ole, ja tallennetaan
+  dir.create(dirname(data_path), recursive = TRUE, showWarnings = FALSE)
+  saveRDS(raw, data_path)
+  cat("Haettu rajapinnasta ja tallennettu:", data_path, "\n")
+}
+
+# Tarkistus
+cat("Rivejä:", nrow(raw), "\n")
+cat("Sarakkeet:", paste(names(raw), collapse = ", "), "\n")
 ```
 
 ```{r}
 #| label: data-siivous
 #| code-summary: "Datan siivous ja maakuntasuodatus"
 
-# pxweb palauttaa datan wide-muodossa: tiedot-kategoriat ovat omina sarakkeinaan.
-# Sarakkeet:
-#   alue, ammattiryhma, kuukausi, tiedot_arvo, avoimet_tyopaikat_..._lkm
-#
-# tyottomat_tyonhakijat_laskentapaivana_lkm = työttömät työnhakijat (ensimmäinen Tiedot-kategoria)
-# avoimet_tyopaikat_... = avoimet työpaikat
+# Koska PxWeb-rajapinnan sarakerakenne voi muuttua API-päivitysten yhteydessä,
+# tunnistetaan sarakkeet sisällön perusteella sen sijaan että nojattaisiin
+# tarkkoihin nimiin.
+
+# Etsitään aikasarake (sisältää muotoa "2008M01"), työttömien ja avointen
+# sarakkeet
+aika_sar <- names(raw)[map_lgl(raw, ~ is.character(.x) &&
+                                       any(str_detect(.x, "^\\d{4}M\\d{2}$"), na.rm = TRUE))][1]
+
+if (is.na(aika_sar)) {
+  # Fallback: kokeillaan tunnettuja nimiä
+  if ("kuukausi" %in% names(raw))      aika_sar <- "kuukausi"
+  else if ("timeperiod_m" %in% names(raw)) aika_sar <- "timeperiod_m"
+}
+
+tyottomat_sar <- names(raw)[str_detect(names(raw),
+                                       "tyot|ttom|tiedot_arvo")][1]
+avoimet_sar   <- names(raw)[str_detect(names(raw), "avoi")][1]
+
+cat("Tunnistetut sarakkeet:\n")
+cat("  aika      :", aika_sar, "\n")
+cat("  tyottomat :", tyottomat_sar, "\n")
+cat("  avoimet   :", avoimet_sar, "\n")
 
 df <- raw |>
   rename(
-    tyottomat = tyottomat_tyonhakijat_laskentapaivana_lkm,
-    avoimet   = avoimet_tyopaikat_kuukauden_laskentapaivana_lkm
+    aika_raw  = all_of(aika_sar),
+    tyottomat = all_of(tyottomat_sar),
+    avoimet   = all_of(avoimet_sar)
   ) |>
   mutate(
-    vuosi = as.integer(str_sub(kuukausi, 1, 4)),
-    kk    = as.integer(str_sub(kuukausi, 6, 7)),
-    aika  = make_date(vuosi, kk, 1),
+    vuosi     = as.integer(str_sub(aika_raw, 1, 4)),
+    kk        = as.integer(str_sub(aika_raw, 6, 7)),
+    aika      = make_date(vuosi, kk, 1),
     tyottomat = as.numeric(tyottomat),
     avoimet   = as.numeric(avoimet)
   )
@@ -131,6 +178,8 @@ df_maakunnat <- df |>
   mutate(kohtaantosuhde = avoimet / tyottomat)
 ```
 
+*Huom:* jos `rename`-rivissä tulee virhe ("column not found"), sarakenimet ovat voineet muuttua API-päivityksen jälkeen. Tarkista silloin `names(raw)` ja päivitä nimet vastaavasti. Tavallisimmat variantit ovat `tiedot_arvo` / `avoimet_tyopaikat_kuukauden_laskentapaivana_lkm`.
+
 ## Kohtaantosuhde maakunnittain
 
 Aloitetaan tärkeimmällä kuvalla: kohtaantosuhde maakunnittain tuoreimmalla datalla.
@@ -146,7 +195,6 @@ df_uusin <- df_maakunnat |>
 uusin_kk <- format(max(df_uusin$aika), "%m/%Y")
 
 df_uusin |>
-filter(grepl("MK",alue)) |>
   mutate(
     alue = fct_reorder(alue, kohtaantosuhde),
     tyyppi = case_when(
@@ -181,6 +229,13 @@ filter(grepl("MK",alue)) |>
   ) +
   theme(legend.position = "top")
 ```
+
+Tyypillisesti kuva näyttää seuraavaa:
+
+- Uusimaa ja Ahvenanmaa ovat yleensä jakauman yläpäässä
+- Kainuu, Pohjois-Karjala, Lappi ja Etelä-Savo ovat alapäässä
+- Pohjois-Savo asettuu tyypillisesti keskitason tuntumaan
+
 Alueellinen vaihtelu on suurta. Se jää näkymättä, jos katsoo vain kokonaistilastoa.
 
 ## Jakauma ja Gini
@@ -272,12 +327,7 @@ Vastaus: kyllä. Piirretään neljälle maakunnalle erilaiset käyrät kuvaamaan
 # asemesta skaalaamalla keskimääräiseen tasoon).
 
 # Yksinkertaistus: käytetään log-muunnosta ja katsotaan muotoa
-valitut <- df_maakunnat %>% 
-  filter(str_starts(alue,"MK")) %>% 
-  filter(grepl("Uusimaa",alue)| grepl("Pirkanmaa",alue)| grepl("Pohjois-Savo",alue)| grepl("Pohjois-Karjala",alue)) %>% 
-  select(alue) %>% 
-  distinct() %>% 
-  pull()
+valitut <- c("Uusimaa", "Pirkanmaa", "Pohjois-Savo", "Pohjois-Karjala")
 
 df_maakunnat |>
   filter(
@@ -359,7 +409,7 @@ Tyypillisesti nähdään, että **alueellinen hajonta kasvoi vuosina 2021–2022
 
 ## Pohjois-Savo lähikuvassa
 
-Paikallisen näkökulman vuoksi tarkastellaan vielä Pohjois-Savoa erikseen. Kotipaikkakuntani Siilinjärvi sijaitsee siellä, samoin Kuopio ja Iisalmi.
+Paikallisen näkökulman vuoksi tarkastellaan vielä Pohjois-Savoa erikseen. Siilinjärvi sijaitsee siellä, samoin Kuopio ja Iisalmi.
 
 ```{r}
 #| label: fig-pohjois-savo

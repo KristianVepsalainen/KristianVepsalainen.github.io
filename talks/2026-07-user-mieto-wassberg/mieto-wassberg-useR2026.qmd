@@ -73,7 +73,7 @@ Kristian Vepsäläinen &nbsp;·&nbsp; useR! 2026
 ## The race {background-color="#0b1d2e" style="color:#c9d6df"}
 
 ::: {.columns}
-::: {.column width="55%"}
+::: {.column width="50%"}
 **Men's 15 km cross-country skiing**
 
 - Gold: **Thomas Wassberg** &nbsp; 41:57.63
@@ -88,19 +88,22 @@ Kristian Vepsäläinen &nbsp;·&nbsp; useR! 2026
 <br>
 
 After 42 minutes of skiing, one hundredth of a second.
-The IOC changed the rules. Times are now rounded to 0.1 s.
+FIS changed its timing rules. Cross-country times are now
+rounded to 0.1 s.
+
+::: {style="margin-top: 1.2em; background:#13314a; padding: 0.8em 1em; border-left: 3px solid #d9a441; font-size: 0.85em;"}
+**The folk theory.** Juha Mieto had a beard.
+For decades Finnish skiing folklore has asked:
+*did it cost him the gold?*
+:::
 :::
 
-::: {.column width="45%"}
-::: {style="background:#13314a; padding: 1.5em; border-left: 3px solid #d9a441; font-size: 0.95em;"}
-**The folk theory**
+::: {.column width="50%"}
+![](mieto-holmenkollen.jpg){fig-align="center" width="92%" style="border: 1px solid #c9d6df; box-shadow: 0 4px 16px rgba(0,0,0,0.3);"}
 
-Juha Mieto had a beard.
-A large, full beard.
-
-For decades Finnish skiing folklore has asked:
-
-*Did the beard cost him the gold?*
+::: {style="font-size: 0.55em; color:#c9d6df; opacity:0.75; text-align:center; margin-top:0.4em; font-style:italic;"}
+Juha Mieto at the Holmenkollen Ski Festival, 1978.
+DEXTRA Photo / Norsk Folkemuseum · Wikimedia Commons · CC BY
 :::
 :::
 :::

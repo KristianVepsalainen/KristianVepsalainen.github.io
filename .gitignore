@@ -53,3 +53,13 @@ Thumbs.db
 /temp/
 
 
+
+# Quarto build outputs
+/*.html
+en/*.html
+fractional/*.html
+site_libs/
+_site/
+.quarto/
+blog-listing.json
+blog.feed-full-staged

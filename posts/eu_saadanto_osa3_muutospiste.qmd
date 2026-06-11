@@ -3,7 +3,6 @@ title: "EU:n lainsäädäntö jakaumana — Osa 4: Bayesilainen muutospiste-anal
 subtitle: "Milloin EU:n lainsäädäntötahti muuttui rakenteellisesti? Posteriorijakauma kertoo enemmän kuin silmämääräinen arvaus."
 author: "Kristian Vepsäläinen"
 date: 2026-06-11
-draft: true
 lang: fi
 format:
   html:

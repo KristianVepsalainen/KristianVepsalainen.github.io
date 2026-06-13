@@ -168,7 +168,7 @@ dir_df <- raw_dir |>
   filter(!is.na(celex), !is.na(date)) |>
   mutate(
     date_adopted  = as.Date(date),
-    date_transpos = as.Date(date_transpos),
+    date_transpos = as.Date(datetranspos),
     vuosi_hyvaks  = year(date_adopted),
     transpos_kk   = as.numeric(date_transpos - date_adopted) / 30.44
   ) |>

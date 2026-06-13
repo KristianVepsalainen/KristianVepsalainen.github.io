@@ -89,7 +89,7 @@ Tämä on direktiivin *oma* tieto, ei jäsenvaltiokohtainen.
 # luotettavasti ottamaan yhteyttä EUR-Lexin SPARQL-endpointiin.
 # Aja kerran lokaalisti (ilman data/-tiedostoa) tallentaaksesi datan.
 
-dir_path <- here::here("data/eu_dir_raw.rds")
+dir_path <- here::here("data/eu/eu_dir_raw.rds")
 
 if (!file.exists(dir_path)) {
   message("Haetaan direktiivit EUR-Lexistä...")

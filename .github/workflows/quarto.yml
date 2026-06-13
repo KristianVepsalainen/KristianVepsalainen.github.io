@@ -123,6 +123,8 @@ jobs:
             "ecmwfr",
             "sf",
             "terra",
+            "rnaturalearth",
+            "rnaturalearthdata",
             "stringr",
             "patchwork",
             "acledR",

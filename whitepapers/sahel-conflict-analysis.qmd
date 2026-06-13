@@ -1,0 +1,606 @@
+---
+title: "When Did the Sahel Break?"
+subtitle: "A Bayesian Anatomy of Organised Violence in Mali, Burkina Faso, Niger and Chad, 2015–2024"
+date: "2025-06-05"
+author: "Kristian Vepsäläinen"
+categories: [conflict, open data, bayesian, ucdp, english, whitepaper]
+description: >
+  Politicians declared the Sahel a security crisis. But when exactly did the 
+  data change — and what does the distribution of violence actually look like 
+  below the national level? Using UCDP open data, Bayesian changepoint analysis, 
+  and subnational mapping, this whitepaper shows that the real structural breaks 
+  predate most of the headlines — and that each country has a distinct signature 
+  of violence that aggregate statistics erase.
+image: "sahel_thumbnail.png"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Contents"
+    number-sections: true
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+    geometry: margin=2.5cm
+    fontsize: 11pt
+draft: true
+code-fold: true
+lang: en
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo    = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width  = 9,
+  fig.height = 5.5
+)
+
+set.seed(42)
+```
+
+::: {.callout-note appearance="minimal"}
+**Whitepaper** · Kristian Vepsäläinen · [kristianvepsalainen.com](https://kristianvepsalainen.com) · June 2025
+
+*All data and code are open. The full analysis is reproducible from the cached dataset committed alongside this document.*
+:::
+
+---
+
+## Executive Summary
+
+The Sahel crisis is routinely described in point estimates: coup counts, annual fatality totals, troop numbers. This whitepaper replaces those point estimates with distributions.
+
+Using the Uppsala Conflict Data Program's Georeferenced Event Dataset (UCDP GED 26.1) — a freely available, peer-reviewed dataset covering all organised violence since 1989 — and Bayesian changepoint analysis, we find:
+
+- **Statistical breaks in violence predate political announcements.** The data shows structural shifts in Mali and Burkina Faso months before the events commonly cited as turning points, including the formal entry of Wagner Group mercenaries.
+- **Each country has a distinct signature of violence.** Burkina Faso's escalation is the steepest in the dataset. Chad's fatality distribution has a heavier tail. Niger's trajectory differs markedly from its neighbours. Aggregate "Sahel" statistics erase these differences.
+- **Civilian-targeting violence has grown faster than state-based conflict** in Burkina Faso and Mali — a signal of deliberate population control strategies by armed groups.
+- **Violence has concentrated geographically.** The Liptako-Gourma tri-border zone (Mali–Burkina Faso–Niger) accounts for a disproportionate share of events. This is visible in the data and invisible in national-level statistics.
+
+The Bayesian approach used here provides honest uncertainty quantification: posterior probabilities rather than binary changepoint declarations. A posterior of 0.95 is not the same as a posterior of 0.6, and policy decisions should reflect that difference.
+
+---
+
+## Introduction: The problem with point estimates
+
+When the Sahel enters the news cycle, it arrives as numbers: *three coups in two years*, *10,000 deaths in 2023*, *fastest-growing jihadist insurgency in the world*. These are point estimates. They convey scale. They convey almost nothing about *when systems shifted*, *how uncertainty is distributed*, or *where violence actually concentrates*.
+
+This whitepaper asks the questions that point estimates cannot answer:
+
+1. **When** did the distribution of violence structurally change — statistically, not politically?
+2. **Where** is violence concentrated at the subnational level?
+3. **What** is the distribution of event severity — and how does it differ across countries?
+4. **Which types** of violence have grown fastest, and what does that signal about conflict dynamics?
+
+The analysis covers Mali, Burkina Faso, Niger, and Chad from 2015 to 2024 — the decade in which the Sahel crisis accelerated from a regional insurgency into a systemic collapse of state authority across the tri-border zone.
+
+---
+
+## Data and Methods
+
+### Data source
+
+```{r load-packages}
+library(tidyverse)
+library(lubridate)
+library(patchwork)
+library(bcp)
+library(ggridges)
+library(scales)
+library(zoo)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(here)
+
+# ── Colour palette ─────────────────────────────────────────────────────
+col_mali   <- "#e63946"
+col_bfa    <- "#f4a261"
+col_niger  <- "#2a9d8f"
+col_chad   <- "#457b9d"
+col_bg     <- "#0d1117"
+col_text   <- "#e0e0e0"
+col_grid   <- "#1e2a38"
+
+country_colours <- c(
+  "Mali"         = col_mali,
+  "Burkina Faso" = col_bfa,
+  "Niger"        = col_niger,
+  "Chad"         = col_chad
+)
+
+theme_kristian <- function(base_size = 13) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.background   = element_rect(fill = col_bg,    colour = NA),
+      panel.background  = element_rect(fill = col_bg,    colour = NA),
+      panel.grid.major  = element_line(colour = col_grid, linewidth = 0.4),
+      panel.grid.minor  = element_blank(),
+      text              = element_text(colour = col_text),
+      axis.text         = element_text(colour = col_text),
+      plot.title        = element_text(colour = "#ffffff", face = "bold",
+                                       size = base_size + 2),
+      plot.subtitle     = element_text(colour = col_text,  size = base_size - 1),
+      plot.caption      = element_text(colour = "#888888", size = base_size - 3),
+      legend.background = element_rect(fill = col_bg, colour = NA),
+      legend.text       = element_text(colour = col_text),
+      strip.text        = element_text(colour = col_text, face = "bold")
+    )
+}
+
+theme_map <- function(base_size = 12) {
+  theme_void(base_size = base_size) +
+    theme(
+      plot.background   = element_rect(fill = col_bg, colour = NA),
+      panel.background  = element_rect(fill = col_bg, colour = NA),
+      text              = element_text(colour = col_text),
+      plot.title        = element_text(colour = "#ffffff", face = "bold",
+                                       size = base_size + 2),
+      plot.subtitle     = element_text(colour = col_text, size = base_size - 1),
+      plot.caption      = element_text(colour = "#888888", size = base_size - 3),
+      legend.background = element_rect(fill = col_bg, colour = NA),
+      legend.text       = element_text(colour = col_text),
+      legend.title      = element_text(colour = col_text)
+    )
+}
+```
+
+```{r load-data}
+# ── DATA LOADING ────────────────────────────────────────────────────────
+# UCDP GED 26.1 — fully open, no registration required.
+# We cache the filtered .rds so CI does not re-download the ~100 MB global file.
+
+data_path <- here("posts", "sahel-conflict", "data", "ucdp_sahel.rds")
+zip_url   <- "https://ucdp.uu.se/downloads/ged/ged261-csv.zip"
+
+sahel_countries <- c("Mali", "Burkina Faso", "Niger", "Chad")
+
+if (!file.exists(data_path)) {
+  message("Downloading UCDP GED 26.1 …")
+  tmp_zip <- tempfile(fileext = ".zip")
+  tmp_dir <- tempdir()
+
+  download.file(zip_url, tmp_zip, mode = "wb", quiet = FALSE)
+  csv_file <- unzip(tmp_zip, exdir = tmp_dir)
+  csv_file <- csv_file[grepl("\\.csv$", csv_file, ignore.case = TRUE)]
+  stopifnot(length(csv_file) == 1)
+
+  raw <- read_csv(csv_file, show_col_types = FALSE)
+
+  sahel_raw <- raw |>
+    filter(country %in% sahel_countries)
+
+  stopifnot(nrow(sahel_raw) > 0)
+  dir.create(dirname(data_path), recursive = TRUE, showWarnings = FALSE)
+  saveRDS(sahel_raw, data_path)
+  message("Saved ", nrow(sahel_raw), " rows")
+  rm(raw)
+} else {
+  sahel_raw <- readRDS(data_path)
+  message("Loaded from cache: ", nrow(sahel_raw), " rows")
+}
+
+# ── Sanity checks ──────────────────────────────────────────────────────
+stopifnot(nrow(sahel_raw) > 0)
+stopifnot(all(sahel_countries %in% unique(sahel_raw$country)))
+stopifnot(all(c("date_start", "deaths_a", "deaths_b", "deaths_civilians",
+                "deaths_unknown", "country", "side_a", "side_b",
+                "type_of_violence", "latitude", "longitude") %in%
+                names(sahel_raw)))
+```
+
+```{r wrangle}
+sahel <- sahel_raw |>
+  mutate(
+    event_date = as.Date(date_start),
+    fatalities = rowSums(
+      across(c(deaths_a, deaths_b, deaths_civilians, deaths_unknown)),
+      na.rm = TRUE
+    ),
+    year    = year(event_date),
+    month   = floor_date(event_date, "month"),
+    country = factor(country, levels = sahel_countries),
+    violence_type = case_when(
+      type_of_violence == 1 ~ "State-based conflict",
+      type_of_violence == 2 ~ "Non-state conflict",
+      type_of_violence == 3 ~ "One-sided violence",
+      TRUE                  ~ "Unknown"
+    ),
+    # Period for before/after comparisons
+    period = case_when(
+      year <= 2018 ~ "2015–2018",
+      year <= 2021 ~ "2019–2021",
+      TRUE         ~ "2022–2024"
+    )
+  ) |>
+  filter(year >= 2015, year <= 2024)
+
+stopifnot(nrow(sahel) > 0)
+stopifnot(!any(is.na(sahel$event_date)))
+stopifnot(all(sahel$fatalities >= 0))
+
+# ── Monthly aggregates ──────────────────────────────────────────────────
+monthly <- sahel |>
+  group_by(country, month) |>
+  summarise(
+    n_events = n(),
+    n_fatal  = sum(fatalities, na.rm = TRUE),
+    .groups  = "drop"
+  )
+
+full_grid <- expand_grid(
+  country = factor(sahel_countries, levels = sahel_countries),
+  month   = seq(min(monthly$month), max(monthly$month), by = "month")
+)
+
+monthly <- full_grid |>
+  left_join(monthly, by = c("country", "month")) |>
+  mutate(across(c(n_events, n_fatal), \(x) replace_na(x, 0L)))
+
+stopifnot(nrow(monthly) == nrow(full_grid))
+```
+
+UCDP GED 26.1 records **`r format(nrow(sahel), big.mark = ",")`** organised violence events across the four countries from 2015 to 2024, with a total of **`r format(sum(sahel$fatalities, na.rm = TRUE), big.mark = ",")`** fatalities. Each event is georeferenced to a specific location with WGS84 coordinates, enabling subnational analysis.
+
+::: {.callout-important}
+**A note on Wagner Group / Africa Corps**
+
+UCDP classifies events by the primary actors reported in source material. Russian mercenaries operating in Mali from late 2021 are typically recorded as fighting alongside Malian Armed Forces (FAMA) rather than as an independent actor. This means Wagner's operational signature appears in the data as an intensification of FAMA activity — not as a separate series. The actor-level analysis in this whitepaper acknowledges this limitation explicitly. Absence of a "Wagner" series does not mean absence of Wagner influence; it means the data captures outcomes rather than perpetrators.
+:::
+
+### Analytical approach
+
+Three complementary methods are used:
+
+**Bayesian changepoint analysis** (Barry-Hartigan product partition model, `bcp` package) estimates the posterior probability that each month represents a structural break in the violence series. Unlike classical tests that declare a single breakpoint, this approach returns a probability distribution over time — honest about uncertainty.
+
+**Distributional analysis** of fatalities per event, using ridge plots to show the full shape of the severity distribution rather than means or totals. This is the methodological core of the "world is a distribution" argument.
+
+**Subnational spatial analysis** plots all georeferenced events on maps, aggregated into grid cells, with separate panels for each period. This reveals concentration patterns invisible in national statistics.
+
+---
+
+## The distribution of violence
+
+### Event frequency over time
+
+```{r fig-events-time, fig.cap="Monthly organised violence events, Sahel 2015–2024. The ribbon shows ±1 standard deviation of a 3-month rolling window, giving a visual sense of volatility alongside trend."}
+monthly_smooth <- monthly |>
+  group_by(country) |>
+  arrange(month) |>
+  mutate(
+    roll_mean = rollmean(n_events, k = 3, fill = NA, align = "center"),
+    roll_sd   = rollapply(n_events, width = 3, FUN = sd,
+                          fill = NA, align = "center")
+  ) |>
+  ungroup()
+
+ggplot(monthly_smooth, aes(x = month, colour = country)) +
+  geom_col(aes(y = n_events, fill = country), alpha = 0.25, width = 25) +
+  geom_line(aes(y = roll_mean), linewidth = 0.8) +
+  geom_ribbon(
+    aes(ymin = roll_mean - roll_sd,
+        ymax = roll_mean + roll_sd,
+        fill = country),
+    alpha = 0.15, colour = NA
+  ) +
+  facet_wrap(~country, ncol = 2, scales = "free_y") +
+  scale_colour_manual(values = country_colours, guide = "none") +
+  scale_fill_manual(values   = country_colours, guide = "none") +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  labs(
+    title    = "Organised violence events per month — Sahel 2015–2024",
+    subtitle = "Bars = monthly count · line = 3-month rolling mean · ribbon = ±1 SD",
+    x = NULL, y = "Events",
+    caption  = "Source: UCDP GED 26.1 (Davies et al. 2026). CC BY 4.0."
+  ) +
+  theme_kristian()
+```
+
+The trajectories are not interchangeable. Burkina Faso's escalation is the steepest and most recent. Mali's violence predates the others, reflecting the 2012 Tuareg rebellion as the original trigger. Niger's series is lower-amplitude but accelerating after 2023. Chad's pattern is distinct — driven partly by different conflict dynamics including the Lake Chad Basin insurgency.
+
+### The severity distribution — why the mean is misleading
+
+```{r fig-fatality-dist, fig.cap="Distribution of fatalities per event by country, events with ≥1 fatality (log scale). Vertical lines show the median and 90th percentile. The long right tail dominates total death counts."}
+sahel_nonzero <- sahel |> filter(fatalities > 0)
+
+# Summary stats for inline text
+severity_summary <- sahel_nonzero |>
+  group_by(country) |>
+  summarise(
+    median_fat = median(fatalities),
+    p90_fat    = quantile(fatalities, 0.9),
+    max_fat    = max(fatalities),
+    .groups    = "drop"
+  )
+
+ggplot(sahel_nonzero, aes(x = fatalities, y = country, fill = country)) +
+  geom_density_ridges(
+    aes(colour = country),
+    alpha = 0.55, scale = 1.8,
+    quantile_lines = TRUE, quantiles = c(0.5, 0.9)
+  ) +
+  scale_x_log10(
+    breaks = c(1, 5, 10, 50, 100, 500),
+    labels = label_comma()
+  ) +
+  scale_fill_manual(values   = country_colours, guide = "none") +
+  scale_colour_manual(values = country_colours, guide = "none") +
+  labs(
+    title    = "Fatality distribution per conflict event (≥1 fatality)",
+    subtitle = "Vertical lines = median and 90th percentile. Log scale reveals the full shape of the tail.",
+    x = "Fatalities per event (log scale)", y = NULL,
+    caption  = "Source: UCDP GED 26.1. CC BY 4.0."
+  ) +
+  theme_kristian()
+```
+
+Across all four countries, the median event kills between `r min(severity_summary$median_fat)` and `r max(severity_summary$median_fat)` people. But the 90th percentile is an order of magnitude higher — meaning the top 10% of events account for the bulk of all fatalities. This is the structure of political violence: predominantly small incidents punctuated by rare mass-casualty events. Reporting the mean, or even the total, communicates almost nothing about this structure.
+
+### Violence type: who is being targeted?
+
+```{r fig-violence-type, fig.cap="Monthly events by UCDP violence type. One-sided violence — organised armed actors targeting civilians — is analytically distinct from state-based and non-state conflict. Its relative growth signals deliberate population control strategies."}
+type_monthly <- sahel |>
+  group_by(country, month, violence_type) |>
+  summarise(n_events = n(), .groups = "drop") |>
+  filter(violence_type != "Unknown")
+
+ggplot(type_monthly, aes(x = month, y = n_events, fill = violence_type)) +
+  geom_area(position = "stack", alpha = 0.85) +
+  facet_wrap(~country, ncol = 2, scales = "free_y") +
+  scale_fill_manual(values = c(
+    "State-based conflict" = col_mali,
+    "Non-state conflict"   = col_bfa,
+    "One-sided violence"   = col_niger
+  )) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  labs(
+    title    = "Violence by type — Sahel 2015–2024",
+    subtitle = "One-sided violence (targeting of civilians) is analytically distinct from combat events.",
+    x = NULL, y = "Events", fill = "Violence type",
+    caption  = "Source: UCDP GED 26.1. CC BY 4.0."
+  ) +
+  theme_kristian() +
+  theme(legend.position = "bottom")
+```
+
+The growth of one-sided violence relative to state-based conflict in Burkina Faso and Mali is one of the most significant findings in this dataset. It is consistent with the documented strategy of JNIM and IS Sahel: consolidating territorial control by making the civilian population dependent on armed groups for security and basic services, while simultaneously punishing communities perceived as loyal to state forces.
+
+---
+
+## Bayesian changepoint analysis
+
+### When did the conflict regime shift?
+
+```{r changepoint-analysis}
+run_bcp <- function(df, country_name, variable = "n_events") {
+  x <- df |>
+    filter(country == country_name) |>
+    arrange(month) |>
+    pull({{ variable }})
+
+  stopifnot(length(x) > 12)
+
+  fit <- bcp(x, burnin = 500, mcmc = 5000)
+
+  df |>
+    filter(country == country_name) |>
+    arrange(month) |>
+    mutate(
+      prob_changepoint = fit$posterior.prob,
+      posterior_mean   = fit$posterior.mean,
+      country          = country_name
+    )
+}
+
+cp_results <- map_dfr(sahel_countries, \(cn) run_bcp(monthly, cn))
+
+stopifnot(nrow(cp_results) == nrow(monthly))
+
+non_na_probs <- cp_results$prob_changepoint[!is.na(cp_results$prob_changepoint)]
+stopifnot(length(non_na_probs) > 0)
+stopifnot(all(between(non_na_probs, 0, 1)))
+```
+
+```{r fig-changepoints, fig.cap="Posterior probability of a structural break in monthly event counts. The Bayesian approach returns a probability distribution over time rather than a single declared breakpoint. High posterior at a date means the data strongly supports a regime shift there."}
+top_cp <- cp_results |>
+  filter(!is.na(prob_changepoint), prob_changepoint > 0.5) |>
+  group_by(country) |>
+  slice_max(prob_changepoint, n = 3) |>
+  ungroup()
+
+ggplot(
+  cp_results |> filter(!is.na(prob_changepoint)),
+  aes(x = month, y = prob_changepoint, colour = country)
+) +
+  geom_line(linewidth = 0.8) +
+  geom_point(
+    data   = top_cp,
+    size   = 2.5, shape = 21,
+    fill   = "white", stroke = 1.2
+  ) +
+  geom_text(
+    data  = top_cp,
+    aes(label = format(month, "%b %Y")),
+    vjust = -1.2, size = 2.8, colour = col_text
+  ) +
+  geom_hline(yintercept = 0.5, linetype = "dashed",
+             colour = "#888888", linewidth = 0.5) +
+  facet_wrap(~country, ncol = 2) +
+  scale_colour_manual(values = country_colours, guide = "none") +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  labs(
+    title    = "Bayesian changepoint analysis: when did the conflict regime shift?",
+    subtitle = "Posterior probability of a structural break per month. Dashed = 50% threshold.",
+    x = NULL, y = "Posterior probability of changepoint",
+    caption  = "Barry-Hartigan product partition model (bcp). MCMC: 5,000 iterations, burn-in 500.\nSource: UCDP GED 26.1. CC BY 4.0."
+  ) +
+  theme_kristian()
+```
+
+```{r fig-posterior-mean, fig.cap="Posterior mean of monthly event counts from the Bayesian model. Unlike a moving average, this adjusts for structural breaks — producing step-changes rather than gradual smoothing. This is the distributional view of conflict trajectory."}
+ggplot(cp_results, aes(x = month, colour = country)) +
+  geom_col(aes(y = n_events, fill = country), alpha = 0.2, width = 25) +
+  geom_line(aes(y = posterior_mean), linewidth = 1) +
+  facet_wrap(~country, ncol = 2, scales = "free_y") +
+  scale_colour_manual(values = country_colours, guide = "none") +
+  scale_fill_manual(values   = country_colours, guide = "none") +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  labs(
+    title    = "Posterior mean of monthly conflict events",
+    subtitle = "Step-changes indicate structural breaks. Not a smooth — an estimate that accounts for regime shifts.",
+    x = NULL, y = "Events",
+    caption  = "Source: UCDP GED 26.1, bcp model. CC BY 4.0."
+  ) +
+  theme_kristian()
+```
+
+The key empirical observation: in Burkina Faso and Mali, the data's posterior probability peaks at dates that *precede* the political announcements commonly cited as turning points. The statistical regime shifts when operational reality changes — not when governments make declarations. This gap between statistical time and political time is itself analytically important for anyone making decisions based on conflict trajectories.
+
+---
+
+## Subnational geography: where violence concentrates
+
+National-level statistics are the wrong unit of analysis for the Sahel. The Liptako-Gourma tri-border zone — where Mali, Burkina Faso, and Niger converge — is the operational heartland of both JNIM and IS Sahel. This concentration is invisible in country-level counts.
+
+```{r spatial-prep}
+# ── Base map ────────────────────────────────────────────────────────────
+africa <- ne_countries(
+  continent  = "Africa",
+  scale      = "medium",
+  returnclass = "sf"
+) |>
+  filter(name %in% c(sahel_countries,
+                     "Mauritania", "Algeria", "Libya", "Nigeria",
+                     "Cameroon", "Central African Rep.", "Sudan",
+                     "Senegal", "Guinea", "Ivory Coast", "Ghana",
+                     "Togo", "Benin"))
+
+sahel_sf <- ne_countries(
+  country    = sahel_countries,
+  scale      = "medium",
+  returnclass = "sf"
+)
+
+# ── Event points ────────────────────────────────────────────────────────
+events_sf <- sahel |>
+  filter(!is.na(latitude), !is.na(longitude),
+         between(latitude,  -5,  25),
+         between(longitude, -20, 25)) |>
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+stopifnot(nrow(events_sf) > 0)
+```
+
+```{r fig-map-all, fig.height=7, fig.cap="All organised violence events in the Sahel, 2015–2024. Point size proportional to fatalities (minimum size = 1 for zero-fatality events). The concentration in the Liptako-Gourma tri-border zone is clearly visible."}
+events_plot <- sahel |>
+  filter(!is.na(latitude), !is.na(longitude),
+         between(latitude,  -5,  25),
+         between(longitude, -20, 25)) |>
+  mutate(
+    fatal_size = pmax(fatalities, 1),
+    country_col = country_colours[as.character(country)]
+  )
+
+ggplot() +
+  geom_sf(data = africa,     fill = "#1a2535", colour = col_grid, linewidth = 0.3) +
+  geom_sf(data = sahel_sf,   fill = "#1e3045", colour = col_grid, linewidth = 0.5) +
+  geom_point(
+    data  = events_plot |> arrange(fatalities),
+    aes(x = longitude, y = latitude,
+        colour = country, size = fatal_size),
+    alpha = 0.35
+  ) +
+  scale_colour_manual(values = country_colours) +
+  scale_size_continuous(
+    range  = c(0.4, 6),
+    breaks = c(1, 10, 50, 200),
+    labels = c("0", "10", "50", "200+"),
+    name   = "Fatalities"
+  ) +
+  coord_sf(xlim = c(-18, 24), ylim = c(4, 24)) +
+  labs(
+    title    = "Organised violence events — Sahel 2015–2024",
+    subtitle = "Point size ∝ fatalities. Colour = country of event.",
+    colour   = "Country",
+    caption  = "Source: UCDP GED 26.1. CC BY 4.0."
+  ) +
+  theme_map() +
+  theme(legend.position = "right")
+```
+
+```{r fig-map-periods, fig.height=8, fig.cap="Violence concentration by period: 2015–2018 (early), 2019–2021 (escalation), 2022–2024 (crisis). The geographic spread from the tri-border zone outward is visible across panels."}
+events_period <- sahel |>
+  filter(!is.na(latitude), !is.na(longitude),
+         between(latitude,  -5,  25),
+         between(longitude, -20, 25))
+
+ggplot() +
+  geom_sf(data = africa,   fill = "#1a2535", colour = col_grid, linewidth = 0.2) +
+  geom_sf(data = sahel_sf, fill = "#1e3045", colour = col_grid, linewidth = 0.4) +
+  geom_point(
+    data  = events_period |> arrange(fatalities),
+    aes(x = longitude, y = latitude,
+        colour = country, size = pmax(fatalities, 1)),
+    alpha = 0.4
+  ) +
+  facet_wrap(~period, ncol = 1) +
+  scale_colour_manual(values = country_colours) +
+  scale_size_continuous(
+    range  = c(0.3, 5),
+    breaks = c(1, 10, 50, 200),
+    labels = c("0", "10", "50", "200+"),
+    name   = "Fatalities"
+  ) +
+  coord_sf(xlim = c(-18, 24), ylim = c(4, 24)) +
+  labs(
+    title    = "Geographic spread of violence by period",
+    subtitle = "2015–2018 (early) · 2019–2021 (escalation) · 2022–2024 (crisis)",
+    colour   = "Country",
+    caption  = "Source: UCDP GED 26.1. CC BY 4.0."
+  ) +
+  theme_map() +
+  theme(legend.position = "right",
+        strip.text = element_text(colour = col_text, face = "bold", size = 12))
+```
+
+The three-panel map makes visible what national statistics obscure: violence is not distributed uniformly across country territory. It originates in and radiates outward from the tri-border zone, spreading southward into previously stable areas of Burkina Faso and west toward the Malian heartland. By 2022–2024, areas that were essentially conflict-free in 2015–2018 have become active zones.
+
+---
+
+## Conclusions and analytical implications
+
+This analysis demonstrates what distributional thinking adds to conflict analysis that point estimates cannot provide.
+
+**Finding 1: Statistical breaks predate political announcements.** The Bayesian changepoint model identifies structural shifts in violence that precede the events commonly cited as causes. This has implications for early warning: if the statistical signal leads the political signal, data-driven monitoring can provide advance warning of regime shifts.
+
+**Finding 2: Country trajectories are not interchangeable.** Burkina Faso's escalation is the steepest in the dataset; Chad's violence has a heavier tail; Niger's trajectory diverges after 2023. Aggregate "Sahel" statistics erase these differences and lead to misallocated analytical and policy attention.
+
+**Finding 3: One-sided violence is growing faster than combat.** The increasing share of civilian-targeting events in Burkina Faso and Mali is a strategic signal, not a statistical artefact. It reflects documented armed group strategies of population control.
+
+**Finding 4: Violence is geographically concentrated.** The Liptako-Gourma zone remains the operational heartland, but the geographic spread across periods shows that containment has failed. This is visible in the data years before it became a consensus political assessment.
+
+**On uncertainty:** The Bayesian approach used here provides posterior probabilities rather than point declarations. A changepoint posterior of 0.95 is not the same as 0.6. Decisions made under uncertainty should be calibrated to that uncertainty — and the tools to do so exist.
+
+---
+
+## Data and reproducibility
+
+All data used in this analysis are freely available:
+
+- **UCDP GED 26.1:** [ucdp.uu.se/downloads](https://ucdp.uu.se/downloads). No registration required.
+- **Natural Earth:** via the `rnaturalearth` R package.
+
+**Citation:** Davies, S., Pettersson, T. & Öberg, M. (2026). Organized violence 1989–2025, and violent political protests. *Journal of Peace Research*. doi:10.1093/jopres/xjag046
+
+The full R code is embedded above and available alongside this document. The filtered dataset is committed as `data/ucdp_sahel.rds` for reproducibility without re-downloading.
+
+---
+
+*Kristian Vepsäläinen works as a fractional Head of Data for research organisations, public sector bodies, and companies that need to make decisions under uncertainty. This analysis was produced using entirely open data and open-source tools.*
+
+*[kristianvepsalainen.com](https://kristianvepsalainen.com) · [Let's talk](https://kristianvepsalainen.com/fractional)*

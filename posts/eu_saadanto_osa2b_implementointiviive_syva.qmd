@@ -66,8 +66,8 @@ Tässä osassa vastataan syvempiin kysymyksiin:
 ## Data: ladataan ja yhdistetään
 
 ```{r lataa_ja_yhdista}
-dir_path   <- here("data/eu_dir_raw.rds")
-nimpl_path <- here("data/eu_nimpl_raw.rds")
+dir_path   <- here("data/eu/eu_dir_raw.rds")
+nimpl_path <- here("data/eu/eu_nimpl_raw.rds")
 
 if (!file.exists(dir_path))   stop("Aja ensin osa 1: ", dir_path, " puuttuu.")
 if (!file.exists(nimpl_path)) stop("Aja ensin osa 2: ", nimpl_path, " puuttuu.")

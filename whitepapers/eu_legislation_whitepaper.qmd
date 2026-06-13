@@ -128,9 +128,9 @@ and `national_impl`. The remaining types — particularly `caselaw` and
 # All data files are pre-fetched locally — CI renders without network access.
 # See blog series parts 1-5 for full data acquisition code.
 
-data_path  <- here("data/eu_saadanto_raw.rds")
-dir_path   <- here("data/eu_dir_raw.rds")
-nimpl_path <- here("data/eu_nimpl_raw.rds")
+data_path  <- here("data/eu/eu_saadanto_raw.rds")
+dir_path   <- here("data/eu/eu_dir_raw.rds")
+nimpl_path <- here("data/eu/eu_nimpl_raw.rds")
 
 stopifnot(
   "Run blog part 1 to create eu_saadanto_raw.rds" = file.exists(data_path),

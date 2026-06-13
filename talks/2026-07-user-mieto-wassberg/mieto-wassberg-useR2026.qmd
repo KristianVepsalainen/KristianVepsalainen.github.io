@@ -302,7 +302,8 @@ ggplot(priors, aes(value)) +
   labs(x = NULL, y = NULL) +
   theme_talk() +
   theme(axis.text.y = element_blank(),
-        strip.text = element_text(face = "bold"))
+        strip.text = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 90)) 
 ```
 
 ::: {style="font-size: 0.9em; color:#555; margin-top:0.5em;"}

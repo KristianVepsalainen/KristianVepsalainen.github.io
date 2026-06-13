@@ -28,7 +28,9 @@ draft: true
 code-fold: true
 lang: en
 ---
-
+::: {.callout-note appearance="simple"}
+**Download:** [PDF version](sahel-conflict-analysis.pdf) · [Source on GitHub](https://github.com/KristianVepsalainen/KristianVepsalainen.github.io/blob/main/whitepapers/sahel-conflict-analysis.qmd)
+:::
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   echo    = TRUE,

@@ -43,7 +43,9 @@ execute:
   message: false
   cache: false
 ---
-
+::: {.callout-note appearance="simple"}
+**Download:** [PDF version](sahel-conflict-analysis.pdf) · [Source on GitHub](https://github.com/KristianVepsalainen/KristianVepsalainen.github.io/blob/main/whitepapers/sahel-conflict-analysis.qmd)
+:::
 ```{r setup}
 #| include: false
 library(tidyverse)

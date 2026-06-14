@@ -10,7 +10,7 @@ execute:
   cache: true
 ---
 ::: {.callout-note appearance="simple"}
-**Download:** [PDF version](sahel-conflict-analysis.pdf) · [Source on GitHub](https://github.com/KristianVepsalainen/KristianVepsalainen.github.io/blob/main/whitepapers/sahel-conflict-analysis.qmd)
+**Download:** [PDF version](finlex-whitepaper.html) · [Source on GitHub](https://github.com/KristianVepsalainen/KristianVepsalainen.github.io/blob/main/whitepapers/finlex-whitepaper.qmd)
 :::
 ```{r setup}
 #| include: false

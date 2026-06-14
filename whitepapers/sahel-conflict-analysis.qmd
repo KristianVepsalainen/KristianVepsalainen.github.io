@@ -24,12 +24,11 @@ format:
     colorlinks: true
     geometry: margin=2.5cm
     fontsize: 11pt
+draft: true
 code-fold: true
 lang: en
 ---
-::: {.callout-note appearance="simple"}
-**Download:** [PDF version](sahel-conflict-analysis.pdf) · [Source on GitHub](https://github.com/KristianVepsalainen/KristianVepsalainen.github.io/blob/main/whitepapers/sahel-conflict-analysis.qmd)
-:::
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
   echo    = TRUE,
@@ -132,17 +131,22 @@ theme_kristian <- function(base_size = 13) {
     )
 }
 
+col_map_bg     <- "#1c2b3a"   # ocean / plot background
+col_map_africa <- "#2e4057"   # neighbouring countries
+col_map_sahel  <- "#3d5a73"   # focus countries — clearly lighter than neighbours
+col_map_border <- "#7a9ab5"   # country borders
+
 theme_map <- function(base_size = 12) {
   theme_void(base_size = base_size) +
     theme(
-      plot.background   = element_rect(fill = col_bg, colour = NA),
-      panel.background  = element_rect(fill = col_bg, colour = NA),
+      plot.background   = element_rect(fill = col_map_bg, colour = NA),
+      panel.background  = element_rect(fill = col_map_bg, colour = NA),
       text              = element_text(colour = col_text),
       plot.title        = element_text(colour = "#ffffff", face = "bold",
                                        size = base_size + 2),
       plot.subtitle     = element_text(colour = col_text, size = base_size - 1),
       plot.caption      = element_text(colour = "#888888", size = base_size - 3),
-      legend.background = element_rect(fill = col_bg, colour = NA),
+      legend.background = element_rect(fill = col_map_bg, colour = NA),
       legend.text       = element_text(colour = col_text),
       legend.title      = element_text(colour = col_text)
     )
@@ -508,13 +512,13 @@ events_plot <- sahel |>
   )
 
 ggplot() +
-  geom_sf(data = africa,     fill = "#1a2535", colour = col_grid, linewidth = 0.3) +
-  geom_sf(data = sahel_sf,   fill = "#1e3045", colour = col_grid, linewidth = 0.5) +
+  geom_sf(data = africa,   fill = col_map_africa, colour = col_map_border, linewidth = 0.3) +
+  geom_sf(data = sahel_sf, fill = col_map_sahel,  colour = col_map_border, linewidth = 0.6) +
   geom_point(
     data  = events_plot |> arrange(fatalities),
     aes(x = longitude, y = latitude,
         colour = country, size = fatal_size),
-    alpha = 0.35
+    alpha = 0.6
   ) +
   scale_colour_manual(values = country_colours) +
   scale_size_continuous(
@@ -541,13 +545,13 @@ events_period <- sahel |>
          between(longitude, -20, 25))
 
 ggplot() +
-  geom_sf(data = africa,   fill = "#1a2535", colour = col_grid, linewidth = 0.2) +
-  geom_sf(data = sahel_sf, fill = "#1e3045", colour = col_grid, linewidth = 0.4) +
+  geom_sf(data = africa,   fill = col_map_africa, colour = col_map_border, linewidth = 0.2) +
+  geom_sf(data = sahel_sf, fill = col_map_sahel,  colour = col_map_border, linewidth = 0.5) +
   geom_point(
     data  = events_period |> arrange(fatalities),
     aes(x = longitude, y = latitude,
         colour = country, size = pmax(fatalities, 1)),
-    alpha = 0.4
+    alpha = 0.65
   ) +
   facet_wrap(~period, ncol = 1) +
   scale_colour_manual(values = country_colours) +

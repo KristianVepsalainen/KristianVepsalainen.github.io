@@ -24,7 +24,6 @@ format:
     colorlinks: true
     geometry: margin=2.5cm
     fontsize: 11pt
-draft: true
 code-fold: true
 lang: en
 ---

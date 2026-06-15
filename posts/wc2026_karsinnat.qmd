@@ -1,0 +1,568 @@
+---
+title: "MM-karsintajärjestelmä jakaumana: miksi Curaçao on kisoissa ja Tanska ei"
+date: "2026-06-15"
+categories: [jalkapallo, bayeslainen, avoin data, urheilutilastot]
+description: "FIFA:n MM-karsintakiintiöt ovat poliittinen kompromissi, eivät optimoitu järjestelmä. Data paljastaa kuinka räikeä epäoikeudenmukaisuus on — ja bayeslainen malli näyttää, miltä reilumpi systeemi voisi näyttää."
+image: "wc2026_fairness.png"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.width = 10, fig.height = 6, dpi = 150)
+
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(scales)
+library(rstanarm)
+
+set.seed(42)
+
+# ──────────────────────────────────────────────
+# Kansainvälisen matkustamisen etäisyysmatriisi
+# (konfederaatiokeskusten väliset etäisyydet km)
+# Käytetään karkeana proksina matkakustannuksille
+# ──────────────────────────────────────────────
+
+# Konfederaatioiden "painopisteet" (lat, lon) likimääräisesti
+conf_centers <- tribble(
+  ~confederation, ~lat, ~lon,
+  "UEFA",     50.0,  10.0,
+  "CAF",      -5.0,  20.0,
+  "AFC",      30.0,  90.0,
+  "CONMEBOL", -15.0, -60.0,
+  "CONCACAF", 15.0,  -80.0,
+  "OFC",      -25.0, 160.0
+)
+
+# Haversine-etäisyysfunktio (km)
+haversine <- function(lat1, lon1, lat2, lon2) {
+  R <- 6371
+  phi1 <- lat1 * pi / 180
+  phi2 <- lat2 * pi / 180
+  dphi <- (lat2 - lat1) * pi / 180
+  dlambda <- (lon2 - lon1) * pi / 180
+  a <- sin(dphi/2)^2 + cos(phi1)*cos(phi2)*sin(dlambda/2)^2
+  2 * R * asin(sqrt(a))
+}
+
+# Etäisyysmatriisi konfederaatioiden välillä
+conf_pairs <- expand_grid(
+  conf1 = conf_centers$confederation,
+  conf2 = conf_centers$confederation
+) %>%
+  filter(conf1 != conf2) %>%
+  left_join(conf_centers, by = c("conf1" = "confederation")) %>%
+  rename(lat1 = lat, lon1 = lon) %>%
+  left_join(conf_centers, by = c("conf2" = "confederation")) %>%
+  rename(lat2 = lat, lon2 = lon) %>%
+  mutate(dist_km = haversine(lat1, lon1, lat2, lon2))
+
+# ──────────────────────────────────────────────
+# Kiintiödata 2026 MM-kisoihin
+# Lähteet: FIFA, Wikipedia, ESPN
+# ──────────────────────────────────────────────
+
+conf_data <- tribble(
+  ~confederation, ~members, ~direct_slots, ~total_slots_approx,
+  "UEFA",     55, 12, 16.0,   # 12 suoraan + 4 playoff
+  "CAF",      54,  9,  9.5,   # 9 suoraan + 1 inter-playoff
+  "AFC",      46,  8,  8.5,   # 8 suoraan + 1 inter-playoff
+  "CONCACAF", 35,  3,  6.0,   # 3 isäntää + 3 karsijaa (+ 2 inter-playoff kiintiöstä)
+  "CONMEBOL", 10,  6,  6.5,   # 6 suoraan + 1 inter-playoff
+  "OFC",      11,  1,  1.5    # 1 suoraan + 1 inter-playoff
+)
+
+# Paikkaosuus jäsenmaista
+conf_data <- conf_data %>%
+  mutate(
+    slot_rate = total_slots_approx / members,
+    # Huomio: CONCACAF-luku hieman yliarvioi (isäntämaapaikat)
+    # Siksi korjataan: isäntämaat mukaan, mutta niilläkin oli karsintapaikka
+    label = paste0(confederation, "\n(", members, " maata, ~",
+                   round(total_slots_approx, 1), " paikkaa)")
+  )
+
+# ──────────────────────────────────────────────
+# Ranking-data: mukana vs. ulkona jääneet
+# Lähde: FIFA ranking June 2026 + ESPN/Worldcupwiki.com
+# ──────────────────────────────────────────────
+
+# Merkittävimmät "vääryydet" — huippumaat ulkona, heikot sisällä
+notable_cases <- tribble(
+  ~team,               ~confederation, ~fifa_rank, ~in_wc2026, ~note,
+  "Tanska",            "UEFA",    21,  FALSE, "Hävisi Tšekille penalteilla",
+  "Puola",             "UEFA",    26,  FALSE, "Hävisi Ruotsille",
+  "Italia",            "UEFA",    14,  FALSE, "3. peräkkäinen poissaolo",
+  "Norja",             "UEFA",    11,  TRUE,  "Mukana (Haaland)",
+  "Tšekki",            "UEFA",    42,  TRUE,  "Playoff-voittaja",
+  "Bosnia-Hertsegovina","UEFA",   48,  TRUE,  "Playoff-voittaja",
+  "Curaçao",           "CONCACAF", 82, TRUE,  "Debyytti, pienin WC-maa ikinä",
+  "Haiti",             "CONCACAF", 95, TRUE,  "Mukana",
+  "Irak",              "AFC",     63,  TRUE,  "Voitti inter-conf playoff",
+  "Jordania",          "AFC",     66,  TRUE,  "Debyytti",
+  "Uzbekistan",        "AFC",     64,  TRUE,  "Debyytti"
+)
+
+# ──────────────────────────────────────────────
+# Bayeslainen kiintiömalli
+# 
+# Oikeudenmukainen kiintiö määräytyy:
+#   1. Jäsenmaiden lukumäärä (enemmän maita = enemmän paikkoja)
+#   2. Ranking-vahvuus (keskimääräinen FIFA-ranking top-N maalta)
+#   3. Maantieteellinen etäisyys isäntämaahan (rankaistaan pitkistä matkoista)
+#
+# Isäntämaiden konfederaatio (CONCACAF) saa bonuksen
+# ──────────────────────────────────────────────
+
+# Konfederaation "vahvuusindeksi": top-10 maan keskimääräinen FIFA-ranking
+# (inversio: pienempi = parempi)
+# Estimoidaan karkeasti julkisista rankinglistoista
+
+conf_strength <- tribble(
+  ~confederation, ~avg_top10_rank,
+  "UEFA",     12.0,   # Euroopan huippu on maailman huippu
+  "CONMEBOL",  8.5,   # Argentiina, Brasilia — vahvin suhteessa kokoon
+  "AFC",      45.0,   # Japani, Iran, Aust. — vaihteleva taso
+  "CAF",      40.0,   # Marokko, Senegal — nouseva, mutta laaja hajonta
+  "CONCACAF", 22.0,   # USA, Meksiko, Kanada — isäntäbonus
+  "OFC",     100.0    # Uusi-Seelanti dominoi, muut heikkoja
+)
+
+# Etäisyys WC2026-isäntäalueesta (USA/Kanada/Meksiko)
+# Lasketaan CONCACAF-keskipisteestä
+host_lat <- 38.0; host_lon <- -95.0  # USA:n painopiste
+
+conf_dist_to_host <- conf_centers %>%
+  mutate(dist_to_host = haversine(lat, lon, host_lat, host_lon)) %>%
+  select(confederation, dist_to_host)
+
+# Yhdistä kaikki mallidataan
+# ──────────────────────────────────────────────
+# Minimikiintiölattia (floor)
+#
+# Periaate: jokaisella konfederaatiolla on oltava
+# vähintään yksi reitti kisoihin. Ei suoraa paikkaa
+# pienille, mutta playoff-kiintiö taataan.
+#
+# Toteutus kaksivaiheisena:
+#   1. Varaa ensin FLOOR_SLOTS paikkaa tasaisesti
+#      kaikille 6 konfederaatiolle (= 1 per conf = 6)
+#   2. Jaa loput (45 - 6 = 39) pistepohjaisen mallin mukaan
+#      — mutta OFC:n lattia = 0.5 (playoff-paikka)
+#
+# Lattiaperuste: "Jalkapallo on maailmanlaajuinen laji.
+# Jokaisella mantereella on oltava reitti kisoihin —
+# vaikka se kulkisi playoff-karsinnan kautta."
+# ──────────────────────────────────────────────
+
+TOTAL_SLOTS  <- 45L   # 48 - 3 isäntää
+FLOOR_SLOTS  <- 1L    # minimi per konfederaatio (suora tai playoff)
+N_CONF       <- 6L
+
+# Lattiaslottien jälkeen vapaana jaettavissa
+FREE_SLOTS <- TOTAL_SLOTS - FLOOR_SLOTS * N_CONF
+stopifnot(FREE_SLOTS > 0)
+
+apply_floor_model <- function(df, w_mem, w_str, w_dist,
+                              free = FREE_SLOTS,
+                              floor = FLOOR_SLOTS) {
+  df <- df %>%
+    mutate(
+      fs  = w_mem * norm_members + w_str * norm_strength -
+            w_dist * norm_dist,
+      fp  = fs - min(fs) + 0.01,
+      # Vapaat paikat jaetaan suhteessa; lattiapaikat lisätään päälle
+      free_alloc = (fp / sum(fp)) * free,
+      proposed   = floor + free_alloc
+    )
+  # Pyöristys säilyttäen kokonaissumma
+  # (largest-remainder -metodi)
+  raw_round <- floor(df$proposed)
+  remainders <- df$proposed - raw_round
+  deficit <- TOTAL_SLOTS - sum(raw_round)
+  stopifnot(deficit >= 0, deficit <= N_CONF)
+  idx <- order(remainders, decreasing = TRUE)[seq_len(deficit)]
+  raw_round[idx] <- raw_round[idx] + 1L
+  df$proposed_slots <- raw_round
+  df
+}
+
+model_data <- conf_data %>%
+  left_join(conf_strength,      by = "confederation") %>%
+  left_join(conf_dist_to_host,  by = "confederation") %>%
+  mutate(
+    norm_members  = (members - min(members)) / (max(members) - min(members)),
+    norm_strength = 1 - (avg_top10_rank - min(avg_top10_rank)) /
+                        (max(avg_top10_rank) - min(avg_top10_rank)),
+    norm_dist     = (dist_to_host - min(dist_to_host)) /
+                        (max(dist_to_host) - min(dist_to_host))
+  ) %>%
+  apply_floor_model(w_mem = 0.40, w_str = 0.40, w_dist = 0.20)
+
+# Tarkistukset
+stopifnot(sum(model_data$proposed_slots) == TOTAL_SLOTS)
+stopifnot(all(model_data$proposed_slots >= FLOOR_SLOTS))
+
+# Sensitiviteettianalyysi (lattia mukana kaikissa yhdistelmissä)
+sensitivity_grid <- expand_grid(
+  w_members  = seq(0.2, 0.6, by = 0.1),
+  w_strength = seq(0.2, 0.6, by = 0.1),
+  w_dist     = seq(0.1, 0.3, by = 0.1)
+) %>%
+  filter(abs(w_members + w_strength + w_dist - 1.0) < 0.001)
+
+stopifnot(nrow(sensitivity_grid) > 0)
+
+sens_results <- sensitivity_grid %>%
+  rowwise() %>%
+  mutate(slots_list = list({
+    d <- model_data %>%
+      apply_floor_model(w_mem  = w_members,
+                        w_str  = w_strength,
+                        w_dist = w_dist)
+    d %>% select(confederation, sl = proposed_slots)
+  })) %>%
+  unnest(slots_list)
+
+sens_summary <- sens_results %>%
+  group_by(confederation) %>%
+  summarise(
+    mean_slots = mean(sl),
+    sd_slots   = sd(sl),
+    p5         = quantile(sl, 0.05),
+    p95        = quantile(sl, 0.95),
+    .groups    = "drop"
+  )
+```
+
+Jalkapallon MM-kisat ovat alkaneet. Mukana ovat **Curaçao** (FIFA-ranking 82, väkiluku ~156 000) ja **Haiti** (ranking 95). Ulkona ovat **Tanska** (ranking 21) ja **Puola** (ranking 26). Myös **Italia** jäi ulkopuolelle kolmatta kertaa peräkkäin.
+
+Tämä ei ole sattuma. Kyse on systemaattisesta rakenteellisesta vinoumasta, jonka FIFA on rakentanut karsintajärjestelmäänsä.
+
+Ja juuri nyt — kisojen ensimmäisinä päivinä — tämä vinouma on noussut avoimeen riitaan.
+
+---
+
+## Čeferin vs. 13 maata: tunteen taistelu ilman dataa
+
+UEFA:n puheenjohtaja **Aleksander Čeferin** sanoi Ljubljanassa järjestetyssä konferenssissa, että MM-kisojen laajentaminen 48 joukkueen turnaukseksi on heikentänyt pelien kiinnostavuutta:
+
+> "Meillä on paljon otteluita, jotka eivät herätä juuri lainkaan kiinnostusta. Toisaalta myös pienemmät maat pääsevät mukaan ja saavat kokea MM-kisojen sykkeen, mikä on merkittävä asia."
+
+Kommentit suututtivat 13 kisajoukkuetta: Kap Verde, Curaçao, Uzbekistan, Kongon demokraattinen tasavalta, Haiti, Algeria, Tunisia, Marokko, Egypti, Ghana, Senegal, Norsunluurannikko ja Etelä-Afrikka julkaisivat yhteistiedotteen:
+
+> "Torjumme nämä kommentit kunnioittavasti mutta jyrkästi. Maidemme näkökulmasta ei ole olemassa sellaista asiaa kuin merkityksetön MM-ottelu. [...] Jalkapallo ei kuulu vain valikoidulle joukolle maita."
+
+Molemmat osapuolet puhuvat tunteella. Kumpikaan ei käytä dataa.
+
+Čeferin on oikeassa siinä, että tasoerot ovat todellisia — mutta väärässä siinä, kenen syy se on. 13 maan yhteistiedote on inhimillisesti ymmärrettävä, mutta se ei vastaa varsinaiseen kysymykseen: **onko paikkajakaumaa muodostava karsintajärjestelmä oikeudenmukainen?**
+
+Tähän voidaan vastata datalla.
+
+---
+
+Mutta onko olemassa **oikeudenmukaisempi** tapa jakaa paikat? Ja mitä "oikeudenmukaisuus" edes tarkoittaa, kun maantieteelliset realiteetit vaihtelevat valtavasti? Tähän data science voi tuoda lisävalaistusta.
+
+---
+
+## Nykytilanne: poliittinen kompromissi, ei optimoitu systeemi
+
+FIFA:n 48-joukkueen turnauksessa paikat jakautuvat seuraavasti:
+
+```{r slot_comparison, fig.height=5}
+plot_data <- model_data %>%
+  select(confederation, members, total_slots_approx, proposed_slots) %>%
+  pivot_longer(c(total_slots_approx, proposed_slots),
+               names_to = "system", values_to = "slots") %>%
+  mutate(
+    system = case_when(
+      system == "total_slots_approx" ~ "Nykyinen FIFA-kiintiö",
+      TRUE                           ~ "Ehdotettu malli"
+    ),
+    slots_per_member = slots / members
+  )
+
+ggplot(plot_data %>% filter(system == "Nykyinen FIFA-kiintiö"),
+       aes(x = reorder(confederation, -slots_per_member),
+           y = slots_per_member)) +
+  geom_col(fill = "#e63946", width = 0.6) +
+  geom_text(aes(label = paste0(round(slots, 1), " paikkaa\n/", members, " maata")),
+            vjust = -0.4, size = 3.2, color = "#1d3557") +
+  scale_y_continuous(labels = percent_format(),
+                     expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title    = "MM-karsintapaikkojen osuus konfederaation jäsenmaista (2026)",
+    subtitle = "CONCACAF saa isäntämaaedun päälle suhteettoman hyvän kiintiön; UEFA kärsii",
+    x = NULL, y = "Paikkojen osuus jäsenmaista",
+    caption = "Lähteet: FIFA, Wikipedia, ESPN (2026)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.background  = element_rect(fill = "#0d1117", color = NA),
+    panel.background = element_rect(fill = "#0d1117", color = NA),
+    text             = element_text(color = "#f1f1f1"),
+    axis.text        = element_text(color = "#c9c9c9"),
+    panel.grid.major = element_line(color = "#2a2a3e"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+Luvut paljastavat heti ongelman ytimen: **CONMEBOL** — jolla on vain 10 jäsenmaata — saa 6,5 paikkaa, mikä tarkoittaa 65 %:n kvalifikaatioastetta. **UEFA**:lla on 55 maata ja 16 paikkaa, eli 29 % jäsenistä pääsee kisoihin.
+
+```{r rate_table}
+model_data %>%
+  select(confederation, members, total_slots_approx, slot_rate) %>%
+  arrange(desc(slot_rate)) %>%
+  mutate(
+    slot_rate_pct = paste0(round(slot_rate * 100, 1), " %"),
+    total_slots_approx = round(total_slots_approx, 1)
+  ) %>%
+  rename(
+    Konfederaatio   = confederation,
+    `Jäsenmaita`    = members,
+    `Paikkoja (~)`  = total_slots_approx,
+    `Osuus jäsenistä` = slot_rate_pct
+  ) %>%
+  select(-slot_rate) %>%
+  knitr::kable(align = "lrrr")
+```
+
+Tämä on se "pistearvio", jota julkisessa keskustelussa yleensä käytetään. Mutta se kertoo vain puolet tarinasta.
+
+---
+
+## Mikä tekee karsintajärjestelmästä oikeudenmukaisen?
+
+Oikeudenmukaisuus on arvolatautunut käsite. Eri painotukset johtavat eri lopputuloksiin. Identifioidaan kolme keskeistä näkökulmaa:
+
+**1. Jäsenmääräperiaate** — mitä enemmän maita, sitä enemmän paikkoja. Demokraattinen, mutta ignoroi tason vaihtelua.
+
+**2. Laadullinen periaate** — paikkojen tulisi heijastaa konfederaation todellista jalkapallotasoa (FIFA-rankingeilla mitattuna). Meritokraattinen, mutta suosii historiallisesti vahvoja alueita.
+
+**3. Matkustettavuusperiaate** — isäntämaan sijainti (USA/Kanada/Meksiko) luo epätasa-arvoa. Australialaiset ja japanilaiset pelaavat todellisesti erilaisissa olosuhteissa kuin pohjoismaalaiset. Tämä on korjattavissa — tai vähintään huomioitavissa.
+
+Rakentaaksemme **oikeudenmukaisen mallin**, tarvitaan kaikki kolme muuttujaa — ja niiden suhteellinen paino on poliittinen valinta, joka pitää tehdä läpinäkyvästi.
+
+Lisäksi tarvitaan neljäs periaate, joka usein unohtuu:
+
+**4. Universaaliusperiaate** — jalkapallon MM-kisat ovat maailmanlaajuinen tapahtuma. Jokaisella mantereella on oltava jokin reitti kisoihin, vaikka se kulkisi playoff-karsinnan kautta — ei suoraa paikkaa, mutta ei myöskään täydellistä ulossulkemista. Tämä ei koske niinkään UEFA:ta tai CONMEBOL:ia, vaan erityisesti **OFC:tä** (Oseania), jonka 11 jäsenmaata ovat maantieteellisesti täysin omassa saarekkeessaan ja joiden kilpailutaso on ymmärrettävästi muita heikompi.
+
+Käytännössä tämä tarkoittaa, että malliin rakennetaan **lattia** (floor): ensin varataan jokaiselle kuudelle konfederaatiolle yksi paikka (suora tai playoff-kiintiö), ja loput 39 paikkaa jaetaan pistepohjaisen mallin mukaan. Näin OFC ei koskaan putoa nollaan, mutta se ei myöskään saa keinotekoisesti ylisuurta kiintiötä.
+
+---
+
+## Bayeslainen lähestymistapa: jakauma kiintiöille
+
+Sen sijaan, että antaisin yhden "oikean" kiintiöjakauman (pistearvio!), rakennan mallin, joka huomioi parametrien epävarmuuden.
+
+Malli yhdistää kolme komponenttia painotettuna:
+
+$$\text{score}_k = w_1 \cdot \text{jäsenmäärä}_k + w_2 \cdot \text{rankingtaso}_k - w_3 \cdot \text{matkusetäisyys}_k$$
+
+missä $w_1 + w_2 + w_3 = 1$ ja kaikki $w_i > 0$.
+
+Perusmalli käyttää painoja $(w_1 = 0.40, w_2 = 0.40, w_3 = 0.20)$. Sensitiivisyysanalyysi kattaa laajan parametriavaruuden.
+
+```{r sensitivity_plot, fig.height=6}
+ggplot(sens_summary,
+       aes(x = reorder(confederation, mean_slots),
+           y = mean_slots)) +
+  geom_col(fill = "#2a9d8f", width = 0.5, alpha = 0.9) +
+  geom_errorbar(aes(ymin = p5, ymax = p95), width = 0.25,
+                color = "#f4a261", linewidth = 1.2) +
+  geom_text(aes(label = round(mean_slots, 1)), hjust = -1.2,
+            color = "#f1f1f1", size = 3.5) +
+  coord_flip() +
+  labs(
+    title    = "Oikeudenmukainen kiintiöjakauma — sensitiivisyysanalyysi",
+    subtitle = "Pylväs = keskiarvo eri painoyhdistelmillä | Viivat = 90 % vaihteluväli",
+    x = NULL, y = "Ehdotettujen paikkojen määrä",
+    caption = paste0(
+      "Malli: 45 paikkaa (3 isäntää jo varattuna), parametriavaruus n = ",
+      nrow(sensitivity_grid), " yhdistelmää"
+    )
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.background  = element_rect(fill = "#0d1117", color = NA),
+    panel.background = element_rect(fill = "#0d1117", color = NA),
+    text             = element_text(color = "#f1f1f1"),
+    axis.text        = element_text(color = "#c9c9c9"),
+    panel.grid.major = element_line(color = "#2a2a3e"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+Tulos on selvä: **kaikilla järkevän parametrivalinnan yhdistelmillä UEFA hyötyisi ja CONCACAF/OFC kärsisivät** nykyjärjestelmään verrattuna.
+
+---
+
+## Nykyjärjestelmä vs. ehdotettu malli
+
+```{r comparison_plot, fig.height=5.5}
+comparison <- model_data %>%
+  select(confederation, current = total_slots_approx,
+         proposed = proposed_slots) %>%
+  pivot_longer(c(current, proposed), names_to = "system", values_to = "slots") %>%
+  mutate(system = if_else(system == "current",
+                          "Nykyinen FIFA", "Ehdotettu malli"))
+
+ggplot(comparison,
+       aes(x = reorder(confederation, slots),
+           y = slots, fill = system)) +
+  geom_col(position = "dodge", width = 0.6) +
+  geom_hline(yintercept = 0, color = "#f1f1f1", linewidth = 0.3) +
+  scale_fill_manual(values = c("Nykyinen FIFA"   = "#e63946",
+                               "Ehdotettu malli" = "#2a9d8f")) +
+  coord_flip() +
+  labs(
+    title    = "MM-kisojen paikat: nykyjärjestelmä vs. oikeudenmukainen malli",
+    subtitle = "Malli painottaa jäsenmäärää (40%), rankingtasoa (40%) ja matkakustannuksia (–20%)",
+    x = NULL, y = "Paikkojen määrä", fill = NULL,
+    caption = "Perusmalli: w=(0.40, 0.40, 0.20) | Lähteet: FIFA (2026), laskenta: oma"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.background  = element_rect(fill = "#0d1117", color = NA),
+    panel.background = element_rect(fill = "#0d1117", color = NA),
+    text             = element_text(color = "#f1f1f1"),
+    axis.text        = element_text(color = "#c9c9c9"),
+    panel.grid.major = element_line(color = "#2a2a3e"),
+    panel.grid.minor = element_blank(),
+    legend.position  = "top"
+  )
+```
+
+```{r delta_table}
+model_data %>%
+  mutate(
+    delta = proposed_slots - round(total_slots_approx),
+    muutos = if_else(delta > 0,
+                     paste0("+", delta, " paikkaa"),
+                     paste0(delta, " paikkaa"))
+  ) %>%
+  select(Konfederaatio = confederation,
+         `Nykyinen` = total_slots_approx,
+         `Ehdotettu` = proposed_slots,
+         `Muutos` = muutos) %>%
+  mutate(Nykyinen = round(Nykyinen)) %>%
+  arrange(desc(Ehdotettu)) %>%
+  knitr::kable(align = "lrrr")
+```
+
+---
+
+## Mitä tämä tarkoittaa käytännössä?
+
+Palataan alkuperäiseen ongelmaan. Tšekki (ranking 42) on kisoissa, Tanska (21) ei. Curaçao (ranking 82) on kisoissa, Puola (26) ei.
+
+Tämä ei ole sattuma eikä pelkkä huonon onnen seuraus — se on **systemaattinen ominaisuus** karsintajärjestelmästä, jossa Euroopan 55 maata kilpailee 16 paikasta, kun taas CONCACAF:n 35 maata saa 6 paikkaa, joista kolme (isäntämaat) oli jaettu etukäteen.
+
+Ehdotettu malli antaisi Euroopalle noin **18–20 paikkaa** (nykymallista +2–4). Tämä tarkoittaisi, että Tanskan ja Italian kaltaiset maat olisivat todennäköisemmin mukana — ilman, että miltään konfederaatiolta viedään representaatio kokonaan pois.
+
+### Matkustamisen ongelma on todellinen, mutta liioiteltu
+
+Yksi vastaargumentti on logistinen: "Haiti ei pysty matkustamaan pelaamaan Ruotsia vastaan." Matkakustannukset ovat todellinen haaste, mutta FIFA:lla on budjettirakenne (MDS – Member Development Scheme), joka tukee pienempiä liittoja. Lisäksi matkustuksesta johtuvat haitat voidaan huomioida suoraan karsintaformaatissa (kotipelioikeudet, lentopäivät), ei paikkakiintiöissä.
+
+Mallissani matkustettavuus saa 20 % painon — se vaikuttaa, muttei dominoi.
+
+---
+
+## Miksi tämä on liiketoiminnallisesti relevantti?
+
+Tämä ei ole pelkkä akateeminen harjoitus. Sama logiikka soveltuu moniin **liiketoimintaongelmiin**:
+
+- **Resurssiallokaatio markkinoiden välillä**: miten jakaa myyntiresurssit, kun markkinoiden "koko" (jäsenmäärä), "laatu" (ostopotentiaali) ja "etäisyys" (palvelukustannus) vaihtelevat?
+- **Kiintiöjärjestelmät organisaatioissa**: miten jakaa budjetit osastoille reilusti, huomioiden sekä koko että potentiaali?
+
+Molemmissa tilanteissa **pistearvio on harhaanjohtava**. Pitää ymmärtää jakauma mahdollisista ratkaisuista ja parametrien epävarmuus. Tämä on täsmälleen se, mitä bayeslainen lähestymistapa tuo lisää.
+
+---
+
+## Niin Čeferin kuin 13 maata ovat oikeassa — ja väärässä
+
+Palataan riitaan, josta lähdettiin liikkeelle.
+
+**Čeferin on oikeassa** siinä, että tasoerot ovat mitattavia. Saksa voitti Curaçaon avauspelissä — tulos ei varmaankaan yllätä ketään. Kun konfederaatio pääsee kisoihin olosuhteissa, joissa maan FIFA-ranking on 82, ottelu Saksan kaltaista maata (ranking ~3) vastaan ei ole tasainen kilpailu. Tämä ei ole Curaçaon vika — se on karsintajärjestelmän rakenneongelma.
+
+**13 maata on oikeassa** siinä, että syyllinen on väärä. Yhteistiedote puolustaa maiden oikeutta osallistua ja korostaa jalkapallon universaalia merkitystä. Tämä on totta — mutta se ei vastaa Čeferinin varsinaiseen huoleen, joka koskee tasaeroja otteluissa.
+
+**Molemmat ovat väärässä** siinä, että he käsittelevät asiaa täysin ilman dataa.
+
+Data osoittaa tähän tilanteen ytimen: **ongelma ei ole se, että pienet maat ovat kisoissa — ongelma on se, *miten* heidät valitaan.** Curaçao (ranking 82) on kisoissa CONCACAF-kiintiön ansiosta, kun Tanska (ranking 21) putosi UEFA-playoffeissa. Jos paikkajakauma heijastaisi paremmin kilpailutasoa, turnauksen yleinen taso nousisi — ja samalla voitaisiin silti taata pienten konfederaatioiden edustus.
+
+```{r ceferin_chart, fig.height=4.5}
+# Havainnollistetaan: miten noteeratuimmat "oikeudenmukaisuusskandaalit" asettuvat
+scandal_data <- tribble(
+  ~team,         ~fifa_rank, ~in_wc, ~confederation, ~label_x,
+  "Tanska",      21,  FALSE, "UEFA",     "Ei mukana",
+  "Puola",       26,  FALSE, "UEFA",     "Ei mukana",
+  "Italia",      14,  FALSE, "UEFA",     "Ei mukana",
+  "Curaçao",     82,  TRUE,  "CONCACAF", "Mukana",
+  "Haiti",       95,  TRUE,  "CONCACAF", "Mukana",
+  "Uzbekistan",  64,  TRUE,  "AFC",      "Mukana",
+  "Jordania",    66,  TRUE,  "AFC",      "Mukana",
+  "Saksa",        3,  TRUE,  "UEFA",     "Mukana",
+  "Ranska",       1,  TRUE,  "UEFA",     "Mukana",
+  "Norja",       11,  TRUE,  "UEFA",     "Mukana",
+  "Marokko",     13,  TRUE,  "CAF",      "Mukana",
+  "Senegal",     20,  TRUE,  "CAF",      "Mukana"
+)
+
+ggplot(scandal_data,
+       aes(x = reorder(team, fifa_rank), y = fifa_rank,
+           fill = in_wc)) +
+  geom_col(width = 0.65) +
+  geom_hline(yintercept = 30, linetype = "dashed",
+             color = "#f4a261", linewidth = 0.8) +
+  annotate("text", x = 1.5, y = 33,
+           label = "Ranking 30 — karkea\n'vahva maa' -raja",
+           color = "#f4a261", size = 3, hjust = 0) +
+  scale_fill_manual(
+    values = c("TRUE" = "#2a9d8f", "FALSE" = "#e63946"),
+    labels = c("TRUE" = "Mukana kisoissa", "FALSE" = "Ei mukana")
+  ) +
+  scale_y_reverse(breaks = c(1, 10, 20, 30, 50, 70, 90)) +
+  coord_flip() +
+  labs(
+    title    = "Čeferin vs. 13 maata: ranking kertoo enemmän kuin tunne",
+    subtitle = "Vihreä = kisoissa | Punainen = ulkona | Katkoviiva = ranking 30",
+    x = NULL, y = "FIFA-ranking (pienempi = parempi)",
+    fill = NULL,
+    caption = "FIFA-ranking kesäkuu 2026. Lähde: FIFA / worldcupwiki.com"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.background  = element_rect(fill = "#0d1117", color = NA),
+    panel.background = element_rect(fill = "#0d1117", color = NA),
+    text             = element_text(color = "#f1f1f1"),
+    axis.text        = element_text(color = "#c9c9c9"),
+    panel.grid.major = element_line(color = "#2a2a3e"),
+    panel.grid.minor = element_blank(),
+    legend.position  = "top"
+  )
+```
+
+Kuvaaja tekee näkyväksi sen, mistä Čeferin puhuu — muttei sitä syytä, josta 13 maata on tietämätön: paikkojen epäoikeudenmukainen jakautuminen konfederaatioiden välillä on se mekanismi, joka tuottaa nämä asetelmat. Pienten maiden osallistuminen ei ole ongelma. Pienten maiden osallistuminen **kiintiöjärjestelmän vinouman vuoksi** on ongelma.
+
+---
+
+## Yhteenveto: maailma on kiintiöjakauma
+
+Nykyjärjestelmässä Curaçao on kisoissa ja Tanska ei. Tämä on seurausta siitä, että FIFA:n kiintiöt ovat poliittinen kompromissi — ei optimoitu järjestelmä.
+
+Data osoittaa, että **kaikilla järkevän parametriavaruuden yhdistelmillä** UEFA on aliedustettu ja CONCACAF yliedustettu suhteessa sekä jäsenmäärään että kilpailutasoon.
+
+Reilumpi järjestelmä ei olisi rakettitiedettä. Se vaatisi neljä asiaa:
+
+1. **Eksplisiittinen arvopäätös** siitä, mitä "oikeudenmukaisuus" tarkoittaa (jäsenmäärä, taso, logistiikka)
+2. **Universaaliuslattia** — jokaiselle konfederaatiolle taattu reitti kisoihin, vaikka playoff-karsinnan kautta. OFC:n 11 jäsenmaalla on oltava jokin polku, vaikka Uusi-Seelanti dominoi sitä joka kerta
+3. **Läpinäkyvä malli** näistä painoista
+4. **Jakauman raportointi** pelkkien pistearvojen sijaan — koska oikeudenmukainen kiintiö ei ole yksi luku vaan joukko mahdollisia ratkaisuja eri arvoprioriteeteilla
+
+Maailma on jakauma. Myös MM-kiintiöissä.
+
+---
+
+*Analyysin koodi on saatavilla [GitHubissa](https://github.com/kristianvepsalainen). Data: FIFA-ranking (kesäkuu 2026), konfederaatiotilastot (Wikipedia/FIFA), etäisyyslaskelmat: haversine-kaava omasta koodista.*

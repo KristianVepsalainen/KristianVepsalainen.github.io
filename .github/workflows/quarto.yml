@@ -123,6 +123,7 @@ jobs:
             "fst",
             "ecmwfr",
             "sf",
+            "survminer",
             "terra",
             "rnaturalearth",
             "rnaturalearthdata",

@@ -1,0 +1,436 @@
+---
+title: "EU:n lainsäädäntö jakaumana — Osa 4: Eloonjäämisanalyysi"
+subtitle: "Kuinka kauan EU-säädös elää? Kaplan-Meier ja Cox-regressio paljastavat, mitä ikäjakauma piilottaa."
+author: "Kristian Vepsäläinen"
+date: 2026-6-18
+lang: fi
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    fig-width: 9
+    fig-height: 5.5
+    fig-dpi: 150
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(lubridate)
+library(scales)
+library(ggtext)
+library(patchwork)
+library(survival)    # Kaplan-Meier ja Cox
+library(survminer)   # ggplot2-pohjainen survival-visualisointi
+
+col_red    <- "#e63946"
+col_green  <- "#2a9d8f"
+col_orange <- "#f4a261"
+col_navy   <- "#1d3557"
+col_blue   <- "#457b9d"
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title       = element_markdown(face = "bold", size = 15),
+      plot.subtitle    = element_markdown(color = "grey40"),
+      plot.caption     = element_text(color = "grey55", size = 9),
+      axis.title       = element_text(color = "grey30"),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+## Säädöksen elinikä on stokastinen prosessi
+
+Osassa 1 havaitsimme selviytymisharhan: vanhoja säädöksiä on jäljellä vain
+kaikkein sitkeimmät. Yksinkertainen ikäjakauma on siksi harhainen estimaatti
+säädösten todellisesta elinajasta.
+
+Eloonjäämisanalyysi (*survival analysis*) on kehitetty juuri tätä ongelmaa varten.
+Se ottaa eksplisiittisesti huomioon **sensuroinnin**: voimassaolevat säädökset ovat
+"elossa" tähän päivään, mutta emme tiedä milloin ne kumotaan. Ne eivät ole
+puuttuvia havaintoja — ne ovat informatiivisesti sensuroituja.
+
+Kaksi keskeistä työkalua:
+
+**Kaplan-Meier-estimaatti** laskee eloonjäämisfunktion $S(t)$ — todennäköisyyden,
+että säädös on yhä voimassa ajankohdassa $t$ — ottaen sensuroinnin huomioon.
+Se on ei-parametrinen: ei oletuksia jakauman muodosta.
+
+**Cox-regressio** (*proportional hazards*) mallintaa, mitkä tekijät ennustavat
+kumoamisriskiä. Tuloksena on **hasardisuhde** (HR): HR > 1 tarkoittaa suurempaa
+kumoamisriskiä, HR < 1 tarkoittaa pienempää. Cox ei oleta jakaumaa — se olettaa
+vain, että kovariaaттien vaikutus on suhteellinen ajan suhteen.
+
+---
+
+## Data ja muuttujat
+
+```{r lataa_data}
+data_path <- here("data/eu_saadanto_raw.rds")
+
+if (!file.exists(data_path)) {
+  stop(
+    "Tiedostoa ", data_path, " ei löydy.\n",
+    "Aja ensin osa 1 lokaalisti tallentaaksesi datan."
+  )
+}
+
+raw <- readRDS(data_path)
+message("Data ladattu: ", nrow(raw), " riviä")
+```
+
+```{r valmistele_survival}
+# Eloonjäämisanalyysin muuttujat:
+#
+# aika    = säädöksen ikä päivinä hyväksymisestä joko kumoamiseen tai
+#           tähän päivään (kumpi tulee ensin)
+# tapaus  = 1 jos kumottu (tapahtuma havaittu), 0 jos vielä voimassa (sensuroitu)
+#
+# Kovariaaтit Cox-regressioon:
+#   saadostyyppi  = regulation / directive / decision / recommendation
+#   vuosikymmen   = hyväksymisvuosikymmen (institutionaalinen konteksti)
+#   kohortti_eu15 = hyväksytty ennen 2004-laajentumista vai sen jälkeen
+
+tanaan <- Sys.Date()
+
+surv_df <- raw |>
+  filter(!is.na(date), !is.na(force)) |>
+  mutate(
+    date         = as.Date(date),
+    vuosi        = year(date),
+    saadostyyppi = case_when(
+      resource_type == "regulation"     ~ "Asetus",
+      resource_type == "directive"      ~ "Direktiivi",
+      resource_type == "decision"       ~ "Päätös",
+      resource_type == "recommendation" ~ "Suositus"
+    ),
+    # Tapaus: 1 = kumottu, 0 = vielä voimassa (sensuroitu)
+    tapaus = if_else(force == "false", 1L, 0L),
+    # Aika päivinä hyväksymisestä tähän päivään tai kumoamiseen
+    # Koska kumoamispäivää ei ole suoraan datassa, käytetään
+    # nykypäivää sensurointipisteenä kaikille
+    aika_pv = as.numeric(tanaan - date),
+    aika_v  = aika_pv / 365.25,
+    # Kovariaaтit
+    vuosikymmen = factor(
+      paste0(floor(vuosi / 10) * 10, "-luku"),
+      levels = paste0(seq(1950, 2020, 10), "-luku")
+    ),
+    kohortti = factor(
+      if_else(vuosi < 2004, "Ennen 2004-laajentumista", "2004-laajentumisen jälkeen")
+    )
+  ) |>
+  filter(
+    vuosi >= 1960,
+    vuosi <= 2022,      # 2023 säädökset liian nuoria merkitykselliseen analyysiin
+    aika_pv > 0,
+    !is.na(saadostyyppi)
+  )
+
+cat("Havaintoja analyysissa:", nrow(surv_df), "\n")
+cat("\nTapaukset (kumottu vs. voimassa):\n")
+count(surv_df, tapaus) |>
+  mutate(selite = if_else(tapaus == 1, "Kumottu (tapahtuma)", "Voimassa (sensuroitu)"),
+         osuus  = percent(n / sum(n), 0.1)) |>
+  select(selite, n, osuus) |>
+  print()
+
+cat("\nSäädöstyypit:\n")
+count(surv_df, saadostyyppi, tapaus) |>
+  pivot_wider(names_from = tapaus, values_from = n,
+              names_prefix = "tapaus_") |>
+  mutate(
+    yht          = tapaus_0 + tapaus_1,
+    pct_kumottu  = percent(tapaus_1 / yht, 0.1)
+  ) |>
+  select(saadostyyppi, yht, kumottu = tapaus_1, pct_kumottu) |>
+  arrange(desc(yht)) |>
+  print()
+```
+
+---
+
+## Kaplan-Meier: eloonjäämisfunktio tyypeittäin
+
+```{r km_tyypit}
+# Survival-objekti
+surv_obj <- Surv(time = surv_df$aika_v, event = surv_df$tapaus)
+
+# KM-estimaatti tyypeittäin
+km_tyypit <- survfit(surv_obj ~ saadostyyppi, data = surv_df)
+
+# Mediaanit tyypeittäin
+cat("Mediaani elinikä (vuosia) tyypeittäin:\n")
+print(km_tyypit, print.rmean = TRUE)
+```
+
+```{r fig_km_tyypit}
+#| fig-cap: "Kaplan-Meier-eloonjäämiskäyrät säädöstyypeittäin. S(t) = todennäköisyys olla voimassa ajankohdassa t. Pystyviivat = sensurointipisteet."
+
+# Värikartta survminer-funktiolle
+km_varit <- c(col_red, col_green, col_blue, col_orange)
+names(km_varit) <- paste0("saadostyyppi=",
+                           c("Asetus", "Direktiivi", "Päätös", "Suositus"))
+
+km_plot <- ggsurvplot(
+  km_tyypit,
+  data          = surv_df,
+  palette       = c(col_red, col_green, col_blue, col_orange),
+  conf.int      = TRUE,
+  conf.int.alpha = 0.12,
+  censor        = FALSE,
+  xlab          = "Ikä (vuosia)",
+  ylab          = "S(t) — todennäköisyys olla voimassa",
+  legend.title  = "",
+  legend.labs   = c("Asetus", "Direktiivi", "Päätös", "Suositus"),
+  ggtheme       = theme_minimal(base_size = 13),
+  risk.table    = TRUE,
+  risk.table.height = 0.28,
+  risk.table.title  = "Vaarassa oleva joukko (n)",
+  xlim          = c(0, 50),
+  break.time.by = 5,
+  title         = "Kaplan-Meier: säädösten eloonjääminen tyypeittäin"
+)
+
+# Lisätään caption manuaalisesti
+km_plot$plot <- km_plot$plot +
+  labs(
+    caption = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(plot.title = element_markdown(face = "bold", size = 15))
+
+print(km_plot)
+```
+
+```{r log_rank_testi}
+# Log-rank-testi: onko tyypeillä tilastollisesti merkitsevä ero elinajassa?
+lr_testi <- survdiff(surv_obj ~ saadostyyppi, data = surv_df)
+cat("Log-rank-testi (H0: eloonjäämiskäyrät identtiset):\n")
+print(lr_testi)
+cat("\np-arvo:", round(1 - pchisq(lr_testi$chisq, df = length(lr_testi$n) - 1), 6), "\n")
+```
+
+---
+
+## Kaplan-Meier: vuosikymmenten välinen vertailu
+
+Ovatko vanhemmat direktiivit sitkeämpiä kuin uudemmat — vai onko trendi
+päinvastainen?
+
+```{r fig_km_vuosikymmen}
+#| fig-cap: "KM-eloonjäämiskäyrät hyväksymisvuosikymmenen mukaan. Selviytymisharha on korjattu — näemme todellisen elinaikajakauman."
+
+km_vk <- survfit(surv_obj ~ vuosikymmen, data = surv_df)
+
+km_vk_plot <- ggsurvplot(
+  km_vk,
+  data           = surv_df,
+  palette        = c(col_navy, col_blue, col_green, col_orange,
+                     col_red, "#9b2226", "#ae2012"),
+  conf.int       = FALSE,
+  censor         = FALSE,
+  xlab           = "Ikä (vuosia)",
+  ylab           = "S(t) — todennäköisyys olla voimassa",
+  legend.title   = "Hyväksymisvuosikymmen",
+  ggtheme        = theme_minimal(base_size = 13),
+  xlim           = c(0, 55),
+  break.time.by  = 5,
+  title          = "**Eloonjääminen hyväksymisvuosikymmenen mukaan**"
+)
+
+km_vk_plot$plot <- km_vk_plot$plot +
+  labs(caption = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com")
+
+print(km_vk_plot)
+```
+
+---
+
+## Cox-regressio: mitkä tekijät ennustavat kumoamisriskiä?
+
+Kaplan-Meier näyttää käyrät — Cox kertoo *miksi* ne eroavat. Cox-regressio
+mallintaa hasardia $h(t)$: hetkellinen kumoamisriski ehdolla että säädös on
+yhä voimassa ajankohdassa $t$.
+
+$$h(t | \mathbf{x}) = h_0(t) \cdot \exp(\beta_1 x_1 + \beta_2 x_2 + \cdots)$$
+
+Tulkinta: $\exp(\beta)$ = hasardisuhde (HR). HR = 1.5 tarkoittaa 50 % suurempaa
+kumoamisriskiä per yksikkö kovariaaтissa.
+
+```{r cox_malli}
+# Referenssitasot: Asetus, 1960-luku, Ennen 2004-laajentumista
+surv_df_cox <- surv_df |>
+  mutate(
+    saadostyyppi = relevel(factor(saadostyyppi), ref = "Asetus"),
+    vuosikymmen  = relevel(vuosikymmen, ref = "1960-luku"),
+    kohortti     = relevel(kohortti, ref = "Ennen 2004-laajentumista")
+  )
+
+cox_fit <- coxph(
+  Surv(aika_v, tapaus) ~ saadostyyppi + vuosikymmen + kohortti,
+  data = surv_df_cox
+)
+
+cat("Cox-regressiotulokset:\n")
+summary(cox_fit)
+```
+
+```{r fig_cox_forest}
+#| fig-cap: "Cox-regression hasardisuhde-metsäkaavio (forest plot). HR > 1 = suurempi kumoamisriski. Piste = estimaatti, viiva = 95 % luottamusväli."
+
+# Poimitaan kertoimet siististi
+cox_tulos <- broom::tidy(cox_fit, exponentiate = TRUE, conf.int = TRUE) |>
+  mutate(
+    termi_siisti = case_when(
+      str_detect(term, "saadostyyppi") ~
+        paste0("Tyyppi: ", str_remove(term, "saadostyyppi")),
+      str_detect(term, "vuosikymmen") ~
+        paste0("Vuosikymmen: ", str_remove(term, "vuosikymmen")),
+      str_detect(term, "kohortti") ~
+        paste0("Kohortti: ", str_remove(term, "kohortti.*jälkeen", "")),
+      TRUE ~ term
+    ),
+    merkitseva = p.value < 0.05,
+    termi_siisti = fct_reorder(termi_siisti, estimate)
+  )
+
+ggplot(cox_tulos, aes(estimate, termi_siisti, color = merkitseva)) +
+  geom_vline(xintercept = 1, linetype = "dashed",
+             color = "grey50", linewidth = 0.7) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
+                 height = 0.25, linewidth = 0.8) +
+  geom_point(size = 3.5) +
+  scale_color_manual(
+    values = c("TRUE" = col_red, "FALSE" = col_blue),
+    labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")
+  ) +
+  scale_x_log10(breaks = c(0.1, 0.25, 0.5, 1, 2, 4, 10),
+                labels = c("0.1", "0.25", "0.5", "1", "2", "4", "10")) +
+  labs(
+    title    = "**Cox-regressio: hasardisuhde kumoamisriskille**",
+    subtitle = "HR > 1 = suurempi kumoamisriski kuin referenssiryhmällä. Log-asteikko.",
+    x = "Hasardisuhde (HR) — log-asteikko", y = NULL,
+    color    = NULL,
+    caption  = "Referenssi: Asetus, 1960-luku, ennen 2004. Lähde: EUR-Lex via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+```{r cox_oletukset}
+# Tarkistetaan proportional hazards -oletus
+# Schoenfeld-jäännökset: jos korrelaatio ajan kanssa ≈ 0, oletus on ok
+ph_testi <- cox.zph(cox_fit)
+cat("Proportional hazards -oletus (Schoenfeld-testi):\n")
+print(ph_testi)
+cat("\nGlobaalin testin p-arvo:", round(ph_testi$table["GLOBAL", "p"], 4), "\n")
+cat("(p > 0.05 = oletus ei hylätä)\n")
+```
+
+---
+
+## Kumulatiivinen hasardi: missä vaiheessa kumoamisriski on suurin?
+
+Kaplan-Meier näyttää selviytymistodennäköisyyden. Kumulatiivinen hasardifunktio
+$H(t) = -\log S(t)$ näyttää kertyneen riskin — hyödyllinen kun haluaa nähdä
+missä elinkaaren vaiheessa säädökset tyypillisesti kumotaan.
+
+```{r fig_kumulat_hasardi}
+#| fig-cap: "Kumulatiivinen hasardifunktio tyypeittäin. Jyrkkä nousu = korkea kumoamisriski tuossa iässä. Tasainen = matala riski."
+
+km_cumhaz <- survfit(surv_obj ~ saadostyyppi, data = surv_df)
+
+# Rakennetaan manuaalisesti ggplot2:lla jotta värit pysyvät
+km_cumhaz_df <- map_dfr(
+  c("Asetus", "Direktiivi", "Päätös", "Suositus"),
+  function(tyyppi) {
+    fit <- survfit(
+      Surv(aika_v, tapaus) ~ 1,
+      data = filter(surv_df, saadostyyppi == tyyppi)
+    )
+    tibble(
+      aika         = fit$time,
+      cumhaz       = fit$cumhaz,
+      cumhaz_lo    = fit$cumhaz - 1.96 * fit$std.err,
+      cumhaz_hi    = fit$cumhaz + 1.96 * fit$std.err,
+      saadostyyppi = tyyppi
+    )
+  }
+)
+
+ggplot(km_cumhaz_df, aes(aika, cumhaz, color = saadostyyppi,
+                          fill = saadostyyppi)) +
+  geom_ribbon(aes(ymin = pmax(cumhaz_lo, 0), ymax = cumhaz_hi),
+              alpha = 0.12, color = NA) +
+  geom_line(linewidth = 1.0) +
+  scale_color_manual(values = c(col_red, col_green, col_blue, col_orange)) +
+  scale_fill_manual(values  = c(col_red, col_green, col_blue, col_orange)) +
+  scale_x_continuous(limits = c(0, 50), breaks = seq(0, 50, 5)) +
+  labs(
+    title    = "**Kumulatiivinen hasardifunktio** tyypeittäin",
+    subtitle = "Jyrkkä nousu = kumoamisriski kasautuu tuohon ikään. Nauha = 95 % luottamusväli.",
+    x = "Ikä (vuosia)", y = "Kumulatiivinen hasardi H(t)",
+    color = NULL, fill = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+---
+
+## Yhteenveto
+
+```{r yhteenveto_taulukko}
+# Mediaanieliniät tyypeittäin KM-estimaatista
+km_mediaanit <- summary(km_tyypit)$table |>
+  as.data.frame() |>
+  rownames_to_column("tyyppi") |>
+  mutate(tyyppi = str_remove(tyyppi, "saadostyyppi=")) |>
+  select(tyyppi,
+         n        = records,
+         kumottu  = events,
+         mediaani = `median`,
+         lo_95    = `0.95LCL`,
+         hi_95    = `0.95UCL`) |>
+  mutate(across(c(mediaani, lo_95, hi_95),
+                ~if_else(is.na(.), ">50 v", paste0(round(., 1), " v"))))
+
+cat("Mediaanieliniät tyypeittäin (Kaplan-Meier):\n")
+print(km_mediaanit)
+```
+
+Tämä analyysi korjaa osan 1:n selviytymisharhan. Pelkkä ikäjakauma oli
+vääristynyt — voimassaolevat säädökset näyttivät vanhemmilta kuin ne
+todellisuudessa ovat, koska kaikki lyhytikäiset oli jo poistettu joukosta.
+
+Kaplan-Meier-estimaatti ottaa sensuroinnin huomioon ja antaa realistisemman
+kuvan elinaikajakaumasta. Cox-regressio kvantifioi kovariaaттien vaikutukset
+hasardisuhteina — ei pelkkinä kertoimina, vaan suhteellisina riskeinä joilla
+on tulkinta.
+
+---
+
+## Mitä seuraavaksi?
+
+**Osa 5 — Säädösten viittausverkosto**
+Mitkä säädökset ovat EU-oikeuden solmupisteitä? Verkostoanalyysi
+(`igraph`/`tidygraph`) paljastaa juridiset riippuvuudet, joita ei voi
+nähdä yksittäistä säädöstä lukemalla. Solmun keskeisyys (*centrality*)
+on jakaumakin — ei yksi pistemäinen luku.
+
+---
+
+*Kaikki analyysi on toistettavissa. Koodi on avoin.*
+
+*Tarvitsetko eloonjäämisanalyysiä asiakaspidosta, laitevioista tai
+regulatoristen muutosten vaikutuksesta? —
+[kristianvepsalainen.com](https://kristianvepsalainen.com)*

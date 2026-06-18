@@ -76,7 +76,7 @@ vain, että kovariaaттien vaikutus on suhteellinen ajan suhteen.
 ## Data ja muuttujat
 
 ```{r lataa_data}
-data_path <- here("data/eu_saadanto_raw.rds")
+data_path <- here("data/eu/eu_saadanto_raw.rds")
 
 if (!file.exists(data_path)) {
   stop(

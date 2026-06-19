@@ -293,22 +293,23 @@ cox_tulos <- broom::tidy(cox_fit, exponentiate = TRUE, conf.int = TRUE) |>
   mutate(
     termi_siisti = case_when(
       str_detect(term, "saadostyyppi") ~
-        paste0("Tyyppi: ", str_remove(term, "saadostyyppi")),
+        paste0("Type: ", str_remove(term, "saadostyyppi")),
       str_detect(term, "vuosikymmen") ~
-        paste0("Vuosikymmen: ", str_remove(term, "vuosikymmen")),
+        paste0("Decade: ", str_remove(term, "vuosikymmen")),
       str_detect(term, "kohortti") ~
-        paste0("Kohortti: ", str_remove(term, "kohortti.*jälkeen", "")),
+        paste0("Cohort: ", str_remove(term, "kohortti")),
       TRUE ~ term
     ),
-    merkitseva = p.value < 0.05,
-    termi_siisti = fct_reorder(termi_siisti, estimate)
+    merkitseva = p.value < 0.05
+    # fct_reorder poistettu tästä
   )
 
 ggplot(cox_tulos, aes(estimate, termi_siisti, color = merkitseva)) +
   geom_vline(xintercept = 1, linetype = "dashed",
              color = "grey50", linewidth = 0.7) +
-  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
-                 height = 0.25, linewidth = 0.8) +
+ geom_errorbar(aes(xmin = conf.low, xmax = conf.high),
+              width = 0.25, linewidth = 0.8,
+              orientation = "y")  +
   geom_point(size = 3.5) +
   scale_color_manual(
     values = c("TRUE" = col_red, "FALSE" = col_blue),
@@ -374,7 +375,7 @@ ggplot(km_cumhaz_df, aes(aika, cumhaz, color = saadostyyppi,
   geom_line(linewidth = 1.0) +
   scale_color_manual(values = c(col_red, col_green, col_blue, col_orange)) +
   scale_fill_manual(values  = c(col_red, col_green, col_blue, col_orange)) +
-  scale_x_continuous(limits = c(0, 50), breaks = seq(0, 50, 5)) +
+  scale_x_continuous(limits = c(0, 70), breaks = seq(0, 65, 5)) +
   labs(
     title    = "**Kumulatiivinen hasardifunktio** tyypeittäin",
     subtitle = "Jyrkkä nousu = kumoamisriski kasautuu tuohon ikään. Nauha = 95 % luottamusväli.",

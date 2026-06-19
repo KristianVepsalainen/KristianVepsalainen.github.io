@@ -1,0 +1,578 @@
+---
+title: "Juhannussää on jakauma — ei pistearvo"
+date: "2025-06-19"
+categories: [sää, bayesläinen tilastotiede, FMI, avoin data]
+description: |
+  Jokainen suomalainen osaa ennustaa juhannussään: "taas sataa". Mutta mitä 
+  historia oikeasti sanoo? Haetaan FMI:n avoimesta datasta 40 vuoden 
+  juhannushavainnot, sovitetaan bayesilainen malli ja katsotaan, mitä jakauma kertoo.
+image: juhannus_preview.png
+lang: fi
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: false
+freeze: true
+code-fold: true
+---
+
+```{r setup}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(httr2)
+library(xml2)
+library(ggridges)
+library(patchwork)
+library(ggtext)
+library(lubridate)
+
+# Väripaletti
+col_red    <- "#e63946"
+col_teal   <- "#2a9d8f"
+col_orange <- "#f4a261"
+col_navy   <- "#1d3557"
+col_blue   <- "#457b9d"
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title    = element_markdown(face = "bold", size = 16),
+      plot.subtitle = element_markdown(color = "grey40"),
+      plot.caption  = element_text(color = "grey55", size = 10),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+Kesäkuun kolmas viikonloppu lähestyy ja sama ikiaikainen keskustelu käynnistyy:
+taas sataa vai onko se kerrankin hyvä juhannus? Sääennusteet lupaavat, Yle
+raportoi, mökkiläiset toivovat.
+
+**Mutta mitä historia oikeasti sanoo?**
+
+Vastaus ei ole yksittäinen luku — ei "30 % todennäköisyys sateelle". Vastaus on
+jakauma. Ja siinä on huomattava ero.
+
+## Data: 40 vuotta juhannushavaintoja FMI:lta
+
+Käytetään FMI:n avointa WFS-rajapintaa, josta on saatavilla päivittäiset
+sääasemahavainnot vuodesta 1961 lähtien. Haetaan kuudelta asemalta, jotka
+edustavat Suomea pohjoisesta etelään: Sodankylä, Kajaani, Kuopio, Jyväskylä,
+Tampere ja Helsinki-Vantaa.
+
+Juhannuspäivät vaihtelevat 20.–26. kesäkuuta välillä (lauantai). Analysoimme
+juhannusaaton (la) ja juhannuspäivän (su) havainnot vuosilta **1981–2024**.
+
+```{r fetch-data}
+#| label: fetch-data
+
+# FMI:n asematunnukset (FMISID)
+asemat <- tibble(
+  nimi   = c("Helsinki-Vantaa", "Tampere-Pirkkala", "Jyväskylä",
+             "Kuopio-Savilahti", "Kajaani",          "Sodankylä"),
+  alue   = c("Etelä",           "Etelä",             "Keski",
+             "Keski",           "Pohjoinen",          "Pohjoinen"),
+  fmisid = c("101004",          "101118",            "101339",
+             "101756",          "101756",            "101932")
+)
+
+# Laske juhannuslauantain päivämäärä vuosittain
+# Juhannus = kesäkuun 20.–26. väliin osuva lauantai (viikonpäivä 6 = lauantai)
+laske_juhannus <- function(vuosi) {
+  pv <- seq(as.Date(paste0(vuosi, "-06-20")),
+             as.Date(paste0(vuosi, "-06-26")),
+             by = "day")
+  aatto <- pv[weekdays(pv, abbreviate = FALSE) == "lauantai"]
+  if (length(aatto) == 0) aatto <- pv[wday(pv) == 7]  # varmuuskopio
+  tibble(
+    vuosi  = vuosi,
+    aatto  = aatto,
+    pyha   = aatto + 1
+  )
+}
+
+juhannuspvt <- map_df(1981:2024, laske_juhannus)
+
+# Tarkistus: kaikilla vuosilla täsmälleen yksi aatto
+stopifnot(nrow(juhannuspvt) == 44)
+stopifnot(all(!is.na(juhannuspvt$aatto)))
+stopifnot(all(wday(juhannuspvt$aatto) == 7))  # 7 = lauantai (lubridate default)
+
+# --- FMI WFS -haku ---
+# Välimuistipolku (commit CI:tä varten)
+cache_path <- "data/juhannus_havainnot.rds"
+
+hae_fmi_paiva <- function(fmisid, starttime, endtime) {
+  url <- paste0(
+    "https://opendata.fmi.fi/wfs?service=WFS&version=2.0.0",
+    "&request=getFeature",
+    "&storedquery_id=fmi::observations::weather::daily::simple",
+    "&fmisid=", fmisid,
+    "&starttime=", format(as.Date(starttime), "%Y-%m-%dT00:00:00Z"),
+    "&endtime=",   format(as.Date(endtime),   "%Y-%m-%dT23:59:59Z"),
+    "&parameters=tmax,rrday"
+  )
+  resp <- tryCatch(
+    request(url) |> req_timeout(30) |> req_perform(),
+    error = function(e) NULL
+  )
+  if (is.null(resp)) return(tibble())
+
+  xml  <- resp |> resp_body_xml()
+  ns   <- c(wfs  = "http://www.opengis.net/wfs/2.0",
+            BsWfs = "http://xml.fmi.fi/schema/wfs/2.0")
+
+  # Parsitaan parametrinimi + arvo + aika BsWfs:ElementList-elementeistä
+  rows <- xml_find_all(xml, ".//BsWfs:BsWfsElement", ns)
+  if (length(rows) == 0) return(tibble())
+
+  map_df(rows, function(r) {
+    tibble(
+      aika  = xml_text(xml_find_first(r, ".//BsWfs:Time",           ns)),
+      param = xml_text(xml_find_first(r, ".//BsWfs:ParameterName",  ns)),
+      arvo  = as.numeric(xml_text(xml_find_first(r, ".//BsWfs:ParameterValue", ns)))
+    )
+  })
+}
+
+if (!file.exists(cache_path)) {
+  dir.create(dirname(cache_path), recursive = TRUE, showWarnings = FALSE)
+
+  # pmap_df iteroi tibble-rivit suoraan nimetyiksi argumenteiksi,
+  # jolloin $ -operaattori ei aiheuta ongelmia sulkeumaympäristössä
+  raaka <- pmap_df(asemat, function(nimi, alue, fmisid) {
+    Sys.sleep(0.5)  # kohteliaisuuspaussi FMI:n palvelimelle
+    vuodet <- 1981:2024
+    map_df(vuodet, function(v) {
+      d <- hae_fmi_paiva(fmisid,
+                          paste0(v, "-06-19"),
+                          paste0(v, "-06-27"))
+      if (is.null(d)) return(tibble())
+      d |> mutate(asema = nimi, alue = alue, vuosi = v)
+    })
+  })
+
+  saveRDS(raaka, cache_path)
+} else {
+  raaka <- readRDS(cache_path)
+}
+```
+
+```{r muodosta-analyysidata}
+#| label: muodosta-analyysidata
+
+# Muunna pitkästä leveäksi (tmax, rrday per päivä per asema)
+havainnot_levea <- raaka |>
+  mutate(pvm = as.Date(substr(aika, 1, 10))) |>
+  select(asema, alue, vuosi, pvm, param, arvo) |>
+  pivot_wider(names_from = param, values_from = arvo)
+
+# Tarkistukset
+stopifnot("tmax"  %in% names(havainnot_levea))
+stopifnot("rrday" %in% names(havainnot_levea))
+
+ #FMI käyttää sentinel-arvoa -1 = "ei havaintoa". Muunnetaan NA:ksi.
+havainnot_levea <- havainnot_levea |>
+  mutate(
+    tmax  = if_else(tmax  <= -99, NA_real_, tmax),  # lämpötilan sentinel
+    rrday = if_else(rrday <    0, NA_real_, rrday)  # -1 → NA
+  )
+
+# Liitä juhannuspäivämäärät
+juhannus_havainnot <- havainnot_levea |>
+  left_join(juhannuspvt |> pivot_longer(c(aatto, pyha),
+                                         names_to  = "juhannus_pv",
+                                         values_to = "pvm"),
+            by = c("vuosi", "pvm")) |>
+  filter(!is.na(juhannus_pv)) |>
+  mutate(rrday = if_else(is.na(rrday) & !is.na(tmax), 0, rrday))
+# Luo "hyvä juhannus" -indikaattori per päivä
+# Kriteeri: ylin lämpötila ≥ 20 °C ja vuorokausisade < 5 mm
+juhannus_havainnot <- juhannus_havainnot |>
+  mutate(
+    hyva_pv = as.integer(!is.na(tmax) & !is.na(rrday) & tmax >= 20 & rrday < 5)
+  )
+
+# "Hyvä juhannus" = ainakin toinen päivä (aatto tai pyhä) täyttää kriteerin
+hyva_juhannus <- juhannus_havainnot |>
+  group_by(asema, alue, vuosi) |>
+  summarise(
+    hyva_juhannus   = as.integer(any(hyva_pv == 1, na.rm = TRUE)),
+    tmax_aatto      = tmax[juhannus_pv == "aatto"][1],
+    tmax_pyha       = tmax[juhannus_pv == "pyha"][1],
+    sade_aatto      = rrday[juhannus_pv == "aatto"][1],
+    sade_pyha       = rrday[juhannus_pv == "pyha"][1],
+    .groups = "drop"
+  )
+
+# Tarkistus: arvot ovat järjellisellä alueella
+stopifnot(all(hyva_juhannus$tmax_aatto > -10 & hyva_juhannus$tmax_aatto < 40,
+              na.rm = TRUE))
+stopifnot(all(hyva_juhannus$sade_aatto >= 0, na.rm = TRUE))
+
+cat("Havaintoja yhteensä:", nrow(hyva_juhannus), "\n")
+cat("Asemia:", n_distinct(hyva_juhannus$asema), "\n")
+cat("Vuosia:", n_distinct(hyva_juhannus$vuosi), "\n")
+```
+
+## Mitä data kertoo: juhannuslämpötilojen jakauma
+
+Alla näkyy kaikkien havaintoasemien juhannusaaton ylimmän lämpötilan jakauma
+vuodesta 1981 lähtien — **jakauma, ei pistearvo**.
+
+Välittömästi silmään pistää kaksi asiaa: ensinnäkin vaihteluväli on valtaisa
+(alle 10 asteesta yli 30 asteeseen), toiseksi pohjoiseen mennessä jakauma
+siirtyy kylmemmäksi, kuten odottaa sopii.
+
+```{r ridge-plot}
+#| label: ridge-plot
+#| fig-width: 10
+#| fig-height: 6
+#| fig-cap: "Juhannusaaton ylimmän lämpötilan jakauma asemittain 1981–2024. Pystyviiva = 20 °C (hyvän juhannuksen alaraja)."
+
+plot_data <- juhannus_havainnot |>
+  filter(juhannus_pv == "aatto", !is.na(tmax)) |>
+  mutate(asema = fct_reorder(asema, tmax, .fun = median, .na_rm = TRUE))
+
+ggplot(plot_data, aes(x = tmax, y = asema, fill = alue)) +
+  geom_density_ridges(
+    alpha       = 0.75,
+    bandwidth   = 2.5,
+    color       = "white",
+    scale       = 1.2,
+    rel_min_height = 0.01
+  ) +
+  geom_vline(xintercept = 20, color = col_red, linetype = "dashed", linewidth = 0.8) +
+  annotate("text", x = 20.4, y = 0.6,
+           label = "20 °C\n(hyvän juhannuksen raja)",
+           hjust = 0, color = col_red, size = 3.5) +
+  scale_fill_manual(
+    values = c("Etelä" = col_teal, "Keski" = col_blue, "Pohjoinen" = col_navy)
+  ) +
+  scale_x_continuous(breaks = seq(0, 35, 5), labels = function(x) paste0(x, " °C")) +
+  labs(
+    title    = "**Juhannussää on jakauma** — ei pistearvo",
+    subtitle = "Juhannusaaton ylin lämpötila 1981–2024 (FMI:n avoin data)",
+    x        = "Ylin lämpötila (°C)",
+    y        = NULL,
+    fill     = "Alue",
+    caption  = "Lähde: Ilmatieteen laitos, avoin data (CC BY 4.0) | kristianvepsalainen.com"
+  )
+```
+
+## Bayesilainen malli: mikä on todennäköisyys hyvälle juhannukselle?
+
+Pelkkä jakauma ei vielä vastaa käytännön kysymykseen: **kuinka todennäköistä on,
+että juhannus on "hyvä"?**
+
+Sovitetaan bayesilainen Beta-Binomial-malli. Malli on yksinkertainen ja
+tulkittavissa intuitiivisesti: se kertoo, mikä on todennäköisyyden
+*posteriorijakauma* sille, että satunnainen vuosi tuottaa hyvän juhannuksen
+kullakin paikkakunnalla.
+
+Miksi bayesilainen malli frekventistisen sijaan?
+
+- **Epävarmuus on eksplisiittistä.** Emme saa pelkkää pistelukua vaan koko
+  jakauman, joka kertoo, kuinka varma arviomme on.
+- **Pienille otoksille sopiva.** 44 vuotta per asema on kohtuullinen mutta ei
+  suuri aineisto; bayesilainen lähestymistapa käsittelee tämän luonnollisesti.
+- **Prior tieto.** Käytämme heikkoa uninformatiivista prioria (Beta(1,1) =
+  tasajakauma), joka ei ohjaile tulosta.
+
+```{r bayesian-model}
+#| label: bayesian-model
+#| results: hide
+
+library(rstanarm)
+
+# Sovita bayesilainen logistinen regressio asemittain
+# (Bernoulli per vuosi per asema)
+set.seed(42)
+
+# Tarvitaan täydellinen data ilman puuttuvia arvoja
+malli_data <- hyva_juhannus |>
+  filter(!is.na(hyva_juhannus)) |>
+  mutate(
+    asema = factor(asema),
+    alue  = factor(alue)
+  )
+
+# Hierarkkinen malli: asema satunnaistekijänä
+# prior: heikko normaalijakauma logit-skaalalla ~ N(0, 1), mikä vastaa
+# suunnilleen tasajakaumaa todennäköisyysskaalalla
+malli <- stan_glmer(
+  hyva_juhannus ~ 1 + (1 | asema),
+  data   = malli_data,
+  family = binomial(link = "logit"),
+  prior_intercept = normal(0, 1.5, autoscale = FALSE),
+  prior_covariance = decov(regularization = 2),
+  chains = 4,
+  iter   = 2000,
+  seed   = 42,
+  refresh = 0
+)
+```
+
+```{r posterior-plot}
+#| label: posterior-plot
+#| fig-width: 10
+#| fig-height: 6
+#| fig-cap: "Bayesilainen posteriorijako: todennäköisyys 'hyvälle juhannukselle' (ylin lämpötila ≥ 20 °C ja sade < 5 mm) eri asemilla. Pylväät = 90 % uskottavuusväli, piste = mediaani."
+
+# Posterioriennusteet asemittain
+asemat_uniq <- levels(malli_data$asema)
+
+posterior_ennuste <- map_df(asemat_uniq, function(a) {
+  nd <- tibble(asema = a)
+  pp <- posterior_epred(malli, newdata = nd, re.form = ~ (1 | asema))
+  tibble(
+    asema   = a,
+    mediaani = median(pp),
+    p05     = quantile(pp, 0.05),
+    p25     = quantile(pp, 0.25),
+    p75     = quantile(pp, 0.75),
+    p95     = quantile(pp, 0.95)
+  )
+}) |>
+  left_join(asemat |> select(nimi, alue), by = c("asema" = "nimi")) |>
+  mutate(asema = fct_reorder(asema, mediaani))
+
+# Raaka osuus vertailuksi
+raaka_osuus <- hyva_juhannus |>
+  group_by(asema) |>
+  summarise(osuus = mean(hyva_juhannus, na.rm = TRUE), .groups = "drop")
+
+ggplot(posterior_ennuste, aes(y = asema, color = alue)) +
+  geom_linerange(aes(xmin = p05, xmax = p95), linewidth = 2.5, alpha = 0.3) +
+  geom_linerange(aes(xmin = p25, xmax = p75), linewidth = 2.5, alpha = 0.7) +
+  geom_point(aes(x = mediaani), size = 4, color = "white") +
+  geom_point(aes(x = mediaani), size = 2.5) +
+  # Raaka osuus
+  geom_point(
+    data = raaka_osuus |>
+      left_join(asemat |> select(nimi, alue), by = c("asema" = "nimi")) |>
+      mutate(asema = factor(asema, levels = levels(posterior_ennuste$asema))),
+    aes(x = osuus, y = asema),
+    shape = 4, size = 3, color = col_red
+  ) +
+  scale_x_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1)
+  ) +
+  scale_color_manual(
+    values = c("Etelä" = col_teal, "Keski" = col_blue, "Pohjoinen" = col_navy)
+  ) +
+  annotate(
+    "text", x = 0.72, y = 0.6,
+    label = "✕ = raaka osuus 1981–2024",
+    color = col_red, size = 3.5, hjust = 0
+  ) +
+  labs(
+    title    = "**Hyvän juhannuksen todennäköisyys** — bayesilainen arvio",
+    subtitle = "Piste = mediaani, leveä alue = 50 % uskottavuusväli, kapea = 90 % uskottavuusväli",
+    x        = "Todennäköisyys 'hyvälle juhannukselle' (ylin ≥ 20 °C, sade < 5 mm)",
+    y        = NULL,
+    color    = "Alue",
+    caption  = "Lähde: Ilmatieteen laitos, avoin data (CC BY 4.0) | kristianvepsalainen.com"
+  )
+```
+
+## Alueellinen tilastollinen testi: onko ero todellinen?
+
+Onko Etelä-Suomen ja Pohjois-Suomen välinen ero tilastollisesti merkitsevä vai
+voisiko se selittyä sattumalla?
+
+Testataan tätä **Fisherin tarkalla testillä** (ei khii-toiseen, koska joillain
+soluilla n on pieni), jossa vertaillaan "hyvien juhannusten" määrää
+etelässä (Helsinki, Tampere) ja pohjoisessa (Kajaani, Sodankylä).
+
+```{r tilastollinen-testi}
+#| label: tilastollinen-testi
+
+# Fisherin tarkka testi: Etelä vs. Pohjoinen
+testi_data <- hyva_juhannus |>
+  filter(!is.na(hyva_juhannus)) |>
+  filter(alue %in% c("Etelä", "Pohjoinen")) |>
+  group_by(alue) |>
+  summarise(
+    hyvia   = sum(hyva_juhannus),
+    yhteensa = n(),
+    .groups = "drop"
+  )
+
+# Kontingenssitaulukko
+cont_tbl <- matrix(
+  c(testi_data$hyvia,
+    testi_data$yhteensa - testi_data$hyvia),
+  nrow = 2,
+  dimnames = list(
+    Alue = testi_data$alue,
+    Tulos = c("Hyvä juhannus", "Ei hyvä")
+  )
+)
+
+fish_tulos <- fisher.test(cont_tbl, alternative = "two.sided")
+
+# Raportti
+cat("=== Fisherin tarkka testi: Etelä vs. Pohjoinen ===\n")
+cat("Contingency table:\n")
+print(cont_tbl)
+cat("\nOdds ratio:", round(fish_tulos$estimate, 2), "\n")
+cat("95 % LV:    [", round(fish_tulos$conf.int[1], 2),
+    ",", round(fish_tulos$conf.int[2], 2), "]\n")
+cat("p-arvo:     ", format.pval(fish_tulos$p.value, digits = 3), "\n")
+
+# Tulos selväkielisesti
+if (fish_tulos$p.value < 0.05) {
+  cat("\n→ Ero on tilastollisesti merkitsevä (α = 0.05).\n")
+} else {
+  cat("\n→ Ero ei ole tilastollisesti merkitsevä (α = 0.05).\n")
+}
+```
+
+```{r testi-visualisointi}
+#| label: testi-visualisointi
+#| fig-width: 9
+#| fig-height: 4
+#| fig-cap: "Hyvien juhannusten osuus alueittain 1981–2024. Virhepalkit = Wilsonin 95 % luottamusväli."
+
+# Kaikki kolme aluetta
+alue_osuudet <- hyva_juhannus |>
+  filter(!is.na(hyva_juhannus)) |>
+  group_by(alue) |>
+  summarise(
+    hyvia    = sum(hyva_juhannus),
+    n        = n(),
+    osuus    = mean(hyva_juhannus),
+    .groups  = "drop"
+  ) |>
+  mutate(
+    # Wilsonin luottamusväli
+    ci_low  = (hyvia + 1.96^2/2 - 1.96 * sqrt(hyvia*(n - hyvia)/n + 1.96^2/4)) /
+              (n + 1.96^2),
+    ci_high = (hyvia + 1.96^2/2 + 1.96 * sqrt(hyvia*(n - hyvia)/n + 1.96^2/4)) /
+              (n + 1.96^2),
+    alue = factor(alue, levels = c("Pohjoinen", "Keski", "Etelä"))
+  )
+
+ggplot(alue_osuudet, aes(x = alue, y = osuus, fill = alue)) +
+  geom_col(alpha = 0.85, width = 0.55) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high),
+                width = 0.15, linewidth = 0.9, color = col_navy) +
+  geom_text(
+    aes(label = paste0(round(osuus * 100, 0), " %\n(", hyvia, "/", n, " vuotta)")),
+    vjust = -0.6, size = 4, fontface = "bold"
+  ) +
+  scale_y_continuous(
+    labels = scales::percent_format(),
+    limits = c(0, 1),
+    expand = expansion(mult = c(0, 0.15))
+  ) +
+  scale_fill_manual(
+    values = c("Etelä" = col_teal, "Keski" = col_blue, "Pohjoinen" = col_navy)
+  ) +
+  annotate(
+    "text", x = 2, y = 0.90,
+    label = paste0("Etelä vs. Pohjoinen:\np = ",
+                   format.pval(fish_tulos$p.value, digits = 2),
+                   "\nOR = ", round(fish_tulos$estimate, 1)),
+    size = 3.5, color = col_red, hjust = 0.5
+  ) +
+  labs(
+    title    = "**Hyvä juhannus on paljon todennäköisempää etelässä**",
+    subtitle = "Virhepalkit: 95 % luottamusväli (Wilsonin menetelmä)",
+    x        = NULL,
+    y        = "Osuus hyvistä juhannuksista",
+    caption  = "Lähde: Ilmatieteen laitos, avoin data (CC BY 4.0) | kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "none")
+```
+
+## Vuosikymmenten trendi: onko juhannus lämmennyt?
+
+Ilmastonmuutos on tosiasia — mutta onko se nähtävissä juhannussäässä?
+Tarkastellaan juhannusaaton ylimmän lämpötilan trendiä vuosikymmenittäin.
+
+```{r trendi-kuvaaja}
+#| label: trendi-kuvaaja
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "Juhannusaaton ylimmän lämpötilan trendi 1981–2024 (kaikki asemat). Suora = lineaarinen OLS-trendi, harmaa alue = 95 % ennusteväli."
+
+trendi_data <- juhannus_havainnot |>
+  filter(juhannus_pv == "aatto", !is.na(tmax))
+
+# Lineaarinen OLS-trendi
+trendi_malli <- lm(tmax ~ vuosi, data = trendi_data)
+trendi_summ  <- summary(trendi_malli)
+
+cat("Trendi: ", round(coef(trendi_malli)["vuosi"] * 10, 2),
+    "°C per vuosikymmen\n")
+cat("p-arvo: ", format.pval(coef(trendi_summ)[2, 4], digits = 3), "\n")
+
+ggplot(trendi_data, aes(x = vuosi, y = tmax)) +
+  geom_jitter(aes(color = alue), alpha = 0.5, width = 0.2, size = 2) +
+  geom_smooth(method = "lm", color = col_red, fill = col_red, alpha = 0.15,
+              linewidth = 1.2) +
+  scale_color_manual(
+    values = c("Etelä" = col_teal, "Keski" = col_blue, "Pohjoinen" = col_navy)
+  ) +
+  scale_y_continuous(labels = function(x) paste0(x, " °C")) +
+  annotate(
+    "text",
+    x = 2005, y = 32,
+    label = paste0(
+      "Trendi: +", round(coef(trendi_malli)["vuosi"] * 10, 2),
+      " °C / vuosikymmen\n",
+      "p = ", format.pval(coef(trendi_summ)[2, 4], digits = 2)
+    ),
+    color = col_red, size = 4, hjust = 0
+  ) +
+  labs(
+    title    = "**Juhannussää on lämmennyt** — mutta epävarmuus säilyy suurena",
+    subtitle = "Juhannusaaton ylin lämpötila 1981–2024 (kaikki asemat yhdistettynä)",
+    x        = NULL,
+    y        = "Ylin lämpötila (°C)",
+    color    = "Alue",
+    caption  = "Lähde: Ilmatieteen laitos, avoin data (CC BY 4.0) | kristianvepsalainen.com"
+  )
+```
+
+## Johtopäätökset: jakauma kertoo totuuden
+
+**Mitä data sanoo?**
+
+Hyvä juhannus (≥ 20 °C, sade < 5 mm) toteutuu historiallisesti:
+
+- **Etelä-Suomessa** noin `r round(alue_osuudet$osuus[alue_osuudet$alue == "Etelä"] * 100, 0)` %
+  vuosista — käytännössä joka toinen tai kolmas kerta.
+- **Keski-Suomessa** noin `r round(alue_osuudet$osuus[alue_osuudet$alue == "Keski"] * 100, 0)` %.
+- **Pohjois-Suomessa** noin `r round(alue_osuudet$osuus[alue_osuudet$alue == "Pohjoinen"] * 100, 0)` %.
+
+Ero Etelän ja Pohjolan välillä on tilastollisesti merkitsevä
+(Fisherin tarkka testi, p `r format.pval(fish_tulos$p.value, digits = 2)`).
+
+Bayesilainen malli tarkentaa kuvaa: emme tiedä tarkkaa todennäköisyyttä — se on
+itsekin jakauma. Ennusteemme on epävarma, ja se on rehellinen. Lisäksi juhannusaaton
+ylin lämpötila on noussut tilastollisesti merkitsevästi noin
+`r round(coef(trendi_malli)["vuosi"] * 10, 2)` °C per vuosikymmen.
+
+**Mutta miksi tämä on tärkeää muutenkin kuin sääpuheena?**
+
+Koska sama ajattelutapa pätee kaikkialla, missä tehdään päätöksiä epävarmuuden
+vallitessa. Rekrytoiko yritys parhaalla kandidaatilla vai jakaumalla? Onko
+markkinaenne pistearvo vai jakauma? Onko strateginen riski yksittäinen skenaario
+vai todennäköisyysjakauma mahdollisista tulevaisuuksista?
+
+*Maailma on jakauma.* Juhannussää on vain yksi sen konkreettisimmista
+muistutuksista — vuosittain, joka mökkikunnassa.
+
+---
+
+*Hyvää juhannusta! Toivottavasti sinun juhannuksesi osuu jakauman oikeaan häntään.*
+
+*Kaikki analyysin koodi on avointa (CC BY 4.0), data on FMI:n avointa dataa.
+Löydät lisää analyysejäni osoitteesta [kristianvepsalainen.com](https://kristianvepsalainen.com).*

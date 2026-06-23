@@ -1,0 +1,484 @@
+---
+title: "Suomalainen yrityskenttä jakaumana, osa 1: YTJ-perustiedot"
+subtitle: "Mitä kaupparekisterin perustietorajapinta paljastaa, kun lopetetaan pistelukujen tuijottaminen"
+author: "Kristian Vepsäläinen"
+date: "2026-06-23"
+categories: [avoin data, YTJ, EDA, R]
+draft: true
+format:
+  html:
+    toc: true
+    code-fold: true
+    code-tools: true
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{r setup}
+#| include: false
+library(here)
+source(here("R","ytj", "theme_kristian.R"))
+source(here("R","ytj", "ytj_api.R"))
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(patchwork)
+  library(qs2)        # nopea + pieni välimuisti (asenna: install.packages("qs2"))
+})
+
+data_dir <- here("data","ytj")
+dir.create(data_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+> **Lukijalle.** Tämä on 20-osaisen sarjan ensimmäinen osa. Sarjassa
+> rakennetaan Suomen yrityskentästä kokonaiskuva yhdistämällä kolme PRH:n
+> avointa rajapintaa ja lopulta Tilastokeskuksen aineistoja. Tavoite ei ole
+> luetella yritysten määriä vaan ymmärtää **jakaumia** — sillä yksittäinen
+> keskiarvo tai kokonaisluku piilottaa juuri sen, mikä on päätöksenteon
+> kannalta olennaista.
+
+## Uutiskytkin: "Suomeen perustettiin X yritystä"
+
+Talousuutisissa toistuu sama kaava: *"Viime vuonna perustettiin
+ennätysmäärä yrityksiä"* tai *"konkurssit kasvoivat Y prosenttia."* Nämä ovat
+pistelukuja. Ne kertovat tason, mutta eivät rakennetta. Kaksi maakuntaa voi
+perustaa täsmälleen yhtä monta yritystä, vaikka toisessa syntyy
+ohjelmistotaloja ja toisessa parturiliikkeitä — ja näiden kahden
+elinkaari, työllistävyys ja riskiprofiili ovat täysin eri planeetoilta.
+
+Aloitetaan sarja sieltä, mistä kaikki suomalainen yritystieto lähtee:
+**Yritys- ja yhteisötietojärjestelmän (YTJ) perustietorajapinnasta.** Tässä
+osassa teemme sille eksploratiivisen data-analyysin (EDA): mitä rajapinta
+sisältää, mikä on datan laatu, ja millaisia jakaumia sieltä paljastuu.
+
+## Mistä datassa on kyse?
+
+PRH:n avoimen datan `companies`-rajapinta palauttaa kaupparekisteriin
+merkittyjen yritysten perustiedot: nimen, yhtiömuodon, päätoimialan,
+kotipaikan, rekisteröintipäivän ja rekisterimerkinnät. Yksityisiä
+elinkeinonharjoittajia (toiminimiä) ei tästä rajapinnasta saa.
+
+Rajapintaa on käytettävä reilusti: enimmäisnopeus on **300 kyselyä
+minuutissa** kaikkien käyttäjien kesken. Siksi haku tehdään kerran
+paikallisesti, throttlattuna, ja tulos tallennetaan `.rds`-tiedostoksi.
+Julkaisuputki (GitHub Actions) ei koskaan kutsu rajapintaa — se renderöi
+valmiista välimuistista.
+
+```{r fetch-data}
+#| cache: false
+ytj_path <- here("data","ytj", "ytj_perustiedot.qs")
+
+if (!file.exists(ytj_path)) {
+  # Haetaan JA litistetään KOKO kaupparekisteri sivu kerrallaan. Sisäkkäistä
+  # raakalistaa ei koskaan kerätä muistiin (se paisuu R:ssä ~120-kertaiseksi
+  # ja kaataisi koneen swappiin), vaan jokainen sivu siivotaan heti kompaktiksi
+  # taulukoksi. Checkpoint per yhtiömuoto -> keskeytys jatkuu siitä mihin jäi.
+  cp_dir <- here("data","ytj", "ytj_checkpoints")
+  dir.create(cp_dir, showWarnings = FALSE, recursive = TRUE)
+
+  yritykset <- fetch_ytj_all_tidy(checkpoint_dir = cp_dir)
+  qs_save(yritykset, ytj_path)
+}
+
+yritykset <- qs_read(ytj_path)
+```
+
+> **Muistihuomio.** Litistys tehdään jo haun aikana, sivu kerrallaan, joten
+> R ei koskaan pidä koko ~24 GB:n sisäkkäistä raakalistaa muistissa
+> samanaikaisesti — huippumuisti on yksi sivu (100 yritystä) plus kasvava
+> kompakti taulukko. Tämä on koko erotus muutaman sadan megan ja koneen
+> jumiutumisen välillä.
+
+> **Repo- ja CI-huomio.** Raaka JSON on kokonaisuudessaan ~3 GB — *sitä ei
+> committoida Gitiin.* Vain siivottu `ytj_perustiedot.qs` (~600 000 riviä,
+> kymmeniä megatavuja) menee versionhallintaan. Lisää `data/ytj_checkpoints/`
+> ja raakatiedostot `.gitignore`-listaan. Koska `here()` ankkuroi projektin
+> juuren `.Rproj`- tai `.here`-tiedostoon, varmista että GitHub Actions
+> -ajossa työhakemisto on repon juuri (tarvittaessa `here::i_am()` postauksen
+> alussa).
+
+```{r integrity-checks}
+# Eheystarkastukset karsivat hiljaiset pilkkuvirheet ennen analyysiä.
+stopifnot(
+  nrow(yritykset) > 100000,
+  all(c("business_id", "company_form", "main_line_code",
+        "registration_date", "location") %in% names(yritykset)),
+  # Y-tunnuksen muoto: 7 numeroa, väliviiva, tarkistusnumero
+  mean(str_detect(yritykset$business_id, "^\\d{7}-\\d$"), na.rm = TRUE) > 0.95
+)
+
+yritykset <- yritykset |>
+  mutate(
+    registration_date = as.Date(registration_date),
+    reg_year   = lubridate::year(registration_date),
+    reg_decade = (reg_year %/% 10) * 10,
+    # Ikä vuosina: koko sarjan keskeisin johdettu muuttuja
+    ika_v = as.numeric(difftime(Sys.Date(), registration_date, units = "days")) / 365.25,
+    location = case_when(location =="HELSINGFORS"~'HELSINKI',
+                         location == "ESBO" ~ 'ESPOO',
+                         location == "VANDA" ~ 'VANTAA',
+                         location == "ADRESS OKÄND" ~ 'OSOITE TUNTEMATON',
+                         T~location)
+  )
+
+# Järkevyystarkastukset
+stopifnot(
+  max(yritykset$reg_year, na.rm = TRUE) <= lubridate::year(Sys.Date()),
+  all(yritykset$ika_v >= 0 | is.na(yritykset$ika_v))
+)
+
+glimpse(yritykset)
+```
+
+```{r effect-size-helpers}
+# Epäparametrisen Kruskal-Wallis-testin efektikoko: epsilon^2 = H / (n - 1),
+# joka on välillä [0, 1] ja kertoo, kuinka suuren osan ryhmittely selittää
+# arvojen JÄRJESTYKSEN vaihtelusta. Koko populaatiossa TÄMÄ on pääluku,
+# ei p-arvo. Tulkintarajat Cohenia mukaillen.
+kw_eps2 <- function(kw, n) as.numeric(kw$statistic) / (n - 1)
+tulkitse_eps2 <- function(e) dplyr::case_when(
+  e < 0.01 ~ "mitätön", e < 0.06 ~ "pieni",
+  e < 0.14 ~ "kohtalainen", TRUE ~ "suuri"
+)
+# Kvartiilit ryhmittäin (mediaani + IQR) kuvaajia varten — kevyempi kuin
+# boxplot 800 000 rivillä, ja päättäjälle luettavampi.
+kvartiilit <- function(df, ryhma) {
+  df |>
+    filter(!is.na(ika_v), !is.na({{ ryhma }})) |>
+    group_by({{ ryhma }}) |>
+    summarise(
+      n      = n(),
+      ka     = mean(ika_v),
+      med    = median(ika_v),
+      q25    = quantile(ika_v, 0.25),
+      q75    = quantile(ika_v, 0.75),
+      .groups = "drop"
+    )
+}
+```
+
+## Mitä jakaumista paljastuu?
+
+### 1. Yhtiömuotojen jakauma ei ole tasainen — eikä sen kuulukaan olla
+
+```{r company-forms}
+muodot <- yritykset |>
+  count(company_form, sort = TRUE) |>
+  filter(!is.na(company_form)) |>
+  slice_head(n = 8) |>
+  mutate(osuus = n / sum(n))
+
+ggplot(muodot, aes(x = reorder(company_form, n), y = n)) +
+  geom_col(fill = kvar_palette[["teal"]]) +
+  geom_text(aes(label = scales::percent(osuus, accuracy = 0.1)),
+            hjust = -0.1, color = "#8b949e", size = 3.5) +
+  coord_flip() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Osakeyhtiö hallitsee — mutta hännät kertovat tarinan",
+    subtitle = "Yhtiömuotojen jakauma koko kaupparekisterissä",
+    x = NULL, y = "Yritysten lukumäärä",
+    caption = "Lähde: PRH avoin data (YTJ), CC BY 4.0"
+  )
+```
+
+Osakeyhtiö dominoi, kuten odottaa saattaa. Mutta päättäjän kannalta
+kiinnostavaa on **häntä** — ja vielä enemmän se, että nämä yhtiömuodot
+elävät hyvin eri-ikäisinä. Siihen pureudumme kohta.
+
+### 2. Yrityskannan ikä on vino jakauma, ei keskiarvo
+
+```{r age-distribution}
+p_hist <- ggplot(filter(yritykset, !is.na(ika_v)), aes(x = ika_v)) +
+  geom_histogram(binwidth = 2, fill = kvar_palette[["blue"]], color = kvar_palette[["dark"]]) +
+  geom_vline(aes(xintercept = median(ika_v, na.rm = TRUE)), color = kvar_palette[["red"]],
+             linetype = "dashed", linewidth = 1) +
+  geom_vline(aes(xintercept = mean(ika_v, na.rm = TRUE)), color = kvar_palette[["orange"]],
+             linetype = "dotted", linewidth = 1) +
+  labs(
+    title = "Yrityskannan ikä on oikealle vino",
+    subtitle = "Punainen katkoviiva = mediaani, oranssi pisteviiva = keskiarvo",
+    x = "Yrityksen ikä (vuotta)", y = "Lukumäärä"
+  )
+p_hist
+```
+
+Tässä on koko sarjan ydinajatus yhdessä kuvassa. Jos joku sanoo
+*"suomalaisen yrityksen keski-ikä on `r round(mean(ika$ika_v))` vuotta"*, hän puhuu oranssista
+viivasta. Jakauma on kuitenkin **oikealle vino**: valtaosa yrityksistä on
+nuoria, ja pieni joukko hyvin vanhoja venyttää keskiarvoa. Mediaani
+(punainen) kuvaa todellisuutta paremmin. Maailma on jakauma — ei piste.
+
+Koska jakauma on näin vino, kaikissa seuraavissa ryhmävertailuissa
+raportoimme **sekä keskiarvon että mediaanin** — ja testaamme erot
+menetelmällä, joka ei oleta normaalijakaumaa.
+
+> **Metodihuomio: miksi efektikoko, ei p-arvo?** Tämä aineisto on koko
+> kaupparekisteri — emme tee otoksesta päätelmää suurempaan joukkoon, vaan
+> meillä *on* koko joukko. Klassinen p-arvo kysyy "voisiko ero johtua
+> otantasattumasta?", mutta otantaa ei ole. Kun n on satojatuhansia,
+> p-arvo painuu nollaan lähes millä tahansa erolla, eikä se siksi kerro
+> mitään päätöksenteon kannalta. Siksi jokaisen testin **pääluku on
+> efektikoko** (kuinka suuri ero on), ei merkitsevyys (onko ero olemassa).
+> Tämä on "maailma on jakauma" -ajattelun terävin käytännön sovellus.
+
+### 3. Ikä yhtiömuodoittain: eivät elä yhtä kauan
+
+```{r age-by-form}
+top_muodot <- yritykset |> count(company_form, sort = TRUE) |>
+  filter(!is.na(company_form)) |> slice_head(n = 6) |> pull(company_form)
+
+ika_muoto <- kvartiilit(filter(yritykset, company_form %in% top_muodot), company_form)
+
+ggplot(ika_muoto, aes(x = reorder(company_form, med))) +
+  geom_linerange(aes(ymin = q25, ymax = q75), color = kvar_palette[["blue"]], linewidth = 6, alpha = 0.5) +
+  geom_point(aes(y = med), color = kvar_palette[["red"]], size = 3) +
+  geom_point(aes(y = ka), color = kvar_palette[["orange"]], shape = 18, size = 3) +
+  coord_flip() +
+  labs(
+    title = "Eri yhtiömuodot elävät eri-ikäisinä",
+    subtitle = "Palkki = keskimmäinen 50 % (IQR),\n punainen = mediaani, oranssi vinoneliö = keskiarvo",
+    x = NULL, y = "Ikä (vuotta)",
+    caption = "Lähde: PRH avoin data (YTJ), CC BY 4.0"
+  )
+```
+
+```{r age-by-form-test}
+d_muoto <- yritykset |> filter(company_form %in% top_muodot, !is.na(ika_v))
+kw_muoto <- kruskal.test(ika_v ~ company_form, data = d_muoto)
+e_muoto  <- kw_eps2(kw_muoto, nrow(d_muoto))
+
+ika_muoto |>
+  arrange(desc(med)) |>
+  transmute(Yhtiömuoto = company_form, n,
+            `Keskiarvo (v)` = round(ka, 1), `Mediaani (v)` = round(med, 1),
+            `IQR (v)` = paste0(round(q25, 1), "–", round(q75, 1))) |>
+  knitr::kable()
+```
+
+> **Päättäjälle: miksi Kruskal–Wallis eikä ANOVA?** Ikä on rajusti
+> vino, joten keskiarvoja vertaileva varianssianalyysi (ANOVA) antaisi
+> harhaisen kuvan. Kruskal–Wallis vertailee jakaumien **järjestyslukuja**
+> eikä oleta normaalisuutta — se kysyy yksinkertaisesti, ovatko toiset
+> ryhmät systemaattisesti vanhempia kuin toiset. Tulos:
+> `r sprintf("epsilon\u00B2 = %.3f (%s ero)", e_muoto, tulkitse_eps2(e_muoto))`.
+> P-arvo on käytännössä nolla, mutta se on koko populaatiossa
+> merkityksetöntä; **efektikoko** kertoo, kannattaako ero huomioida.
+
+### 4. Ikä alueittain: missä yrityskanta on vanhinta?
+
+```{r age-by-region}
+isot_kunnat <- yritykset |> count(location, sort = TRUE) |>
+  filter(!is.na(location)) |> slice_head(n = 18) |> pull(location)
+
+ika_kunta <- kvartiilit(filter(yritykset, location %in% isot_kunnat), location)
+
+ggplot(ika_kunta, aes(x = reorder(location, med), y = med)) +
+  geom_segment(aes(xend = location, y = 0, yend = med),
+                linewidth = 0.6) +
+  geom_point(color = kvar_palette[["teal"]], size = 3) +
+  coord_flip() +
+  labs(
+    title = "Yrityskannan mediaani-ikä vaihtelee kunnittain",
+    subtitle = "18 suurinta kuntaa kotipaikan mukaan",
+    x = NULL, y = "Mediaani-ikä (vuotta)",
+    caption = "Lähde: PRH avoin data (YTJ), CC BY 4.0"
+  )
+```
+
+```{r age-by-region-test}
+d_kunta <- yritykset |> filter(location %in% isot_kunnat, !is.na(ika_v))
+kw_kunta <- kruskal.test(ika_v ~ location, data = d_kunta)
+e_kunta  <- kw_eps2(kw_kunta, nrow(d_kunta))
+
+tibble(
+  testi    = "Kruskal–Wallis: ikä × kunta (18 suurinta)",
+  n        = nrow(d_kunta),
+  p_arvo   = format.pval(kw_kunta$p.value, digits = 3),
+  epsilon2 = round(e_kunta, 4),
+  tulkinta = tulkitse_eps2(e_kunta)
+) |> knitr::kable()
+```
+
+Alue-erot ovat olemassa mutta efektikooltaan tyypillisesti pieniä: kunta
+selittää vain murto-osan ikävaihtelusta. Tämä on tärkeä, päättäjille usein
+yllättävä tulos — *yrityksen ikää ei juuri ennusta se, missä se sijaitsee.*
+Mikä sitten ennustaa? Toimiala.
+
+### 5. Ikä toimialoittain: mitkä alat "ikääntyvät"?
+
+```{r age-by-industry}
+top_toimialat <- yritykset |> count(main_line, sort = TRUE) |>
+  filter(!is.na(main_line)) |> slice_head(n = 15) |> pull(main_line)
+
+ika_ala <- kvartiilit(filter(yritykset, main_line %in% top_toimialat), main_line) |>
+  mutate(main_line_lyh = str_trunc(main_line, 38))
+
+ggplot(ika_ala, aes(x = reorder(main_line_lyh, med))) +
+  geom_linerange(aes(ymin = q25, ymax = q75), color = kvar_palette[["blue"]], linewidth = 5, alpha = 0.5) +
+  geom_point(aes(y = med), color = kvar_palette[["red"]], size = 2.5) +
+  coord_flip() +
+  labs(
+    title = "Toimiala ennustaa ikää selvemmin kuin sijainti",
+    subtitle = "15 yleisintä toimialaa; \n palkki = IQR, punainen = mediaani",
+    x = NULL, y = "Ikä (vuotta)",
+    caption = "Lähde: PRH avoin data (YTJ), CC BY 4.0"
+  )
+```
+
+```{r age-by-industry-test}
+d_ala <- yritykset |> filter(main_line %in% top_toimialat, !is.na(ika_v))
+kw_ala <- kruskal.test(ika_v ~ main_line, data = d_ala)
+e_ala  <- kw_eps2(kw_ala, nrow(d_ala))
+
+ika_ala |>
+  arrange(desc(med)) |>
+  transmute(Toimiala = str_trunc(main_line, 45), n,
+            `Mediaani-ikä (v)` = round(med, 1)) |>
+  slice(c(1:3, (n()-2):n())) |>   # 3 vanhinta ja 3 nuorinta
+  knitr::kable()
+```
+
+> **Päättäjälle.** Vertaa efektikokoja: toimiala
+> (`r sprintf("\u03B5\u00B2 = %.3f", e_ala)`) selittää ikävaihtelusta
+> selvästi enemmän kuin kunta (`r sprintf("\u03B5\u00B2 = %.3f", e_kunta)`).
+> Käytännön viesti: jos haluat arvioida yrityskannan kypsyyttä, kysy
+> *mitä alaa* — älä *missä päin Suomea*. Vanhimmat alat ovat tyypillisesti
+> pääomavaltaisia ja vakaita; nuorimmat ovat matalan aloituskynnyksen
+> palvelualoja, joilla vaihtuvuus on suurta. Tämä vaihtuvuus on osan 5
+> konkurssiennustemallin ydintä.
+
+### 6. Dominoivatko tietyt yhtiömuodot tiettyjä toimialoja?
+
+Tässä on osan yllättävin yhdistelmä. Sen sijaan että katsoisimme
+yhtiömuotoja ja toimialoja erikseen, kysymme: **mitkä yhtiömuodon ja
+toimialan parit esiintyvät paljon useammin (tai harvemmin) kuin sattuma
+antaisi olettaa?** Työkalu on khiin neliö, mutta kiinnostava ei ole sen
+p-arvo vaan **standardoidut jäännökset**: kuinka monta keskihajontaa kunkin
+ruudun havaittu määrä poikkeaa odotetusta.
+
+```{r form-industry-heatmap}
+muodot6 <- yritykset |> count(company_form, sort = TRUE) |>
+  filter(!is.na(company_form)) |> slice_head(n = 6) |> pull(company_form)
+alat10  <- yritykset |> count(main_line, sort = TRUE) |>
+  filter(!is.na(main_line)) |> slice_head(n = 10) |> pull(main_line)
+
+risti <- yritykset |>
+  filter(company_form %in% muodot6, main_line %in% alat10) |>
+  count(company_form, main_line) |>
+  pivot_wider(names_from = company_form, values_from = n, values_fill = 0) |>
+  column_to_rownames("main_line") |>
+  as.matrix()
+
+khii   <- chisq.test(risti)
+stopifnot(mean(khii$expected < 5) < 0.20)   # khiin neliön luotettavuusehto
+cramer <- sqrt(as.numeric(khii$statistic) / (sum(risti) * (min(dim(risti)) - 1)))
+
+# Standardoidut jäännökset pitkään muotoon
+jaannos <- as.data.frame(as.table(khii$stdres)) |>
+  setNames(c("toimiala", "muoto", "stdres")) |>
+  mutate(toimiala = str_trunc(as.character(toimiala), 34))
+
+ggplot(jaannos, aes(muoto, toimiala, fill = stdres)) +
+  geom_tile(color = kvar_palette[["dark"]]) +
+  geom_text(aes(label = round(stdres, 0)), size = 3, color = "#0d1117") +
+  scale_fill_gradient2(low = kvar_palette[["blue"]], mid = "#e8e8e8",
+                       high = kvar_palette[["red"]], midpoint = 0, name = "Std.\njäännös") +
+  labs(
+    title = "Mitkä yhtiömuodot dominoivat mitä toimialoja?",
+    subtitle = sprintf("Punainen = yliedustus,\n sininen = aliedustus (Cramérin V = %.2f)", cramer),
+    x = "Yhtiömuoto", y = NULL,
+    caption = "Standardoitu jäännös > +2 = vahva yliedustus. \n Lähde: PRH avoin data, CC BY 4.0"
+  ) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+> **Päättäjälle: miten tämä luetaan?** Punainen ruutu tarkoittaa, että
+> kyseinen yhtiömuoto on tällä toimialalla *paljon yleisempi* kuin jos
+> muoto ja ala olisivat riippumattomia; sininen tarkoittaa päinvastaista.
+> Arvo on keskihajontoja: yli +2 on vahva signaali. Esimerkiksi
+> asunto-osakeyhtiöt kasautuvat kiinteistöalalle ja kommandiittiyhtiöt
+> tiettyihin perinteisiin palveluihin — kun taas osakeyhtiö on
+> "yleismuoto", joka ei juuri poikkea odotetusta. Tämä kartta on
+> liiketoiminnallisesti arvokas: se kertoo, missä yhtiömuoto itsessään on
+> toimialan signaali.
+
+## Bayesilainen näkökulma: epävarmuus palaa, kun viipale ohenee
+
+Voisi luulla, että koko populaation kanssa epävarmuutta ei ole — kaikki
+yritykset ovat mukana. Mutta heti kun **viipaloimme aineiston ohueksi**
+(pieni kunta, harvinainen yhtiömuoto), havaintoja on taas vähän ja
+epävarmuus palaa. Tämä on tärkeää: useimmat liiketoimintakysymykset
+koskevat juuri ohuita viipaleita, ei koko maata.
+
+Otetaan pieni kunta ja kysytään: **mikä osuus sen yrityksistä on
+osakeyhtiöitä?** Lasketaan osuudelle posteriori Beta-Binomi-mallilla
+(heikko priori Beta(1,1)).
+
+```{r bayes-proportion}
+# Valitaan tarkoituksella pieni kunta, jossa otos on rajallinen
+pienet <- yritykset |>
+  filter(!is.na(location), !is.na(company_form_code)) |>
+  count(location) |>
+  filter(n >= 20, n <= 80) |>
+  slice_sample(n = 1)
+kunta_valinta <- pienet$location
+
+d <- yritykset |> filter(location == kunta_valinta, !is.na(company_form_code))
+k <- sum(d$company_form_code == "OY")   # onnistumiset
+n <- nrow(d)                            # kokeet
+stopifnot(n > 0, k <= n)
+
+post <- tibble(p = seq(0, 1, length.out = 1000)) |>
+  mutate(tiheys = dbeta(p, 1 + k, 1 + n - k))
+ci <- qbeta(c(0.025, 0.975), 1 + k, 1 + n - k)
+
+ggplot(post, aes(p, tiheys)) +
+  geom_area(data = filter(post, p >= ci[1], p <= ci[2]),
+            fill = kvar_palette[["teal"]], alpha = 0.4) +
+  geom_line(color = kvar_palette[["teal"]], linewidth = 1) +
+  geom_vline(xintercept = k / n, color = kvar_palette[["red"]], linetype = "dashed") +
+  labs(
+    title = paste0("Osakeyhtiöiden osuus: ", kunta_valinta, " (n = ", n, ")"),
+    subtitle = sprintf("Posteriori, 95 %% uskottavuusväli [%.1f %%, %.1f %%]",
+                       100 * ci[1], 100 * ci[2]),
+    x = "Osakeyhtiöiden osuus", y = "Posterioritiheys"
+  )
+```
+
+Punainen viiva on pisteluku (`k/n`). Vihreä jakauma kertoo, kuinka paljon
+todellinen osuus voi siitä poiketa pienen viipaleen vuoksi. Sama kuva
+Helsingille olisi käytännössä pystysuora viiva. Opetus: koko populaatio ei
+poista epävarmuutta — se vain siirtää sen sinne, missä dataa on vähän, ja
+juuri siellä bayesilainen ote on arvokkain.
+
+## Yhteenveto ja seuraava osa
+
+Palataan uutiskytkimeen. *"Suomeen perustettiin X yritystä"* on pisteluku,
+joka kätkee useita jakaumia. Pelkkä perustietorajapinta paljastaa, että:
+
+- yrityskannan ikä on rajusti oikealle vino — mediaani, ei keskiarvo, kuvaa
+  "tyypillistä" yritystä;
+- yhtiömuodot elävät eri-ikäisinä, ja erot ovat efektikooltaan merkittäviä;
+- **sijainti ennustaa ikää heikosti, mutta toimiala selvästi** — päättäjälle
+  vastoin intuitiota tärkeä havainto;
+- tietyt yhtiömuodot dominoivat tiettyjä toimialoja niin voimakkaasti, että
+  yhtiömuoto on itsessään toimialan signaali.
+
+Ja metodologisesti: koko populaation kanssa "tilastollisesti merkitsevä" on
+tyhjä lause. Efektikoko on ainoa rehellinen pääluku — ja ohuissa
+viipaleissa bayesilainen epävarmuus palaa kuvaan.
+
+**Osassa 2** sukellamme rekisteröityjen ilmoitusten rajapintaan: ei siihen
+*mitä* yritykset ovat, vaan *mitä ne tekevät* — nimenvaihdokset,
+osoitemuutokset, tilintarkastajan poistot. Sieltä alkaa paljastua
+käyttäytymisen sormenjälki, jolla osassa 5 ennustamme yrityksen kohtaloa.
+
+---
+
+*Tarvitsetko organisaatiollesi kykyä lukea avointa dataa jakaumina —
+ei pistelukuina? Autan pk-yrityksiä ja julkishallintoa rakentamaan
+päätöksiä tukevaa analytiikkaa, ja otan vastaan vuokrattavan Head of Data
+-toimeksiantoja. [kristianvepsalainen.com](https://www.kristianvepsalainen.com)*

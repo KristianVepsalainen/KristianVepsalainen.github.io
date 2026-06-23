@@ -1,6 +1,6 @@
 ---
 title: "Juhannussää on jakauma — ei pistearvo"
-date: "2025-06-19"
+date: "2026-06-19"
 categories: [sää, bayesläinen tilastotiede, FMI, avoin data]
 description: |
   Jokainen suomalainen osaa ennustaa juhannussään: "taas sataa". Mutta mitä 

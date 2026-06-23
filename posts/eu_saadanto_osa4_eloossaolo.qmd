@@ -1,5 +1,5 @@
 ---
-title: "EU:n lainsäädäntö jakaumana — Osa 4: Eloonjäämisanalyysi"
+title: "EU:n lainsäädäntö jakaumana — Osa 5: Eloonjäämisanalyysi"
 subtitle: "Kuinka kauan EU-säädös elää? Kaplan-Meier ja Cox-regressio paljastavat, mitä ikäjakauma piilottaa."
 author: "Kristian Vepsäläinen"
 date: 2026-6-18

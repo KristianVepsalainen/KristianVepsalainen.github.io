@@ -136,7 +136,8 @@ jobs:
             "brms",
             "stan-dev/cmdstanr",
             "remotes",
-            "GlobalFishingWatch/gfwr"
+            "GlobalFishingWatch/gfwr", 
+            "qs2" 
           ))
 
         shell: Rscript {0}

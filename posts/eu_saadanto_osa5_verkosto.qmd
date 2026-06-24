@@ -1,0 +1,490 @@
+---
+title: "EU:n lainsäädäntö jakaumana — Osa 5: Säädösten viittausverkosto"
+subtitle: "Mitkä säädökset ovat EU-oikeuden solmupisteitä? Verkostoanalyysi paljastaa juridiset riippuvuudet, joita ei voi nähdä yksittäistä säädöstä lukemalla."
+author: "Kristian Vepsäläinen"
+date: 2026-06-25
+draft: true
+lang: fi
+format:
+  html:
+    fig-width: 9
+    fig-height: 7
+    fig-dpi: 150
+    embed-resources: true
+    code-summary: "Näytä koodi"
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r setup}
+library(tidyverse)
+library(here)
+library(lubridate)
+library(scales)
+library(ggtext)
+library(igraph)
+library(tidygraph)
+library(ggraph)
+#library(eurlex)
+
+col_red    <- "#e63946"
+col_green  <- "#2a9d8f"
+col_orange <- "#f4a261"
+col_navy   <- "#1d3557"
+col_blue   <- "#457b9d"
+col_purple <- "#6d597a"
+
+theme_set(
+  theme_minimal(base_size = 14) +
+    theme(
+      plot.title       = element_markdown(face = "bold", size = 15),
+      plot.subtitle    = element_markdown(color = "grey40"),
+      plot.caption     = element_text(color = "grey55", size = 9),
+      axis.title       = element_text(color = "grey30"),
+      panel.grid.minor = element_blank()
+    )
+)
+```
+
+## Verkosto on jakauma — keskeisyyskin on jakauma
+
+EU-oikeuden julkisessa keskustelussa puhutaan yksittäisistä säädöksistä.
+GDPR. NIS2. AI Act. Jokainen niistä esitetään itsenäisenä kokonaisuutena —
+ikään kuin se olisi syntynyt tyhjiöön.
+
+Todellisuudessa EU-lainsäädäntö on **verkosto**. Säädökset viittaavat
+toisiinsa, muuttavat toisiaan, nojaavat toistensa määritelmiin. Jotkut
+säädökset ovat verkoston solmupisteitä (*hubs*): jos ne kumotaan tai
+muuttuvat, kymmenien muiden säädösten tulkinta muuttuu samalla.
+
+Tämä on "maailma on jakauma" -teeman ydin: **keskeisyyskään ei ole
+pistemäinen ominaisuus**. Se on jakauma. Useimmat säädökset ovat verkoston
+reunoilla — harva on solmupisteessä. Jakauman häntä on se, mikä kiinnostaa.
+
+---
+
+## Datan haku: `include_citations`
+
+Aiemmissa sarjan osissa havaitsimme että `include_lbs = TRUE` hakee
+oikeusperustan (Treaty-artiklaviittaukset UUID-muodossa) — ei säädösviittauksia.
+Verkostoanalyysiin tarvitaan `include_citations = TRUE`, joka palauttaa
+suorat viittaukset toisiin säädöksiin CELEX-muodossa.
+
+```{r hae_viittausdata}
+#| cache: false
+cit_path  <- here("data/eu/eu_citations_raw.rds")
+base_path <- here("data/eu/eu_saadanto_raw.rds")
+
+if (!file.exists(base_path)) {
+  stop("Aja ensin osa 1: ", base_path, " puuttuu.")
+}
+raw_base <- readRDS(base_path)
+message("Perustilastot ladattu: ", nrow(raw_base), " riviä")
+
+if (!file.exists(cit_path)) {
+  message("Haetaan viittausdata EUR-Lexistä (include_citations = TRUE)...")
+  message("Huomio: haku voi kestää useita minuutteja.")
+
+  tyypit <- c("regulation", "directive", "decision")
+
+  hae_viittaukset <- function(tyyppi) {
+    message("  → ", tyyppi)
+    tulos <- elx_make_query(
+      resource_type     = tyyppi,
+      include_date      = TRUE,
+      include_celex     = TRUE,
+      include_citations = TRUE
+    ) |> elx_run_query() |>
+      mutate(resource_type = tyyppi)
+
+    cat(tyyppi, ":", nrow(tulos), "riviä —",
+        if (nrow(tulos) == 1e6) "*** RAJA OSUI ***\n" else "ok\n")
+    tulos
+  }
+
+  raw_cit <- map(tyypit, hae_viittaukset) |> bind_rows()
+  dir.create(dirname(cit_path), showWarnings = FALSE, recursive = TRUE)
+  saveRDS(raw_cit, cit_path)
+  message("Tallennettu: ", nrow(raw_cit), " riviä → ", cit_path)
+
+} else {
+  raw_cit <- readRDS(cit_path)
+  message("Ladattu tiedostosta: ", nrow(raw_cit), " riviä")
+}
+
+# Tarkistetaan sarakkeet
+cat("Sarakkeet:", paste(names(raw_cit), collapse = ", "), "\n")
+cat("Rivejä yhteensä:", nrow(raw_cit), "\n\n")
+
+# Katsotaan miltä citations-data näyttää
+cat("Esimerkki viittausdatasta:\n")
+raw_cit |>
+  filter(!is.na(citationcelex)) |>
+  select(celex, citationcelex) |>
+  slice_head(n = 5) |>
+  print()
+```
+
+```{r siivoa_viittaukset}
+# Poimitaan CELEX-numero citations-sarakkeesta
+# Rakenne voi olla URI-muoto: http://...celex/32024R0903
+# tai suoraan CELEX: 32024R0903
+# str_extract tunnistaa molemmat
+
+reunat_raw <- raw_cit |>
+  filter(!is.na(celex), !is.na(citationcelex)) |>
+  mutate(
+    lahde = celex,
+    # Ensin yritetään poimia URI:n lopusta
+    kohde = coalesce(
+      str_extract(citationcelex, "(?<=celex/)[A-Z0-9]+"),
+      # Jos ei URI-muoto, yritetään suoraa CELEX-muotoa
+      str_extract(citationcelex, "^[0-9]{5}[A-Z][0-9]+$")
+    )
+  ) |>
+  filter(
+    !is.na(kohde),
+    lahde != kohde,           # ei itseen viittaavia silmukoita
+    nchar(kohde) >= 5,        # poistetaan liian lyhyet
+    nchar(kohde) <= 20        # poistetaan liian pitkät
+  ) |>
+  select(lahde, kohde) |>
+  distinct()
+
+cat("Viittauspareja (reunoja):", nrow(reunat_raw), "\n")
+cat("Uniikkeja lähdesäädöksiä:", n_distinct(reunat_raw$lahde), "\n")
+cat("Uniikkeja kohdesäädöksiä:", n_distinct(reunat_raw$kohde), "\n\n")
+
+# Tarkistetaan että kohteet näyttävät oikeilta CELEX-numeroilta
+cat("Esimerkkejä kohde-CELEX:eistä:\n")
+head(reunat_raw$kohde, 10)
+```
+
+```{r diagnostiikka}
+# Viittausten jakauma per säädös
+cat("Viittauksia per lähdesäädös (lähtevä aste):\n")
+reunat_raw |>
+  count(lahde, name = "viittauksia") |>
+  pull(viittauksia) |>
+  summary() |>
+  print()
+
+cat("\nViittauksia per kohdesäädös (saapuva aste):\n")
+reunat_raw |>
+  count(kohde, name = "viittauksia") |>
+  pull(viittauksia) |>
+  summary() |>
+  print()
+```
+
+---
+
+## Verkostorakenne
+
+```{r rakenna_verkosto}
+# Solmumeta perustilastoista
+solmut_meta <- raw_base |>
+  filter(!is.na(celex), !is.na(date)) |>
+  mutate(
+    date         = as.Date(date),
+    vuosi        = year(date),
+    saadostyyppi = case_when(
+      resource_type == "regulation"     ~ "Asetus",
+      resource_type == "directive"      ~ "Direktiivi",
+      resource_type == "decision"       ~ "Päätös",
+      resource_type == "recommendation" ~ "Suositus",
+      TRUE                              ~ "Muu"
+    )
+  ) |>
+  select(celex, saadostyyppi, vuosi) |>
+  distinct(celex, .keep_all = TRUE)
+
+# Kaikki uniikkit solmut
+solmut_celex <- union(reunat_raw$lahde, reunat_raw$kohde)
+
+# Rakennetaan igraph suoraan — luotettavampi kuin tidygraph-muunnos
+g_igraph <- graph_from_data_frame(
+  d = reunat_raw |> rename(from = lahde, to = kohde),
+  directed = TRUE,
+  vertices = tibble(name = solmut_celex) |>
+    left_join(solmut_meta, by = c("name" = "celex"))
+)
+
+cat("Verkosto rakennettu:\n")
+cat("  Solmuja:", vcount(g_igraph), "\n")
+cat("  Reunoja:", ecount(g_igraph), "\n")
+cat("  Tiheys:", round(edge_density(g_igraph), 6), "\n")
+cat("  Solmuattribuutit:", paste(vertex_attr_names(g_igraph), collapse = ", "), "\n")
+```
+
+```{r laske_keskeisyydet}
+cat("Lasketaan keskeisyysmitat...\n")
+
+indegree    <- degree(g_igraph, mode = "in")
+outdegree   <- degree(g_igraph, mode = "out")
+pagerank    <- page_rank(g_igraph, directed = TRUE)$vector
+betweenness <- betweenness(g_igraph, directed = TRUE, normalized = TRUE)
+
+# Kootaan — V(g_igraph)$name on nyt luotettava koska
+# rakensimme igraphin graph_from_data_frame:lla
+solmut_df <- tibble(
+  celex       = V(g_igraph)$name,
+  indegree    = indegree,
+  outdegree   = outdegree,
+  pagerank    = pagerank,
+  betweenness = betweenness
+) |>
+  left_join(solmut_meta, by = "celex") |>
+  arrange(desc(indegree))
+
+cat("Top 10 saapuvan asteen mukaan:\n")
+solmut_df |>
+  slice_head(n = 10) |>
+  select(celex, saadostyyppi, vuosi, indegree, pagerank) |>
+  mutate(pagerank = round(pagerank, 5)) |>
+  print()
+```
+
+---
+
+## Analyysi 1: Keskeisyysjakaumat — potenssilaki?
+
+```{r fig_aste_jakauma}
+#| fig-cap: "Saapuvan asteen jakauma log-log-asteikolla ja PageRank-jakauma. Suora linja log-log-kuvassa viittaa potenssilakijakaumaan."
+
+indegree_dist <- solmut_df |>
+  count(indegree, name = "n_acts") |>
+  filter(indegree > 0)
+
+p1 <- ggplot(indegree_dist, aes(indegree, n_acts)) +
+  geom_point(color = col_navy, alpha = 0.5, size = 1.5) +
+  geom_smooth(method = "lm", se = TRUE,
+              color = col_red, fill = col_red, alpha = 0.15) +
+  scale_x_log10(labels = comma_format()) +
+  scale_y_log10(labels = comma_format()) +
+  labs(
+    title    = "**Saapuvan asteen jakauma** (log-log)",
+    subtitle = "Suora viiva = potenssilaki. Harvoilla säädöksillä äärimmäisen paljon viittauksia.",
+    x = "Saapuva aste (log)", y = "Lukumäärä (log)"
+  )
+
+p2 <- solmut_df |>
+  filter(pagerank > 0) |>
+  ggplot(aes(pagerank)) +
+  geom_histogram(aes(y = after_stat(density)),
+                 bins = 60, fill = col_blue,
+                 alpha = 0.7, color = "white") +
+  geom_density(color = col_red, linewidth = 1.0) +
+  scale_x_log10(labels = scientific_format()) +
+  labs(
+    title    = "**PageRank-jakauma** (log-asteikko)",
+    subtitle = "Äärimmäisen vino oikealle — solmupisteet erottuvat selvästi massasta",
+    x = "PageRank (log)", y = "Tiheys",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+
+p1 / p2
+```
+
+```{r fig_keskeisyys_tyypeittain}
+#| fig-cap: "PageRank-jakauma säädöstyypeittäin."
+
+solmut_df |>
+  filter(!is.na(saadostyyppi), saadostyyppi != "Muu", pagerank > 0) |>
+  ggplot(aes(pagerank, fill = saadostyyppi, color = saadostyyppi)) +
+  geom_density(alpha = 0.35, linewidth = 0.8) +
+  scale_fill_manual(values  = c(col_red, col_green, col_blue, col_orange)) +
+  scale_color_manual(values = c(col_red, col_green, col_blue, col_orange)) +
+  scale_x_log10(labels = scientific_format()) +
+  labs(
+    title    = "**PageRank-jakauma säädöstyypeittäin**",
+    subtitle = "Oikealla häntä = solmupisteet. Mikä tyyppi tuottaa eniten solmupisteitä?",
+    x = "PageRank (log)", y = "Tiheys",
+    fill = NULL, color = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+---
+
+## Analyysi 2: Solmupisteet — EU-oikeuden peruskivet
+
+```{r fig_top_solmupisteet}
+#| fig-cap: "Top 20 säädöstä PageRankin mukaan."
+
+top20 <- solmut_df |>
+  arrange(desc(pagerank)) |>
+  slice_head(n = 20) |>
+  mutate(pagerank_norm = pagerank / max(pagerank))
+
+top20 |>
+  mutate(celex = fct_reorder(celex, pagerank)) |>
+  ggplot(aes(pagerank_norm, celex, fill = saadostyyppi)) +
+  geom_col(show.legend = TRUE, width = 0.75) +
+  geom_text(
+    aes(label = paste0(
+      if_else(!is.na(vuosi), as.character(vuosi), "?"),
+      " · ",
+      if_else(!is.na(saadostyyppi), saadostyyppi, "?")
+    )),
+    hjust = -0.05, size = 3.0
+  ) +
+  scale_fill_manual(values = c(col_red, col_green, col_blue,
+                               col_orange, col_navy),
+                    na.value = "grey60") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.35)),
+                     labels = percent_format()) +
+  labs(
+    title    = "**EU-oikeuden solmupisteet** — top 20 PageRankin mukaan",
+    subtitle = "100 % = suurin PageRank verkostossa. Nämä säädökset ovat muiden perusta.",
+    x = "Suhteellinen PageRank", y = NULL, fill = NULL,
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme(legend.position = "top")
+```
+
+---
+
+## Analyysi 3: Verkostovisualisointi — ytimen rakenne
+
+```{r rakenna_ydinverkosto}
+kynnys_95 <- quantile(solmut_df$indegree, 0.95, na.rm = TRUE)
+cat("95. persentiili indegree:", kynnys_95, "\n")
+
+ydin_celex <- solmut_df |>
+  filter(indegree >= kynnys_95) |>
+  pull(celex)
+
+cat("Ydinsolmuja:", length(ydin_celex), "\n")
+
+g_ydin <- induced_subgraph(
+  g_igraph,
+  vids = which(V(g_igraph)$name %in% ydin_celex)
+)
+
+cat("Ydinverkoston solmuja:", vcount(g_ydin), "\n")
+cat("Ydinverkoston reunoja:", ecount(g_ydin), "\n")
+```
+
+```{r fig_ydinverkosto}
+#| fig-cap: "EU-oikeuden ydinverkosto — top 5 % indegree-asteen mukaan. Solmun koko = PageRank. Väri = säädöstyyppi."
+#| fig-height: 9
+
+pagerank_ydin <- page_rank(g_ydin, directed = TRUE)$vector
+
+g_ydin_tidy <- as_tbl_graph(g_ydin) |>
+  mutate(
+    pagerank = pagerank_ydin,
+    etiketti = if_else(
+      pagerank >= quantile(pagerank_ydin, 0.90, na.rm = TRUE),
+      name,
+      NA_character_
+    )
+  )
+
+set.seed(42)
+ggraph(g_ydin_tidy, layout = "fr") +
+  geom_edge_arc(
+    aes(alpha = after_stat(index)),
+    color       = "grey70",
+    linewidth   = 0.3,
+    show.legend = FALSE
+  ) +
+  geom_node_point(
+    aes(size = pagerank,
+        color = saadostyyppi),
+    alpha = 0.85
+  ) +
+  geom_node_text(
+    aes(label = etiketti),
+    size         = 2.8,
+    repel        = TRUE,
+    max.overlaps = 20,
+    color        = col_navy,
+    na.rm        = TRUE
+  ) +
+  scale_color_manual(
+    values   = c(col_red, col_green, col_blue, col_orange, col_navy),
+    na.value = "grey60"
+  ) +
+  scale_size_continuous(range = c(1.5, 8), guide = "none") +
+  scale_edge_alpha(range = c(0.05, 0.3), guide = "none") +
+  labs(
+    title    = "**EU-oikeuden ydinverkosto** — top 5 % keskeisyyden mukaan",
+    subtitle = "Solmun koko = PageRank. Etiketti = kaikkein keskeisimmät säädökset.",
+    color    = NULL,
+    caption  = "Layout: Fruchterman-Reingold. Lähde: EUR-Lex SPARQL via eurlex (R).\nKristian Vepsäläinen / kristianvepsalainen.com"
+  ) +
+  theme_graph(base_family = "sans", base_size = 12) +
+  theme(
+    plot.title      = element_markdown(face = "bold", size = 15),
+    plot.subtitle   = element_text(color = "grey40"),
+    plot.caption    = element_text(color = "grey55", size = 9),
+    legend.position = "top"
+  )
+```
+
+---
+
+## Analyysi 4: Keskeisyyden kehitys ajan myötä
+
+```{r fig_keskeisyys_vuosikymmen}
+#| fig-cap: "PageRank-jakauma vuosikymmenittäin — viuludiagrammi paljastaa muodon muutokset."
+
+solmut_df |>
+  filter(!is.na(vuosi), vuosi >= 1960, vuosi <= 2019, pagerank > 0) |>
+  mutate(
+    vuosikymmen = factor(
+      paste0(floor(vuosi / 10) * 10, "-luku"),
+      levels = paste0(seq(1960, 2010, 10), "-luku")
+    )
+  ) |>
+  ggplot(aes(vuosikymmen, pagerank, fill = vuosikymmen)) +
+  geom_violin(alpha = 0.65, color = "white", show.legend = FALSE) +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA,
+               color = "grey30", show.legend = FALSE) +
+  scale_fill_manual(values = c(col_navy, col_blue, col_green,
+                               col_orange, col_red, col_purple)) +
+  scale_y_log10(labels = scientific_format()) +
+  labs(
+    title    = "**PageRank-jakauma vuosikymmenittäin**",
+    subtitle = "Log-asteikko. Mediaani laskee uudemmissa vuosikymmenissä — uudet säädökset eivät ole ehtineet kerätä viittauksia.",
+    x = NULL, y = "PageRank (log)",
+    caption  = "Lähde: EUR-Lex SPARQL via eurlex (R). Kristian Vepsäläinen / kristianvepsalainen.com"
+  )
+```
+
+---
+
+## Yhteenveto
+
+Tässä sarjan viidennessä osassa rakennettiin EU:n lainsäädännön
+viittausverkosto käyttäen `include_citations = TRUE` -parametria.
+
+Tekninen huomio: `include_lbs` hakee oikeusperustan Treaty-artiklaviittaukset
+UUID-muodossa — ei säädösviittauksia. `include_citations` on oikea parametri
+verkostoanalyysiin.
+
+Verkostorakenne noudattaa potenssilakia: useimmilla säädöksillä on vähän
+viittauksia, harvoilla äärimmäisen paljon. Tällaisessa verkostossa muutama
+solmupiste on kriittinen koko oikeusjärjestelmän kannalta — niiden muuttuminen
+vaikuttaa kaikkiin säädöksiin jotka niihin viittaavat.
+
+---
+
+## Mitä seuraavaksi?
+
+**Osa 6 — EP:n poliittiset voimasuhteet ja säädöstuotanto**
+Vaikuttaako EP:n oikeisto–vasemmisto-painopiste siihen mitä EU lainsäätää?
+ParlGov + EUR-Lex + Bayesilainen regressio.
+
+---
+
+*Kaikki analyysi on toistettavissa. Koodi on avoin.*
+
+*Kiinnostaako verkostoanalyysi omassa liiketoiminnassasi? —
+[kristianvepsalainen.com](https://kristianvepsalainen.com)*

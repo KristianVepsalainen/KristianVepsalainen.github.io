@@ -4,7 +4,6 @@ subtitle: "Mitä kaupparekisterin perustietorajapinta paljastaa, kun lopetetaan 
 author: "Kristian Vepsäläinen"
 date: "2026-06-23"
 categories: [avoin data, YTJ, EDA, R]
-draft: true
 format:
   html:
     toc: true
@@ -206,7 +205,7 @@ p_hist
 ```
 
 Tässä on koko sarjan ydinajatus yhdessä kuvassa. Jos joku sanoo
-*"suomalaisen yrityksen keski-ikä on `r round(mean(ika$ika_v))` vuotta"*, hän puhuu oranssista
+*"suomalaisen yrityksen keski-ikä on 23 vuotta"*, hän puhuu oranssista
 viivasta. Jakauma on kuitenkin **oikealle vino**: valtaosa yrityksistä on
 nuoria, ja pieni joukko hyvin vanhoja venyttää keskiarvoa. Mediaani
 (punainen) kuvaa todellisuutta paremmin. Maailma on jakauma — ei piste.

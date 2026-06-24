@@ -28,6 +28,7 @@ library(ggtext)
 library(igraph)
 library(tidygraph)
 library(ggraph)
+library(patchwork)
 #library(eurlex)
 
 col_red    <- "#e63946"

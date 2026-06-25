@@ -3,7 +3,6 @@ title: "EU:n lainsäädäntö jakaumana — Osa 5: Säädösten viittausverkosto
 subtitle: "Mitkä säädökset ovat EU-oikeuden solmupisteitä? Verkostoanalyysi paljastaa juridiset riippuvuudet, joita ei voi nähdä yksittäistä säädöstä lukemalla."
 author: "Kristian Vepsäläinen"
 date: 2026-06-25
-draft: true
 lang: fi
 format:
   html:

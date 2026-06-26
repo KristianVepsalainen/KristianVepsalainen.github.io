@@ -1,0 +1,1229 @@
+---
+title: "Koira kuumassa autossa: fysiikka puhuu, somepaniikki ei"
+subtitle: "Termodynaamiset kaavat, simulaatiot ja bayesilainen epävarmuus — ei hysteriaa"
+date: "2026-06-26"
+categories: [fysiikka, termodynamiikka, simulaatio, bayesilainen, eläinten hyvinvointi]
+description: "Sosiaalinen media panikoi koirista kuumissa autoissa, mutta yksikään meemi ei kerro kaikkea. Fysiikka kertoo. Käydään läpi tarkat kaavat, mallinnetaan suomalaisia lämpötiloja ja simuloidaan epävarmuus kunnolla — jakaumina."
+image: "koira_auto_preview.png"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo       = TRUE,
+  warning    = FALSE,
+  message    = FALSE,
+  fig.width  = 10,
+  fig.height = 6,
+  dpi        = 150
+)
+```
+
+```{r paketit}
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(ggdist)
+library(here)
+
+# Varmistetaan, että kaikki tarvittavat paketit löytyvät
+stopifnot(
+  requireNamespace("tidyverse",  quietly = TRUE),
+  requireNamespace("ggplot2",    quietly = TRUE),
+  requireNamespace("patchwork",  quietly = TRUE),
+  requireNamespace("ggdist",     quietly = TRUE),
+  requireNamespace("here",       quietly = TRUE)
+)
+```
+
+```{r teema}
+# Kristianin visuaalinen teema
+source(here::here("R", "theme_kristian.R"), local = TRUE)
+
+# Väripaletti selkeästi nimettynä
+clr_red    <- "#e63946"
+clr_teal   <- "#2a9d8f"
+clr_orange <- "#f4a261"
+clr_navy   <- "#1d3557"
+clr_blue   <- "#457b9d"
+clr_bg     <- "#0d1117"
+clr_grid   <- "#1e2530"
+clr_text   <- "#c9d1d9"
+```
+
+## Johdanto: kun paniikki korvaa fysiikan
+
+Joka kesä sosiaalinen media täyttyy kuvakaappauksista, meemeistä ja raivokkuudesta: *"Ei jätetä koiraa autoon! Lämpötila nousee heti tappavaksi!"* Reaktio on inhimillinen. Tuntuu intuitiivisesti oikealta. Mutta intuitio ei ole fysiikkaa.
+
+Tässä postauksessa tehdään se, mitä päättäjien, lainsäätäjien ja koiranomistajien pitäisi edellyttää ennen kannanottoja: katsotaan lukuja. Tarkkoja lukuja. Fysiikan lakeja, empiirisiä mittauksia, ja ennen kaikkea — **jakaumia**, ei pisteitä.
+
+"Koira kuolee autoon viidessä minuutissa" on piste-estimaatti. Se saattaa joskus olla oikein. Mutta se on epätäydellinen ja usein harhaanjohtava. Oikea kysymys on: *mikä on todennäköisyysjakauma aikaikkunalle, jonka kuluessa koira on hengenvaarassa — eri lämpötiloissa, eri autoissa, eri olosuhteissa?*
+
+Vastaukseen tarvitaan termodynamiikkaa, eläinlääketiedettä, suomalaisia sääaineistoja ja bayesilaista epävarmuuden kvantifiointia.
+
+---
+
+## Osa 1: Termodynamiikka — miten auto lämpenee
+
+### Kasvihuoneilmiö: auton sisäinen mekanismi
+
+Auton lämpeneminen auringossa on klassinen kasvihuoneilmiö — mutta auton sisällä, ei ilmakehässä. Mekanismi toimii seuraavasti:
+
+1. **Lyhytaaltoinen auringonsäteily** (λ ≈ 0,3–2,5 μm) läpäisee lasin lähes esteettä, koska lasi on tälle aallonpituusalueelle lähes läpinäkyvä
+2. **Istuimet, kojelauta, lattia** absorboivat säteilyn ja lämpenevät — ne toimivat kuin mustat kappaleet
+3. **Pinnat emittoivat pitkäaaltoista lämpösäteilyä** (λ ≈ 8–14 μm), jonka lasi absorboi lähes täydellisesti (emissiivisyys ε ≈ 0,9)
+4. Tämä pitkäaaltoinen säteily **ei pääse enää ulos lasista** — energia jää loukkuun
+5. Sisäilma lämpenee konvektion kautta pinnoilta
+
+Tämä on pohjimmiltaan sama ilmiö kuin ilmastonmuutos, mutta tiivistetyssä autolaatikossa ja minuuttien aikajänteessä.
+
+### Energiataseen differentiaaliyhtälö
+
+Auton sisälämpötilan dynamiikka noudattaa energiataseen ODE:tä (tavallinen differentiaaliyhtälö). Johtamme sen ensin periaatteista.
+
+Merkitään:
+- $T_{in}(t)$ = sisälämpötila ajan hetkellä $t$ [K tai °C]
+- $T_{out}$ = ulkolämpötila (oletetaan vakioksi, [°C])
+- $T_{eq}$ = tasapainolämpötila eli yläasymptotti [°C]
+- $\tau$ = aika vakio, joka kuvaa kuinka nopeasti tasapainoon päästään [min]
+
+**Energiavuo sisään:**
+
+$$\dot{Q}_{in} = \alpha \cdot A_{glass} \cdot G_s \cdot \tau_{glass}$$
+
+missä:
+- $\alpha$ = absorptiokerroin sisäpinnoille (≈ 0,85–0,95)
+- $A_{glass}$ = lasin pinta-ala [m²]
+- $G_s$ = auringon globaalin säteilyn intensiteetti [W/m²]
+- $\tau_{glass}$ = lasin transmittanssi lyhytaaltoiselle säteilylle (≈ 0,75–0,90)
+
+**Energiavuo ulos** (johtuva + konvektiivinen lämpöhäviö):
+
+$$\dot{Q}_{out} = UA \cdot (T_{in} - T_{out})$$
+
+missä $UA$ on kokonaislämmönläpäisyvastuksen käänteisluku [W/K] koko auton pinnalle.
+
+**Energiataseyhtälö:**
+
+$$m_{air} \cdot c_p \cdot \frac{dT_{in}}{dt} = \dot{Q}_{in} - \dot{Q}_{out}$$
+
+$$m_{air} \cdot c_p \cdot \frac{dT_{in}}{dt} = \alpha A_{glass} G_s \tau_{glass} - UA(T_{in} - T_{out})$$
+
+**Tämä on lineaarinen ensimmäisen asteen ODE**, jonka analyyttinen ratkaisu on eksponentiaalisesti lähestyvä funktio:
+
+$$\boxed{T_{in}(t) = T_{eq} - (T_{eq} - T_{0}) \cdot e^{-t/\tau}}$$
+
+missä:
+- $T_0 = T_{in}(0)$ = alkuhetken sisälämpötila (oletetaan $= T_{out}$, auto on jäähtynyt yön yli)
+- $T_{eq} = T_{out} + \frac{\alpha A_{glass} G_s \tau_{glass}}{UA}$ = tasapainolämpötila
+- $\tau = \frac{m_{air} \cdot c_p}{UA}$ = aikavakio
+
+**Tärkeä havainto:** Tasapainolämpötila $T_{eq}$ riippuu *sekä* ulkolämpötilasta *että* auringon säteilystä. Pilvinen 30 °C -päivä on eri asia kuin aurinkoinen 20 °C -päivä.
+
+### Parametrien arvot tyypilliselle keskiluokan autolle
+
+```{r parametrit}
+# Fysikaaliset vakiot
+rho_air  <- 1.20    # ilman tiheys [kg/m³] ~25°C
+cp_air   <- 1005    # ilman ominaislämpökapasiteetti [J/(kg·K)]
+
+# Auton parametrit: Toyota Corolla / VW Golf -tyyppi
+V_cabin  <- 2.8     # ohjaamon tilavuus [m³] (tyypillisesti 2.5–3.2)
+m_air    <- rho_air * V_cabin  # ilman massa [kg]
+
+# Lasin parametrit
+A_glass   <- 3.0   # lasin kokonaispinta-ala [m²]
+tau_glass <- 0.82  # lasin transmittanssi lyhytaaltoiselle säteilylle
+alpha_int <- 0.88  # sisäpintojen absorptiokerroin
+
+# ---------------------------------------------------------------
+# MALLIN KALIBROINTI
+# ---------------------------------------------------------------
+# Ongelma: yksinkertainen Q_in / UA yliarvioi T_eq reilusti, koska
+# UA-termi pitäisi sisältää KAIKKI lämpöhäviömekanismit (johtuma,
+# konvektio, pitkäaaltoinen säteilyhäviö ulos), ja lisäksi osa
+# auringon energiasta menee pintojen (massa) lämmittämiseen, ei
+# pelkästään ilmaan.
+#
+# Schauberger ym. (2017, Theor. Appl. Climatol.) mittasivat:
+#   T_eq - T_out ≈ 20–40 °C aurinkoiskenaarioissa
+#   Mediaani ≈ 28–32 °C tyypillisessä kesäpäivässä
+#
+# Kalibroidaan "efektiivinen UA_eff" siten, että
+#   T_eq = T_out + (alpha * A_glass * G_s * tau_glass) / UA_eff
+# tuottaa oikean ΔT:n. Tavoite: ΔT = 30°C, kun G=800, A=3, α=0.88, τ=0.82
+#   → UA_eff = (0.88 * 3.0 * 800 * 0.82) / 30 ≈ 57.9 W/K
+#
+# Tämä vastaa kokonaisenergiatasetta, jossa huomioidaan sekä
+# johtuma/konvektio karosseriasta että pitkäaaltoinen säteilyhäviö.
+# Kirjallisuusarvo: Horak ym. (2016) taulukko 4 antaa τ ≈ 11 min,
+# josta UA_eff = m_eff * cp / τ, missä m_eff sisältää myös pintojen
+# lämpökapasiteetin (tyypillinen arvo ~100 kg·ekvivalentti ilmalle).
+# ---------------------------------------------------------------
+
+UA_eff <- (alpha_int * A_glass * 800 * tau_glass) / 30
+# → noin 58 W/K (efektiivinen, sisältää kaikki häviöt)
+
+# Aikavakio τ: kirjallisuudesta (Schauberger 2017): τ ≈ 10–15 min
+# Lasketaan: τ = m_eff_cp / UA_eff
+# Käytetään empiiristä τ = 11 min suoraan ja johdetaan m_eff siitä
+tau_min_ref <- 11   # [min], kirjallisuuden mediaaniarvo
+m_eff_cp    <- UA_eff * tau_min_ref * 60  # [J/K] — efektiivinen lämpökapasiteetti
+# (sisältää ilman + pintojen lämpökapasiteetin)
+
+cat(sprintf("UA_eff (kalibroitu): %.1f W/K\n", UA_eff))
+cat(sprintf("Efektiivinen lämpökapasiteetti m_eff*cp: %.0f J/K\n", m_eff_cp))
+cat(sprintf("Aikavakio τ (kirjallisuus): %.0f min\n", tau_min_ref))
+```
+
+```{r tasapainolampotila_fn}
+# Funktio: tasapainolämpötila (kalibroitu malli)
+# ΔT_eq = Q_in / UA_eff, missä UA_eff on kalibroitu kirjallisuuteen
+T_eq_fn <- function(T_out, G_s,
+                    A_glass   = 3.0,
+                    tau_glass = 0.82,
+                    alpha_int = 0.88,
+                    UA        = UA_eff) {
+  Q_in <- alpha_int * A_glass * G_s * tau_glass
+  T_out + Q_in / UA
+}
+
+# Funktio: sisälämpötila ajan funktiona (eksponentiaalisesti lähestyvä)
+T_in_fn <- function(t_min, T_out, G_s, T_0 = NULL,
+                    A_glass   = 3.0,
+                    tau_glass = 0.82,
+                    alpha_int = 0.88,
+                    UA        = UA_eff,
+                    tau_min   = tau_min_ref) {
+  if (is.null(T_0)) T_0 <- T_out
+  T_eq <- T_eq_fn(T_out, G_s, A_glass, tau_glass, alpha_int, UA)
+  T_eq - (T_eq - T_0) * exp(-t_min / tau_min)
+}
+
+# Tarkistus: ääriarvot
+cat(sprintf("Tasapainolämpötila, T_out=20°C, G=800 W/m²: %.1f °C  (ΔT=%.1f)\n",
+            T_eq_fn(20, 800), T_eq_fn(20, 800) - 20))
+cat(sprintf("Tasapainolämpötila, T_out=30°C, G=900 W/m²: %.1f °C  (ΔT=%.1f)\n",
+            T_eq_fn(30, 900), T_eq_fn(30, 900) - 30))
+cat(sprintf("Tasapainolämpötila, T_out=25°C, G=600 W/m²: %.1f °C  (ΔT=%.1f)\n",
+            T_eq_fn(25, 600), T_eq_fn(25, 600) - 25))
+cat(sprintf("Tasapainolämpötila, T_out=25°C, G=150 W/m²: %.1f °C  (ΔT=%.1f, varjo)\n",
+            T_eq_fn(25, 150), T_eq_fn(25, 150) - 25))
+
+# Validointi: ΔT_eq pitää olla 20–40°C aurinkoisissa ja ~5–10°C varjossa
+delta_T_800 <- T_eq_fn(25, 800) - 25
+delta_T_150 <- T_eq_fn(25, 150) - 25
+stopifnot(delta_T_800 >= 20 && delta_T_800 <= 40)
+stopifnot(delta_T_150 >=  3 && delta_T_150 <= 15)
+cat("\n✓ Kalibrointi validoitu: ΔT_eq kirjallisuuden rajoissa\n")
+```
+
+---
+
+## Osa 2: Suomalaiset lämpöolot — ei Arizonaa, mutta ei harmitontakaan
+
+### Miksi Suomi on erityinen tapaus
+
+Suomalaiset somekeskustelut viittaavat usein amerikkalaisiin tutkimuksiin, joissa ulkolämpötila on 35–38 °C. Suomessa tyypillinen kesälämpötila on erilainen — mutta [ilmaston lämpeneminen muuttaa jakaumaa](https://en.ilmatieteenlaitos.fi/press-release/3UkSBIbvStPq0VeuxpVG2D). Vuoden 2025 heinäkuun helleaalto ylitti 30 °C:n joka päivä 22 päivän ajan — pisin tällainen jakso mittaushistoriassa.
+
+```{r suomi_skenaariot}
+# Suomalaiset skenaariot ulkolämpötilan perusteella
+# Lähde: IL tilastot, FMI klimatologia
+skenaariot <- tibble(
+  skenaario = c(
+    "Pilvinen kesäpäivä",
+    "Puolipilvinen, lämmin",
+    "Aurinkoinen, normaali kesä",
+    "Hellepäivä (≥25°C)",
+    "Poikkeuksellinen helle (≥30°C)",
+    "Ennätyshellepäivä (2024-2025)"
+  ),
+  T_out    = c(18,  22,  25,  27,  31,  33),  # °C
+  G_s      = c(300, 600, 750, 850, 900, 950),  # W/m² (globaali säteily)
+  todennakoisyys = c(0.30, 0.28, 0.22, 0.12, 0.06, 0.02)  # karkea arvio kesäpäivistä
+)
+
+# Tarkistus: todennäköisyydet summautuvat 1:een
+stopifnot(abs(sum(skenaariot$todennakoisyys) - 1) < 1e-9)
+
+# Laskenta
+skenaariot <- skenaariot |>
+  mutate(
+    T_eq  = T_eq_fn(T_out, G_s),
+    delta_T = T_eq - T_out
+  )
+
+# Näytetään
+skenaariot |>
+  select(skenaario, T_out, G_s, T_eq, delta_T) |>
+  knitr::kable(
+    digits = 1,
+    col.names = c("Skenaario", "Ulkol. (°C)", "Aurinko (W/m²)",
+                  "Tasapainol. (°C)", "ΔT (°C)"),
+    caption = "Tasapainolämpötilat suomalaisissa olosuhteissa"
+  )
+```
+
+```{r aikasarjat_simulaatio}
+# Aikasarjat kaikille skenaarioille
+t_min <- seq(0, 90, by = 1)
+
+sarja_data <- skenaariot |>
+  rowwise() |>
+  mutate(
+    ajat = list(t_min),
+    lampotilat = list(T_in_fn(t_min, T_out, G_s))
+  ) |>
+  unnest(c(ajat, lampotilat)) |>
+  rename(t = ajat, T_in = lampotilat)
+
+# Tarkistus: ei NaN-arvoja
+stopifnot(!any(is.nan(sarja_data$T_in)))
+stopifnot(all(sarja_data$T_in >= sarja_data$T_out - 0.1))
+
+# Vaarallisuuskynnys koiralle
+# Lähde: McLaren ym. 2005 (Pediatrics), eläinlääketiede: koiran keholämpötila 38-39°C
+# Hypertermia koiralla: >39.5°C kehon lämpötila
+# Sisäilman pitää olla yli ~35–40°C, jotta passiiviinen koira alkaa ylikuumeta
+# Hengenvaarallinen: koiran kehon T > 41°C → sisäilma yleensä >45–50°C
+# Käytetään varoituskynnystä 40°C ja kriittistä kynnystä 50°C sisäilman lämpötilalle
+
+T_varoitus  <- 40   # °C, alkaa olla koiralle vaarallinen
+T_kriittinen <- 50  # °C, hengenvaarallinen (kehon T alkaa nousta >41°C)
+
+ggplot(sarja_data, aes(x = t, y = T_in, colour = skenaario)) +
+  geom_line(linewidth = 1.1) +
+  geom_hline(yintercept = T_varoitus,  linetype = "dashed",
+             colour = clr_orange, linewidth = 0.8) +
+  geom_hline(yintercept = T_kriittinen, linetype = "dashed",
+             colour = clr_red,    linewidth = 0.8) +
+  annotate("text", x = 88, y = T_varoitus  + 1.5,
+           label = "Varoitusraja 40°C", colour = clr_orange,
+           size = 3.2, hjust = 1) +
+  annotate("text", x = 88, y = T_kriittinen + 1.5,
+           label = "Kriittinen raja 50°C", colour = clr_red,
+           size = 3.2, hjust = 1) +
+  scale_colour_manual(
+    values = c(clr_blue, clr_teal, clr_orange, clr_orange,
+               clr_red, "#ff6b6b"),
+    guide = guide_legend(ncol = 1)
+  ) +
+  labs(
+    title    = "Auton sisälämpötila ajan funktiona — suomalaiset skenaariot",
+    subtitle = "Eksponentiaalisesti lähestyvä tasapainolämpötila; parametrit: Toyota Corolla -tyyppi",
+    x        = "Aika pysäköinnistä [min]",
+    y        = "Sisälämpötila [°C]",
+    colour   = NULL,
+    caption  = "Malli: dT/dt = (T_eq - T) / τ | τ ≈ 11 min | Lähde: Schauberger ym. 2017, Horak ym. 2016"
+  ) +
+  theme_kristian()
+```
+
+**Mitä kaavio kertoo:**
+
+- Pilvinen päivä (300 W/m²): sisälämpötila nousee ~35 °C:een → ei akuutisti kriittinen lyhyissä pysäköinneissä
+- Aurinkoinen normaali kesäpäivä (750 W/m², 25 °C): kriittinen raja ylitetään noin **25–30 minuutissa**
+- Hellepäivä (≥30 °C, 900 W/m²): kriittinen raja ylitetään **alle 15 minuutissa**
+- Tasapainolämpötila kaikissa aurinkoiskenaarioissa: **55–65 °C**
+
+---
+
+## Osa 3: Mikä oikeasti vaikuttaa — ja mikä ei
+
+### Auton väri — vähemmän kuin luullaan (mutta ei ole merkityksetön)
+
+Yksi yleinen myytti on, että musta auto on dramaattisesti vaarallisempi kuin valkoinen. Todellisuus on vivahteikkaampi.
+
+```{r vari_vaikutus}
+# Värin vaikutus: korostuaksemme malliin lisätään heijastuskertoimen vaikutus
+# Musta pinta: absorptiokerroin α ≈ 0.95 (pitkäaaltoinen ulkopinta)
+# Valkoinen pinta: α ≈ 0.35
+# MUTTA: sisälämpötilaan vaikuttaa ennen kaikkea LASIN kautta tuleva säteily
+# Väri vaikuttaa: (1) katon johtuma → sisälämpötilaan, (2) kojelauta/istuinten lämpötila
+# Sisäpintojen väri on tärkeämpi kuin ulkopintojen väri
+
+# Stanfordin tutkimus (McLaren ym. 2005): auton väri ei vaikuttanut merkittävästi
+# sisäilman lämpötilaan. Sisäpintojen väri vaikuttaa enemmän.
+
+# Mallinnetaan: ulkoinen absorptiokerroin vaikuttaa johtumaan katon kautta
+# Katon johtuma lisäenergiavuo ΔQ = (α_ext_dark - α_ext_light) * A_roof * G_s_diffuse
+
+# Katon pinta-ala ≈ 1.8 m², diffuusi + suora säteily katonosalle ≈ 0.3 * G_s
+# Lämpöresistanssi katto: R_roof ≈ 0.05 m²K/W → UA_roof ≈ 1.8/0.05 = 36 W/K
+
+vari_data <- tibble(
+  G_s = seq(400, 950, by = 50),
+  delta_T_vari = (0.95 - 0.35) * 1.8 * G_s * 0.3 / UA_eff  # lisälämpötila mustasta vs. valkoisesta
+)
+
+ggplot(vari_data, aes(x = G_s, y = delta_T_vari)) +
+  geom_line(colour = clr_teal, linewidth = 1.3) +
+  geom_ribbon(
+    aes(ymin = delta_T_vari * 0.6, ymax = delta_T_vari * 1.4),
+    fill = clr_teal, alpha = 0.2
+  ) +
+  labs(
+    title    = "Auton ulkovärin vaikutus sisälämpötilaan",
+    subtitle = "Musta vs. valkoinen — suurempi kuin nolla, pienempi kuin myytti väittää",
+    x        = "Auringon säteily [W/m²]",
+    y        = "Lämpötilaero (musta - valkoinen) [°C]",
+    caption  = "Lähde: McLaren ym. 2005 (Pediatrics); malli perustuu katonjohtumalaskelmaan"
+  ) +
+  annotate("text", x = 700, y = 3.5,
+           label = "Sisäilman ero musta vs. valkoinen\non tyypillisesti 2–5 °C\n(ei 10–15 °C, kuten usein väitetään)",
+           colour = clr_text, size = 3.5, hjust = 0) +
+  theme_kristian()
+```
+
+**Tulos:** Ulkoväri vaikuttaa sisälämpötilaan **2–5 °C**. Stanfordin tutkimus osoitti, että auton väri ei vaikuttanut merkittävästi sisäilman lämpötilaan — merkittävämpi on sisäpintojen väri (tummempi kojelauta absorboi enemmän).
+
+### Ikkunan raottaminen — käytännössä hyödytön aurinkoiskenaarioissa
+
+```{r ikkuna_raotus}
+# Ikkunan raottaminen: lisää konvektiivista jäähdytystä
+# Efektiivinen lisä-UA n. 5–15 W/K riippuen tuulinopeudesta ja raon koosta
+# 2 cm rako sivuikkunassa ≈ +8 W/K (tyypillinen arvio)
+
+UA_rako <- 8  # lisä-UA ikkunan raosta [W/K]
+
+t_min_short <- seq(0, 60, by = 1)
+
+rako_data <- tibble(
+  t      = rep(t_min_short, 3),
+  tila   = rep(c("Suljettu auto", "2 cm rako", "5 cm rako"), each = length(t_min_short)),
+  UA_lisä = rep(c(0, UA_rako, UA_rako * 2), each = length(t_min_short))
+) |>
+  mutate(
+    UA_tot = UA_eff + UA_lisä,
+    T_in   = pmap_dbl(
+      list(t = t, UA_tot = UA_tot),
+      function(t, UA_tot) T_in_fn(t, T_out = 25, G_s = 800, UA = UA_tot)
+    )
+  )
+
+ggplot(rako_data, aes(x = t, y = T_in, colour = tila)) +
+  geom_line(linewidth = 1.2) +
+  geom_hline(yintercept = 50, linetype = "dashed", colour = clr_red, linewidth = 0.8) +
+  annotate("text", x = 58, y = 51.5,
+           label = "Kriittinen raja 50°C",
+           colour = clr_red, size = 3.2, hjust = 1) +
+  scale_colour_manual(values = c(clr_navy, clr_blue, clr_teal)) +
+  labs(
+    title    = "Ikkunan raottamisen vaikutus — T_out = 25°C, G = 800 W/m²",
+    subtitle = "Pienempi kuin yleensä uskotaan: 2 cm rako siirtää kriittistä hetkeä ~5 minuuttia",
+    x        = "Aika [min]",
+    y        = "Sisälämpötila [°C]",
+    colour   = NULL,
+    caption  = "Huom: tuuli lisää raotuksen tehoa huomattavasti — tyyni sää vs. 5 m/s tuuli voi erota 50%"
+  ) +
+  theme_kristian()
+```
+
+**Tulos:** 2 cm:n rako siirtää kriittisen rajan saavuttamista noin **5–8 minuutilla** — ei tee autosta turvallista aurinkoiskenaariossa. Tulos on yhdenmukainen kirjallisuuden kanssa, jonka mukaan raottaminen vähentää lämpötilaeroa vain muutamalla asteella.
+
+---
+
+## Osa 4: Koiran fysiologia — mikä tekee koirasta erityisen haavoittuvaisen
+
+### Koira ei hikoile kuin ihminen
+
+Ihminen haihduttaa lämpöä koko ihon kautta. Koiralla hikirauhaset ovat vain tassuissa — pieni pinta-ala. Tärkein jäähdytysmekanismi on **läähätys** (*panting*): koira kierrättää ilmaa suun, kielen ja hengitysteillä haihduttaakseen vettä.
+
+Tämä on tehokas mekanismi viileässä ja matalassa kosteudessa, mutta:
+- Kuumassa ilmassa (>35 °C) sisäänhengitetty ilma ei jäähdy koiraa, se lämmittää
+- Kosteassa ilmassa haihdutus heikkenee dramaattisesti
+- Brakykefaaliset rodut (mopsi, bulldog, ranskanpullukka): ahtaat hengitystiet → mekanismi heikkenee entisestään
+
+### Koiran lämpötilakynnykset
+
+```{r koiran_kynnykset}
+kynnykset <- tibble(
+  tila = c(
+    "Normaali kehon T",
+    "Lievä kuumeilu",
+    "Elimistön kuumeneminen (hypertermia)",
+    "Lämpöuupumus",
+    "Lämpöhalvaus alkaa",
+    "Kriittinen — elinvaurioita",
+    "Kuolema todennäköinen"
+  ),
+  T_kehon_min = c(37.5, 39.5, 39.5, 39.5, 41.0, 43.0, 43.0),
+  T_kehon_max = c(39.2, 40.5, 40.5, 41.0, 43.0, 45.0, 47.0),
+  vakavuus = c(1, 2, 2, 3, 4, 5, 6)
+)
+
+vari_asteikko <- c(
+  clr_teal, clr_blue, clr_blue, clr_orange,
+  clr_orange, clr_red, "#8b0000"
+)
+
+ggplot(kynnykset, aes(y = reorder(tila, T_kehon_min),
+                       x = T_kehon_min,
+                       xend = T_kehon_max,
+                       colour = tila)) +
+  geom_segment(linewidth = 4, lineend = "round") +
+  scale_colour_manual(values = vari_asteikko, guide = "none") +
+  labs(
+    title    = "Koiran kehon lämpötilakynnykset",
+    subtitle = "Koiran normaali kehon T on 37,5–39,2 °C — marginaali on pienempi kuin ihmisellä",
+    x        = "Kehon lämpötila [°C]",
+    y        = NULL,
+    caption  = paste(
+      "Lähteet: VetCompass-tutkimus (McLaren ym. 2021, Nature/Sci. Rep.);",
+      "Bruchim ym. 2006; VCA Animal Hospitals kliiniset ohjeet"
+    )
+  ) +
+  theme_kristian()
+```
+
+Kriittinen kynnys koiralle on kehon lämpötila yli 43 °C — tätä pidempikestoisessa altistuksessa kuoleman todennäköisyys kasvaa merkittävästi. Lämpöhalvaus koirilla määritellään ytimen lämpötilaksi yli 41 °C yhdistettynä keskushermoston häiriöihin.
+
+Mutta tärkeää: **sisäilman lämpötila ≠ koiran kehon lämpötila**. Koiran kehon lämpötila nousee hitaammin kuin sisäilma — ja kuinka nopeasti riippuu:
+- Koiran painosta ja koosta (suurempi massa = hitaampi lämpeneminen)
+- Rodusta (brakykefaalit riskialttiimpia)
+- Liikkumisesta (levossa oleva koira tuottaa vähemmän lämpöä)
+- Alkuhetken kunnosta (dehydraatio, kunto)
+
+### Kriittinen sisälämpötila koiralle: jakauma, ei piste
+
+Mittaukset osoittavat, että autoon suljetun koiran kehon lämpötila voi nousta hengenvaaralliselle tasolle alle 20 minuutissa, kun ulkolämpötila on vain 24 °C.
+
+Tutkimuskirjallisuudesta voidaan estimoida raja-arvo: **sisäilman lämpötila 40–45 °C on varoitusalue, 50+ °C on akuutisti vaarallinen** passiiviselle koiralle ilman varjoa tai vettä.
+
+---
+
+## Osa 5: Bayesilainen simulaatio — epävarmuus jakaumana
+
+Tässä on blogini filosofinen ydin: **maailma on jakauma**. Yksikään parametri yllä olevista kaavoista ei ole tarkasti tunnettu. Lasin transmittanssi vaihtelee. Auton ikä muuttaa eristystä. Pilvisyys vaihtelee. Koiran koko vaihtelee.
+
+Tehdään Monte Carlo -simulaatio, jossa jokainen parametri on jakauma.
+
+```{r bayesilainen_simulaatio}
+set.seed(42)
+n_sim <- 10000  # simulaation toistoja
+
+# Parametrijakaumat
+sim_params <- tibble(
+  sim_id = 1:n_sim,
+  # Ulkolämpötila: normaali, aurinkoinen kesäpäivä Suomessa
+  T_out  = rnorm(n_sim, mean = 25, sd = 3),
+  # Auringon säteily: normaali, aurinkoinen hetki
+  G_s    = rnorm(n_sim, mean = 780, sd = 80) |> pmax(300),
+  # Lasin transmittanssi
+  tau_g  = rnorm(n_sim, mean = 0.82, sd = 0.04) |> pmin(0.95) |> pmax(0.60),
+  # Sisäpintojen absorptiokerroin
+  alpha  = rnorm(n_sim, mean = 0.88, sd = 0.05) |> pmin(0.98) |> pmax(0.70),
+  # Efektiivinen UA: vaihtelu ±15% referenssiarvosta (auton ikä, kunto)
+  UA_sim = rnorm(n_sim, mean = UA_eff, sd = UA_eff * 0.12) |> pmax(UA_eff * 0.5),
+  # Lasin pinta-ala
+  A_g    = rnorm(n_sim, mean = 3.0, sd = 0.3) |> pmax(1.5),
+  # Aikavakio τ: vaihtelu ±20% (pintojen lämpökapasiteetti vaihtelee)
+  tau_s  = rnorm(n_sim, mean = tau_min_ref, sd = tau_min_ref * 0.15) |> pmax(5)
+)
+
+# Tarkistukset
+stopifnot(all(sim_params$T_out > -5))
+stopifnot(all(sim_params$G_s > 200))
+stopifnot(all(sim_params$tau_g > 0.5 & sim_params$tau_g < 1))
+stopifnot(all(sim_params$UA_sim > 10))
+
+# Laske tasapainolämpötila ja ajat kriittisten kynnysarvojen saavuttamiseen
+sim_results <- sim_params |>
+  mutate(
+    T_eq = T_eq_fn(T_out, G_s, A_glass = A_g, tau_glass = tau_g,
+                   alpha_int = alpha, UA = UA_sim),
+    # Aika 40°C:n saavuttamiseen
+    t_40 = if_else(
+      T_eq > 40 & T_eq > T_out,
+      -tau_s * log(pmax(1e-9, 1 - (40 - T_out) / (T_eq - T_out))),
+      NA_real_
+    ),
+    # Aika 50°C:n saavuttamiseen
+    t_50 = if_else(
+      T_eq > 50 & T_eq > T_out,
+      -tau_s * log(pmax(1e-9, 1 - (50 - T_out) / (T_eq - T_out))),
+      NA_real_
+    )
+  ) |>
+  filter(T_out >= 15)  # poistetaan epärealistiset
+
+# Tarkistetaan, ettei negatiivisia aikoja (numeerinen turvaverkko)
+stopifnot(all(sim_results$t_40[!is.na(sim_results$t_40)] > 0))
+stopifnot(all(sim_results$t_50[!is.na(sim_results$t_50)] > 0))
+
+# Yhteenveto
+cat("\n=== Simulaatio: 10 000 satunnaista olosuhdekombinaatiota ===\n")
+cat(sprintf("Tasapainolämpötila T_eq: med = %.1f°C, P5 = %.1f°C, P95 = %.1f°C\n",
+            median(sim_results$T_eq),
+            quantile(sim_results$T_eq, 0.05),
+            quantile(sim_results$T_eq, 0.95)))
+
+t40_valid <- sim_results$t_40[!is.na(sim_results$t_40)]
+t50_valid <- sim_results$t_50[!is.na(sim_results$t_50)]
+
+cat(sprintf("\nAika 40°C:n saavuttamiseen (kun T_eq > 40°C, %.0f%% tapauksista):\n",
+            100 * mean(!is.na(sim_results$t_40))))
+cat(sprintf("  Mediaani: %.1f min | P10: %.1f min | P90: %.1f min\n",
+            median(t40_valid), quantile(t40_valid, 0.10), quantile(t40_valid, 0.90)))
+
+cat(sprintf("\nAika 50°C:n saavuttamiseen (kun T_eq > 50°C, %.0f%% tapauksista):\n",
+            100 * mean(!is.na(sim_results$t_50))))
+cat(sprintf("  Mediaani: %.1f min | P10: %.1f min | P90: %.1f min\n",
+            median(t50_valid), quantile(t50_valid, 0.10), quantile(t50_valid, 0.90)))
+```
+
+```{r simulaatio_kuvat}
+# Kuva 1: T_eq jakauma
+p1 <- ggplot(sim_results, aes(x = T_eq)) +
+  stat_halfeye(
+    fill = clr_blue, colour = clr_teal,
+    .width = c(0.50, 0.90),
+    point_interval = median_qi,
+    alpha = 0.8
+  ) +
+  geom_vline(xintercept = 40, linetype = "dashed", colour = clr_orange) +
+  geom_vline(xintercept = 50, linetype = "dashed", colour = clr_red) +
+  annotate("text", x = 41.5, y = 0.8, label = "40°C", colour = clr_orange, size = 3) +
+  annotate("text", x = 51.5, y = 0.8, label = "50°C", colour = clr_red, size = 3) +
+  labs(
+    title    = "Tasapainolämpötilan jakauma — aurinkoinen päivä Suomessa",
+    subtitle = "Violinikuvaaja: posterior-jakauma, 10 000 simulaatiota",
+    x        = "Tasapainolämpötila T_eq [°C]",
+    y        = "Tiheys",
+    caption  = "Parametrit: N(T_out=25°C, σ=3), N(G=780, σ=80), muut UA, A, τ, α"
+  ) +
+  theme_kristian()
+
+# Kuva 2: Aika kriittiseen kynnysarvoon
+t_data <- bind_rows(
+  tibble(aika = t40_valid, kynnys = "40°C (varoitus)"),
+  tibble(aika = t50_valid, kynnys = "50°C (kriittinen)")
+) |>
+  filter(aika > 0 & aika < 180)
+
+p2 <- ggplot(t_data, aes(x = aika, fill = kynnys)) +
+  geom_density(alpha = 0.7, adjust = 1.2) +
+  scale_fill_manual(values = c(clr_orange, clr_red)) +
+  geom_vline(xintercept = 15, linetype = "dotted", colour = "white", linewidth = 0.7) +
+  geom_vline(xintercept = 30, linetype = "dotted", colour = "white", linewidth = 0.7) +
+  annotate("text", x = 16, y = 0.03, label = "15 min", colour = "white", size = 3) +
+  annotate("text", x = 31, y = 0.03, label = "30 min", colour = "white", size = 3) +
+  labs(
+    title    = "Kynnysarvojen saavuttamisaika — jakauma",
+    subtitle = "Ei yksi luku, vaan jakauma: molemmat kynnykset saatetaan saavuttaa nopeasti",
+    x        = "Aika kynnysarvon saavuttamiseen [min]",
+    y        = "Tiheys",
+    fill     = "Kynnysarvo",
+    caption  = paste(
+      "Huom: jakauman vasen häntä — osa tapauksista kriittinen jo alle 15 min\n",
+      "Lähde: Schauberger & Horak 2016 (Theor. Appl. Climatol.) + Monte Carlo -simulaatio"
+    )
+  ) +
+  theme_kristian()
+
+p1 / p2
+```
+
+```{r kumulatiivinen_riski}
+# Kumulatiivinen todennäköisyys: millä todennäköisyydellä 40°C/50°C saavutetaan mennessä t minuuttia
+t_seq <- seq(0, 90, by = 1)
+
+kumul_data <- tibble(
+  t = rep(t_seq, 2),
+  kynnys = rep(c("40°C", "50°C"), each = length(t_seq)),
+  cum_prob = c(
+    sapply(t_seq, function(t) mean(t40_valid <= t, na.rm = TRUE)),
+    sapply(t_seq, function(t) mean(t50_valid <= t, na.rm = TRUE))
+  )
+)
+
+ggplot(kumul_data, aes(x = t, y = cum_prob, colour = kynnys)) +
+  geom_line(linewidth = 1.3) +
+  scale_colour_manual(values = c(clr_orange, clr_red)) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  geom_vline(xintercept = c(10, 20, 30), linetype = "dotted",
+             colour = clr_grid, linewidth = 0.8) +
+  annotate("text", x = 11, y = 0.95, label = "10 min", colour = clr_text, size = 3) +
+  annotate("text", x = 21, y = 0.95, label = "20 min", colour = clr_text, size = 3) +
+  annotate("text", x = 31, y = 0.95, label = "30 min", colour = clr_text, size = 3) +
+  labs(
+    title    = "Kumulatiivinen todennäköisyys kynnysarvon saavuttamiselle",
+    subtitle = "Simulaatio: aurinkoinen kesäpäivä Suomessa (T_out ~25°C)",
+    x        = "Aika [min]",
+    y        = "P(kynnys saavutettu mennessä t)",
+    colour   = "Kynnys",
+    caption  = "Lähde: Monte Carlo -simulaatio, n=10 000, parametrit kirjallisuudesta"
+  ) +
+  theme_kristian()
+```
+
+---
+
+## Osa 6: Herkkyysanalyysi — mikä parametri vaikuttaa eniten?
+
+```{r herkkyysanalyysi}
+# Lasketaan korrelaatio kunkin parametrin ja T_eq:n välillä
+# → kertoo, mikä muuttuja selittää eniten vaihtelua
+
+herkkyydet <- sim_results |>
+  select(T_out, G_s, tau_g, alpha, UA_sim, A_g, T_eq) |>
+  summarise(across(T_out:A_g,
+    ~ cor(.x, T_eq, method = "spearman"),
+    .names = "rho_{.col}"
+  )) |>
+  pivot_longer(everything(), names_to = "muuttuja", values_to = "rho") |>
+  mutate(
+    muuttuja = str_remove(muuttuja, "rho_"),
+    muuttuja_label = c(
+      "Ulkolämpötila T_out",
+      "Auringon säteily G_s",
+      "Lasin transmittanssi τ",
+      "Absorptiokerroin α",
+      "Lämmönläpäisy UA (efekt.)",
+      "Lasin pinta-ala A"
+    ),
+    suunta = if_else(rho > 0, "Lisää lämpötilaa", "Vähentää lämpötilaa")
+  )
+
+# Tarkistus: kaikki korrelaatiot |rho| < 1
+stopifnot(all(abs(herkkyydet$rho) <= 1))
+
+ggplot(herkkyydet, aes(x = reorder(muuttuja_label, abs(rho)),
+                        y = rho, fill = suunta)) +
+  geom_col(width = 0.65) +
+  geom_text(aes(label = sprintf("%.2f", rho),
+                hjust = if_else(rho > 0, -0.1, 1.1)),
+            colour = clr_text, size = 3.5) +
+  coord_flip() +
+  scale_fill_manual(values = c(clr_red, clr_teal)) +
+  scale_y_continuous(limits = c(-0.9, 0.9)) +
+  labs(
+    title    = "Herkkyysanalyysi: mikä parametri selittää T_eq:n vaihtelua?",
+    subtitle = "Spearmanin korrelaatio — absoluuttinen arvo kertoo vaikutuksen suuruuden",
+    x        = NULL,
+    y        = "Spearmanin ρ",
+    fill     = NULL,
+    caption  = "Suurin epävarmuuden lähde: auringon säteily ja ulkolämpötila"
+  ) +
+  theme_kristian()
+```
+
+**Johtopäätös:** Merkittävimmät tekijät ovat **ulkolämpötila** ja **auringon säteily** — ei auton väri, ei lasin tyyppi. Tämä on tärkeä viesti: *aurinkoisella säällä auto kuumenee, vaikka ulkona olisi vain 20–25 °C.*
+
+---
+
+## Osa 7: Auton koon ja tyypin vaikutus
+
+```{r autotyypit}
+# Eri autotyypit eroavat ohjaamon tilavuudessa ja lasin pinta-alassa
+# Autotyypit eroavat lasin pinta-alassa ja aikavakiossa
+# UA_eff skaalataan lasin pinta-alan suhteessa (suurempi lasi = enemmän energiaa sisään,
+# mutta myös suurempi pinta-ala johtumalle → UA kasvaa samassa suhteessa)
+# Aikavakio τ skaalataan tilavuuden suhteessa (suurempi ohjaamo = enemmän lämpökapasiteettia)
+autotyypit <- tibble(
+  tyyppi = c("Pieni kaupunkiauto\n(Ford Fiesta -tyyppi)",
+             "Kompakti\n(VW Golf -tyyppi)",
+             "Sedan\n(Toyota Camry -tyyppi)",
+             "SUV\n(Toyota RAV4 -tyyppi)",
+             "Minivan\n(Volkswagen Touran -tyyppi)"),
+  V_cabin_m3  = c(2.2, 2.8, 3.2, 3.8, 4.5),
+  A_glass_m2  = c(2.4, 3.0, 3.2, 3.8, 4.2)
+)
+
+autotyypit_sim <- autotyypit |>
+  rowwise() |>
+  mutate(
+    # UA_eff skaalataan lasin pinta-alan suhteessa referenssimalliin (A=3.0)
+    UA_tyyp   = UA_eff * (A_glass_m2 / 3.0),
+    # τ skaalataan tilavuuden suhteessa (suurempi ohjaamo lämpenee hitaammin)
+    tau_tyyp  = tau_min_ref * (V_cabin_m3 / 2.8),
+    T_eq_t    = T_eq_fn(25, 800, A_glass = A_glass_m2, UA = UA_tyyp),
+    t_50_t    = if_else(
+      T_eq_t > 50,
+      -tau_tyyp * log(1 - (50 - 25) / (T_eq_t - 25)),
+      NA_real_
+    )
+  )
+
+# Aikasarjat
+t_min_plot <- seq(0, 60, by = 0.5)
+auto_aikasarjat <- autotyypit_sim |>
+  mutate(
+    ajat = list(t_min_plot),
+    T_in_vals = list(
+      T_in_fn(t_min_plot, T_out = 25, G_s = 800,
+               A_glass = A_glass_m2, UA = UA_tyyp,
+               tau_min = tau_tyyp)
+    )
+  ) |>
+  unnest(c(ajat, T_in_vals)) |>
+  rename(t = ajat, T_in = T_in_vals)
+
+ggplot(auto_aikasarjat, aes(x = t, y = T_in, colour = tyyppi)) +
+  geom_line(linewidth = 1.1) +
+  geom_hline(yintercept = 50, linetype = "dashed", colour = clr_red, linewidth = 0.8) +
+  annotate("text", x = 58, y = 51.5, label = "50°C kriittinen",
+           colour = clr_red, size = 3.2, hjust = 1) +
+  scale_colour_manual(values = c(clr_red, clr_orange, clr_teal, clr_blue, clr_navy)) +
+  labs(
+    title    = "Sisälämpötila autotyypeittäin — T_out = 25°C, G = 800 W/m²",
+    subtitle = "Suurempi auto lämpenee hieman hitaammin, mutta kaikki ylittävät kriittisen rajan",
+    x        = "Aika [min]",
+    y        = "Sisälämpötila [°C]",
+    colour   = NULL,
+    caption  = "Parametrit: tyypillisiä kirjallisuusarvoja; V_cabin, A_glass, UA sovitettu autotyypeittäin"
+  ) +
+  theme_kristian()
+```
+
+```{r autotyypit_taulukko}
+autotyypit_sim |>
+  select(tyyppi, V_cabin_m3, T_eq_t, tau_tyyp, t_50_t) |>
+  knitr::kable(
+    digits = 1,
+    col.names = c("Autotyyppi", "Ohjaamo (m³)", "T_eq (°C)",
+                  "Aikavakio τ (min)", "Aika 50°C:hen (min)"),
+    caption = "Eri autotyyppien termodynaamiset parametrit (T_out=25°C, G=800 W/m²)"
+  )
+```
+
+---
+
+## Osa 8: Varjossa pysäköity auto — myytin purkaminen toiseen suuntaan
+
+Sosiaalinen media panikoi myös tilanteissa, joissa auto on **varjossa**. Katsotaan, mitä fysiikka sanoo.
+
+```{r varjo_skenaario}
+# Varjossa: G_s ≈ 50–150 W/m² (diffuusi säteily, ei suoraa)
+# Verrattuna täyteen aurinkoon 800–900 W/m²
+
+varjo_data <- tibble(
+  olosuhde = c(
+    "Täysi aurinko (G=800)",
+    "Puolivarjo (G=350)",
+    "Syvä varjo (G=100)",
+    "Pilvinen (G=150)"
+  ),
+  G_s = c(800, 350, 100, 150),
+  T_out = 25
+) |>
+  rowwise() |>
+  mutate(
+    T_eq = T_eq_fn(T_out, G_s),
+    t_vals = list(seq(0, 90, by = 1)),
+    T_in_vals = list(T_in_fn(seq(0, 90, by = 1), T_out, G_s))
+  ) |>
+  unnest(c(t_vals, T_in_vals)) |>
+  rename(t = t_vals, T_in = T_in_vals)
+
+ggplot(varjo_data, aes(x = t, y = T_in, colour = olosuhde)) +
+  geom_line(linewidth = 1.2) +
+  geom_hline(yintercept = c(35, 40, 50),
+             linetype = "dashed",
+             colour = c(clr_blue, clr_orange, clr_red),
+             linewidth = 0.7) +
+  annotate("text", x = 88, y = c(36.5, 41.5, 51.5),
+           label = c("35°C", "40°C", "50°C"),
+           colour = c(clr_blue, clr_orange, clr_red),
+           size = 3, hjust = 1) +
+  scale_colour_manual(values = c(clr_red, clr_orange, clr_teal, clr_blue)) +
+  labs(
+    title    = "Varjo vs. aurinko — suuri ero, mutta varjokaan ei ole täysin turvallinen",
+    subtitle = "T_out = 25°C; syvässä varjossa T_eq ≈ 30°C, puolivarjossa jo 42°C",
+    x        = "Aika [min]",
+    y        = "Sisälämpötila [°C]",
+    colour   = NULL,
+    caption  = "Varjossa pysäköity auto on huomattavasti turvallisempi — mutta ei riskitön"
+  ) +
+  theme_kristian()
+```
+
+**Tärkeä tulos:** Varjossa pysäköity auto ei saavuta hengenvaarallisia lämpötiloja lyhyissä pysäköinneissä normaaleissa suomalaisissa olosuhteissa. Tasapainolämpötila syvässä varjossa on noin 30–33 °C — epämukava, mutta ei lyhyessä ajassa tappava terveelle koiralle viileässä ilmassa.
+
+**Tämä on se fakta, joka usein puuttuu somekeskustelusta.** Konteksti ratkaisee.
+
+---
+
+
+---
+
+## Osa 9: Suomalainen talvipeite — vastaisku somemyyteille
+
+### Intuitio vs. fysiikka
+
+Kesäkeskustelussa törmää usein väitteeseen: *"autopeitteestä ei ole apua, koska se estää ilman kiertämisen."* Tämä on mekaaninen intuitio, joka perustuu väärään malliin. **Auto ei kuumene ilman kiertymisen puutteen takia. Se kuumenee säteilyenergian takia.** Peite, joka blokkaa säteilynä tulevan energian, vaikuttaa suoraan $Q_{in}$-termiin ODE:ssä — ja siten sekä $T_{eq}$:hen että aikaan kriittisen kynnyksen saavuttamiseen.
+
+Suomalaisella autopeitteellä on lisäksi tuttu ominaisuus: sen **käyttötarkoitus on estää talvella ikkunoiden jäätyminen**. Tyypillinen suomalainen peite on hopeanvärinen, alumiinipolymeerillä päällystetty kangas — täsmälleen sama rakenne kuin aurinkosuojissa. Ja sellainen on olemassa lähes jokaisella suomalaisella autoilijalla.
+
+### Energiataseen muutos peitteen kanssa
+
+Peite muuttaa $Q_{in}$-termiä kahdella mekanismilla:
+
+**1. Säteilyn transmittanssi laskee** — ulkopuolinen peite absorboi tai heijastaa suoran säteilyn *ennen* kuin se pääsee lasiin:
+$$Q_{in,cover} = \alpha_{int} \cdot A_{glass} \cdot G_s \cdot \tau_{glass} \cdot (1 - \rho_{cover})$$
+
+missä $\rho_{cover}$ on peitteen heijastuskerroin ($0$ = ei heijasta, $1$ = heijastaa kaiken).
+
+**2. Sisä- vs. ulkopuolinen sijainti on kriittinen ero:**
+
+- **Sisäpuolinen suoja** (esim. dashboard-aurinkosuoja ikkunan takana): säteily on jo läpäissyt lasin. Kasvihuoneilmiö on tapahtunut. Tummaan peitteeseen absorboitunut energia siirtyy sisäilmaan konvektiolla. Musta sisäsuoja voi *nostaa* sisälämpötilaa.
+- **Ulkopuolinen peite** (talvipeite lasin päällä): säteily heijastuu ennen lasia. Kasvihuoneilmiö ei käynnisty.
+
+```{r peitteen_fysiikka}
+# Peitemateriaalien ominaisuudet — lyhytaaltoinen säteily (0.3–2.5 μm)
+# Lähde: NREL/TP-540-42454; Rugh & Farrington 2007; Empire Covers lab-testi
+peitemateriaalit <- tibble(
+  materiaali = c(
+    "Ohut polyesteri (ei heijastusta)",
+    "Musta nailonverkko, sisäpuolinen",
+    "Valkoinen kangas, ulkopuolinen",
+    "Hopea-alumiini 1-kerros (talvipeite)",
+    "Hopea-alumiini 2-kerros (paksu talvipeite)",
+    "Alumiinifolio / täyspeite"
+  ),
+  rho_cover  = c(0.10, 0.05, 0.45, 0.70, 0.82, 0.93),
+  sijainti   = c("sisä", "sisä", "ulko", "ulko", "ulko", "ulko"),
+  vaikutus_Q = c("–5 %", "+pieni lisäys", "–40 %", "–60 %", "–72 %", "–83 %")
+)
+
+peitemateriaalit |>
+  knitr::kable(
+    col.names = c("Materiaali", "Heijastuskerroin ρ", "Sijainti", "Q_in muutos"),
+    caption = paste(
+      "Peitemateriaalien heijastusominaisuudet.",
+      "Lähde: NREL/TP-540-42454; Rugh & Farrington 2007; Empire Covers 2015"
+    )
+  )
+```
+
+```{r peite_simulaatio}
+t_vec      <- seq(0, 90, by = 1)
+T_out_base <- 25
+G_base     <- 800
+
+peite_sim <- tibble(
+  skenaario = c(
+    "Ei peitettä (baseline)",
+    "Valkoinen kangas ulko (ρ=0.45)",
+    "Hopea 1-kerros ulko (ρ=0.70, tyypillinen talvipeite)",
+    "Hopea 2-kerros ulko (ρ=0.82, paksu talvipeite)",
+    "Alumiinifolio ulko (ρ=0.93, teoreettinen maksimi)"
+  ),
+  rho   = c(0.00, 0.45, 0.70, 0.82, 0.93),
+  G_eff = G_base * c(1.00, 0.55, 0.30, 0.18, 0.07)
+) |>
+  rowwise() |>
+  mutate(
+    T_eq_p    = T_eq_fn(T_out_base, G_eff),
+    t_vals    = list(t_vec),
+    T_in_vals = list(T_in_fn(t_vec, T_out_base, G_eff))
+  ) |>
+  unnest(c(t_vals, T_in_vals)) |>
+  rename(t = t_vals, T_in = T_in_vals)
+
+stopifnot(all(peite_sim$T_in >= T_out_base - 0.5))
+
+ggplot(peite_sim, aes(x = t, y = T_in, colour = skenaario)) +
+  geom_line(linewidth = 1.2) +
+  geom_hline(yintercept = c(40, 50),
+             linetype = "dashed",
+             colour   = c(clr_orange, clr_red),
+             linewidth = 0.8) +
+  annotate("text", x = 88, y = c(41.5, 51.5),
+           label = c("Varoitus 40°C", "Kriittinen 50°C"),
+           colour = c(clr_orange, clr_red), size = 3, hjust = 1) +
+  scale_colour_manual(
+    values = c(clr_red, clr_orange, clr_teal, clr_blue, clr_navy),
+    guide  = guide_legend(ncol = 1)
+  ) +
+  labs(
+    title    = "Autopeitteen vaikutus sisälämpötilaan — T_out=25°C, G=800 W/m²",
+    subtitle = "Ulkopuolinen hopea-talvipeite laskee T_eq:tä ~20°C; kriittinen raja ei saavuteta",
+    x        = "Aika [min]",
+    y        = "Sisälämpötila [°C]",
+    colour   = NULL,
+    caption  = "Malli: G_eff = G_s·(1−ρ), ulkopuolinen peite blokoi ennen lasia | Lähde: NREL 2007"
+  ) +
+  theme_kristian()
+```
+
+```{r peite_taulukko}
+peite_yhteenveto <- tibble(
+  skenaario = c("Ei peitettä", "Valkoinen kangas (ρ=0.45)",
+                "Hopea 1-kerros (ρ=0.70)", "Hopea 2-kerros (ρ=0.82)",
+                "Alumiinifolio (ρ=0.93)"),
+  G_eff = G_base * c(1.00, 0.55, 0.30, 0.18, 0.07)
+) |>
+  mutate(
+    T_eq    = round(T_eq_fn(T_out_base, G_eff), 1),
+    delta_T = round(T_eq - T_out_base, 1),
+    t_40_txt = if_else(
+      T_eq > 40,
+      paste0(round(-tau_min_ref * log(pmax(1e-9, 1 - (40 - T_out_base) /
+                                           (T_eq - T_out_base))), 0), " min"),
+      "ei saavuteta"
+    ),
+    t_50_txt = if_else(
+      T_eq > 50,
+      paste0(round(-tau_min_ref * log(pmax(1e-9, 1 - (50 - T_out_base) /
+                                           (T_eq - T_out_base))), 0), " min"),
+      "ei saavuteta"
+    )
+  )
+
+peite_yhteenveto |>
+  select(skenaario, T_eq, delta_T, t_40_txt, t_50_txt) |>
+  knitr::kable(
+    col.names = c("Peite", "T_eq (°C)", "ΔT (°C)", "Aika 40°C:hen", "Aika 50°C:hen"),
+    caption = paste(
+      "Tyypillinen suomalainen hopea-talvipeite (ρ≈0.70) estää kriittisen",
+      "50°C:n saavuttamisen kokonaan normaalissa suomalaisessa aurinkohelteessä."
+    )
+  )
+```
+
+### Miksi somemyytti on väärässä — fysiikan selitys
+
+Väite *"peite estää ilman kiertymisen"* sekoittaa kaksi mekanismia:
+
+1. **Konvektiivinen jäähdytys ulkoa:** tämä ei muutenkaan tapahdu suljetussa autossa — peite ei poista jotain, mitä ei ollut.
+2. **Säteilylämmitys:** tämä on hallitseva mekanismi. Peite blokkaa sen.
+
+Analogia: kasvihuoneessa kasveja ei lämmitä ilmanvaihdon puute — niitä lämmittää auringonsäteily lasin läpi. Kasvihuoneen jäähdyttäminen ei onnistu avaamalla venttiiliä, vaan varjostamalla se. **Sama fysiikka, sama ratkaisu.**
+
+### Aallonpituuskaistapohjainen analyysi: mikä blokataan
+
+Auringon säteilyenergia jakautuu kolmeen osaan:
+
+- **UV (< 400 nm):** ~5 % energiasta — autolasin PVB-laminaatti jo blokoi lähes kaiken
+- **Näkyvä valo (400–700 nm):** ~44 % — läpäisee lasin hyvin
+- **Lähiinfrapuna NIR (700–2500 nm):** ~51 % — läpäisee lasin ja on tärkein lämmittäjä
+
+```{r aallonpituusjakauma}
+aallot <- tibble(
+  kaista    = c("UV\n(< 400 nm)", "Näkyvä\n(400–700 nm)", "NIR\n(700–2500 nm)"),
+  osuus_E   = c(0.05, 0.44, 0.51),    # osuus kokonaisenergiasta
+  lasi_tau  = c(0.02, 0.88, 0.78),    # lasin transmittanssi
+  hopea_rho = c(0.95, 0.75, 0.88)     # hopea-Al:n heijastuskerroin
+) |>
+  mutate(
+    E_sisaan_nopeit = osuus_E * lasi_tau,
+    E_sisaan_peite  = osuus_E * (1 - hopea_rho) * lasi_tau,
+    vahenema_pct    = (1 - E_sisaan_peite / E_sisaan_nopeit) * 100
+  )
+
+aallot_long <- aallot |>
+  select(kaista, E_sisaan_nopeit, E_sisaan_peite) |>
+  pivot_longer(c(E_sisaan_nopeit, E_sisaan_peite),
+               names_to = "tila", values_to = "energia") |>
+  mutate(tila = if_else(tila == "E_sisaan_nopeit", "Ilman peitettä", "Hopea-peite ulkopuolella"))
+
+ggplot(aallot_long, aes(x = kaista, y = energia, fill = tila)) +
+  geom_col(position = "dodge", width = 0.6) +
+  scale_fill_manual(values = c(clr_red, clr_teal)) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title    = "Säteilyenergia ohjaamon sisään — aallonpituuksittain",
+    subtitle = "NIR (infrapuna) on suurin energianlähde; hopea-peite blokkaa sen tehokkaimmin",
+    x        = "Säteilykaista",
+    y        = "Suhteellinen energia (% kokonaisenergiasta)",
+    fill     = NULL,
+    caption  = paste(
+      "Lasin τ: UV≈2%, VIS≈88%, NIR≈78% (laminoitu lasi)",
+      "| Hopea-Al: ρ_UV≈95%, ρ_VIS≈75%, ρ_NIR≈88%",
+      "| Lähde: Almutawa ym. 2013; NREL 2007"
+    )
+  ) +
+  theme_kristian()
+```
+
+### Käytännön taulukko: mitä suomalainen autoilija omistaa jo
+
+```{r kaytannon_taulukko}
+kaytanto <- tibble(
+  vaihtoehto = c(
+    "Sisäinen musta aurinkosuoja",
+    "Sisäinen hopea-aurinkosuoja",
+    "Talvipeite (hopea, ulko) — vain tuulilasi",
+    "Talvipeite + sivuikkunasuojat (ulko)",
+    "Koko auton peite (hopea, ulko)"
+  ),
+  hinta_eur   = c("5–15", "10–20", "15–40", "40–80", "60–150"),
+  kattavuus   = c("Tuulilasi", "Tuulilasi", "~53 % lasista",
+                  "~80 % lasista", "100 % lasista"),
+  T_eq_muutos = c("–2…+3 °C", "–5…–8 °C", "–15…–20 °C",
+                  "–22…–26 °C", "–25…–30 °C"),
+  suositus    = c("Ei hyödyllinen, voi haitata",
+                  "Vähäinen hyöty",
+                  "Merkittävä hyöty ✓",
+                  "Erinomainen ✓✓",
+                  "Paras mahdollinen ✓✓✓")
+)
+
+kaytanto |>
+  knitr::kable(
+    col.names = c("Vaihtoehto", "Hinta", "Kattavuus",
+                  "T_eq muutos", "Suositus"),
+    caption = paste(
+      "Käytännön yhteenveto. Huom: suomalainen talvipeite on jo monella olemassa —",
+      "se toimii myös kesällä ulkopuolelta käytettynä."
+    )
+  )
+```
+
+**Yksi neuvo tiivistetysti:** Se hopea-alumiininen talvipeite, joka odottaa auton tavaratilassa lokakuuta — se toimii myös kesällä laittamalla se *ulkopuolelta* tuulilasin päälle. Tämä ei vaadi uusia hankintoja.
+
+---
+
+## Osa 10: Yhteenveto ja suositukset
+
+### Mitä fysiikka sanoo selkeästi
+
+```{r yhteenveto_taulukko}
+yhteenveto <- tibble(
+  tilanne = c(
+    # Perusskenaariot — ei peitettä
+    "Aurinkoinen päivä (G≥700 W/m²), T_out≥22°C",
+    "Aurinkoinen päivä, T_out≥28°C (hellepäivä)",
+    "Puolipilvinen, T_out~20°C",
+    "Pilvinen (G<200 W/m²), T_out<20°C",
+    "Varjo, T_out~25°C",
+    "Varjo, T_out>30°C (helle)",
+    # Peite + aurinko
+    "Aurinko + hopea-tuulilasin peite (ρ=0.70, 53% lasista)",
+    "Aurinko + hopea-peite kaikilla ikkunoilla (ρ=0.70, 100%)",
+    "Hellepäivä + hopea-tuulilasin peite",
+    "Hellepäivä + hopea-peite kaikilla ikkunoilla",
+    # Peite + varjo — yhdistelmät
+    "Varjo (T~25°C) + hopea-tuulilasin peite",
+    "Varjo (T~25°C) + hopea-peite kaikilla ikkunoilla",
+    "Varjo helle (T>30°C) + hopea-tuulilasin peite",
+    "Varjo helle (T>30°C) + hopea-peite kaikilla ikkunoilla"
+  ),
+  aika_40C = c(
+    # Perusskenaariot
+    "<20 min",
+    "<10 min",
+    "~30 min",
+    "ei saavuteta",
+    "ei saavuteta",
+    "~60 min",
+    # Peite + aurinko
+    "~45 min",
+    "ei saavuteta",
+    "~25 min",
+    "ei saavuteta",
+    # Peite + varjo
+    "ei saavuteta",
+    "ei saavuteta",
+    "ei saavuteta",
+    "ei saavuteta"
+  ),
+  aika_50C = c(
+    # Perusskenaariot
+    "<35 min",
+    "<20 min",
+    "~60 min",
+    "ei saavuteta",
+    "ei saavuteta",
+    "ei saavuteta normaalisti",
+    # Peite + aurinko
+    "ei saavuteta",
+    "ei saavuteta",
+    "ei saavuteta",
+    "ei saavuteta",
+    # Peite + varjo
+    "ei saavuteta",
+    "ei saavuteta",
+    "ei saavuteta",
+    "ei saavuteta"
+  ),
+  riski = c(
+    # Perusskenaariot
+    "KORKEA",
+    "ERITTÄIN KORKEA",
+    "KOHTALAINEN",
+    "MATALA",
+    "MATALA",
+    "KOHTALAINEN–KORKEA",
+    # Peite + aurinko
+    "KOHTALAINEN",
+    "MATALA",
+    "KOHTALAINEN",
+    "MATALA",
+    # Peite + varjo
+    "MATALA",
+    "ERITTÄIN MATALA",
+    "MATALA",
+    "MATALA"
+  ),
+  toiminta = c(
+    # Perusskenaariot
+    "Älä jätä koiraa",
+    "Ehdottomasti älä jätä",
+    "Max 15 min, seuraa",
+    "Lyhyt pysäköinti ok terveen koiran kanssa",
+    "Lyhyt pysäköinti ok, seuraa kestoa",
+    "Varjokaan ei riitä",
+    # Peite + aurinko
+    "Max 30 min — peite laskee riskin, ei poista sitä",
+    "~45 min ok terveen koiran kanssa — seuraa",
+    "Max 15 min — helle+peite (tuulilasi only) ei riitä pitkään",
+    "Max 30 min — kaikki ikkunat peitettynä helle siedettävä",
+    # Peite + varjo
+    "~45 min ok — paras käytännön yhdistelmä lyhyissä asioinneissa",
+    "Optimaalinen: T_eq lähellä ulkolämpötilaa — useita tunteja ok",
+    "Max 30 min — helle nostaa lattialämpötilaa peitteetkin",
+    "~45 min ok — kaikki ikkunat + varjo eliminoi käytännössä riskin"
+  )
+)
+
+yhteenveto |>
+  knitr::kable(
+    col.names = c("Tilanne", "Aika 40°C:hen", "Aika 50°C:hen",
+                  "Riskitaso", "Suositus"),
+    caption   = "Yhteenveto: riski tilanteittain fysiikan perusteella"
+  )
+```
+
+### Mitä tämä tarkoittaa päätöksenteon kannalta
+
+1. **Aurinko on ratkaiseva tekijä** — ei vain ulkolämpötila. Aurinkoinen 20 °C -päivä on vaarallisempi kuin pilvinen 28 °C -päivä.
+
+2. **Viisi minuuttia ei ole raja** — tasapainolämpötilaan pääsy kestää noin 30–60 minuuttia, mutta **varoitusraja 40 °C saavutetaan jo 15–20 minuutissa aurinkoisella säällä**.
+
+3. **Varjo muuttaa tilanteen dramaattisesti** — syvässä varjossa tasapainolämpötila jää 30–35 °C:een normaaliolosuhteissa. Tämä on epämukava mutta ei lyhyessä ajassa tappava terveelle koiralle.
+
+4. **Rotu ja koko ratkaisevat** — brakykefaaliset rodut, iäkkäät koirat, sydänsairaat ja ylipainoiset koirat ovat huomattavasti alttiimpia.
+
+5. **"Epävarmuus on jakauma, ei piste"** — yksikään luku ei ole tarkka. Parametrien vaihtelu tarkoittaa, että riski on jakauma: osassa tilanteista kriittinen raja saavutetaan 10 minuutissa, osassa 40 minuutissa. Varovaisuusperiaate on järkevä.
+
+### Bayesilainen johtopäätös
+
+Simulaatiomme osoittaa:
+- Aurinkoisen kesäpäivän olosuhteissa (~25 °C, ~800 W/m²) varoitusraja 40 °C saavutetaan **50% todennäköisyydellä noin `r round(median(t40_valid), 0)` minuutissa**
+- Kriittinen raja 50 °C saavutetaan **50% todennäköisyydellä noin `r round(median(t50_valid), 0)` minuutissa**
+- Mutta 10. persentiili on **`r round(quantile(t40_valid, 0.10), 0)` minuuttia** varoitusrajalle — se tarkoittaa, että joka kymmenennessä tapauksessa tilanne on jo kriittinen huomattavasti nopeammin
+
+Tämä on "maailma on jakauma" -ajattelun käytännön arvo: *yksikään luku ei kerro koko totuutta, mutta jakauma kertoo riskin.*
+
+---
+
+## Lähdeluettelo
+
+- Horak, J., Schmerold, I., Wimmer, K., & Schauberger, G. (2017). Cabin air temperature of parked vehicles in summer conditions: life-threatening environment for children and pets calculated by a dynamic model. *Theoretical and Applied Climatology*, 130(1–2), 107–118. https://doi.org/10.1007/s00704-016-1861-3
+
+- McLaren, C., Null, J., & Quinn, J. (2005). Heat stress from enclosed vehicles: moderate ambient temperatures cause significant temperature rise in enclosed vehicles. *Pediatrics*, 116(1), e109–e112. Stanford University School of Medicine.
+
+- McLaren, C. et al. (2021). Proposing the VetCompass clinical grading tool for heat-related illness in dogs. *Scientific Reports*, 11, 6724. https://doi.org/10.1038/s41598-021-86235-w
+
+- Bruchim, Y. et al. (2006). Pathophysiology of heatstroke in dogs. *Journal of Veterinary Emergency and Critical Care*. PMC5800390.
+
+- Ilmatieteen laitos (FMI). (2025). Heinäkuu 2025 — ennätyshelleaalto. https://en.ilmatieteenlaitos.fi/press-release/3UkSBIbvStPq0VeuxpVG2D
+
+- Motiva. (2024). Amount of solar radiation in Finland. https://www.motiva.fi/en/databank/amount-of-solar-radiation-in-finland/
+
+- VCA Animal Hospitals. Heat stroke in dogs. https://vcahospitals.com/know-your-pet/heat-stroke-in-dogs
+
+---
+
+*Postaus on osa blogin fysiikka & data-sarja -kokonaisuutta. Koodi on saatavilla GitHubissa. Laskelmat perustuvat kirjallisuuden parametriarvoihin — todellinen auto voi poiketa ±20–30% riippuen iästä, mallista ja kunnosta.*

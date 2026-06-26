@@ -1,0 +1,9 @@
+# Directory metadata for the /fractional/ folder.
+# Quarto applies this to EVERY .qmd in this folder automatically.
+# A new page here only needs its own `title:` in the front matter —
+# theme, layout and stylesheet are inherited from this file.
+
+lang: en
+page-layout: full
+title-block-banner: false
+css: styles-fractional.css

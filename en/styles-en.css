@@ -1,0 +1,295 @@
+/* ============================================================
+   kristianvepsalainen.com — English landing pages
+   Shared stylesheet for: index.qmd, about.qmd, work.qmd
+   Light theme. Loaded per-page via the `css:` key in each
+   document's front matter, so it does NOT affect the Finnish
+   blog or any other page in the project.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=IBM+Plex+Mono:wght@400;600&family=Source+Serif+4:wght@300;400&display=swap');
+
+/* ── Base ── */
+body,
+.quarto-container, #quarto-content,
+.page-layout-full, main.content {
+  background: #ffffff !important;
+  color: #1f1f1f !important;
+  font-family: 'Source Serif 4', serif !important;
+}
+#title-block-header { display: none !important; }
+h1, h2, h3, h4, h5 {
+  color: #111111 !important;
+  font-family: 'Playfair Display', serif !important;
+}
+
+/* ── Nav strip ── */
+.en-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+  background: rgba(255,255,255,0.95);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+.en-nav a {
+  color: #5e5e5e !important;
+  text-decoration: none !important;
+  padding: 0.35rem 0.7rem;
+  transition: color 0.2s;
+  white-space: nowrap;
+}
+.en-nav a:hover { color: #1f8577 !important; }
+.en-nav a.active { color: #111111 !important; }
+.en-nav .nav-fi {
+  margin-left: auto;
+  color: #e63946 !important;
+  padding-left: 1rem;
+}
+.en-nav .nav-fi:hover { color: #c2620c !important; }
+
+/* ── Shared page wrapper (about + work) ── */
+.page-wrap {
+  margin: 0 auto;
+  padding: 4rem 1.5rem 6rem;
+  box-sizing: border-box;
+  max-width: 1040px;                 /* work.qmd default */
+}
+.page-wrap.narrow { max-width: 960px; }   /* about.qmd */
+
+.page-label {
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #1f8577 !important;
+  margin-bottom: 1.2rem;
+  display: block;
+}
+.page-title {
+  font-family: 'Playfair Display', serif !important;
+  font-size: clamp(2rem, 6vw, 3.2rem) !important;
+  color: #111111 !important;
+  line-height: 1.1;
+  margin-bottom: 1rem;               /* work.qmd default */
+}
+.page-title.spaced { margin-bottom: 3rem; }   /* about.qmd */
+
+/* ============================================================
+   Home (index.qmd)
+   ============================================================ */
+.hero-section {
+  min-height: 78vh; display: flex; flex-direction: column;
+  justify-content: center; padding: 4rem 1.5rem;
+  position: relative; overflow: hidden; box-sizing: border-box;
+}
+.hero-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: #1f8577 !important; margin-bottom: 1.5rem;
+  animation: fadeUp 0.6s ease both;
+}
+.hero-title {
+  font-family: 'Playfair Display', serif !important;
+  font-size: clamp(2.4rem, 9vw, 5.5rem) !important;
+  font-weight: 700; line-height: 1.08; color: #111111 !important;
+  max-width: 820px; margin-bottom: 1.5rem;
+  animation: fadeUp 0.6s 0.1s ease both;
+}
+.hero-title em { font-style: italic !important; color: #e63946 !important; }
+.hero-sub {
+  font-size: clamp(0.92rem, 2.5vw, 1.12rem); font-weight: 300;
+  color: #4b4b4b !important; max-width: 540px; line-height: 1.75;
+  margin-bottom: 2.5rem; animation: fadeUp 0.6s 0.2s ease both;
+}
+.hero-cta { display: flex; gap: 0.75rem; flex-wrap: wrap; animation: fadeUp 0.6s 0.3s ease both; }
+.btn-primary {
+  background: #e63946 !important; color: #fff !important;
+  padding: 0.8rem 1.6rem; font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 0.78rem !important; letter-spacing: 0.06em;
+  text-decoration: none !important; border: none !important; border-radius: 0 !important;
+  white-space: nowrap; transition: background 0.2s, transform 0.15s;
+}
+.btn-primary:hover { background: #c1121f !important; transform: translateY(-2px); color: #fff !important; }
+.btn-ghost {
+  background: transparent; color: #1f1f1f !important; padding: 0.8rem 1.6rem;
+  font-family: 'IBM Plex Mono', monospace !important; font-size: 0.78rem !important;
+  letter-spacing: 0.06em; text-decoration: none !important;
+  border: 1px solid rgba(0,0,0,0.22) !important;
+  white-space: nowrap; transition: border-color 0.2s, transform 0.15s;
+}
+.btn-ghost:hover { border-color: #1f8577 !important; color: #1f8577 !important; transform: translateY(-2px); }
+.section { padding: 4rem 1.5rem; max-width: 1060px; margin: 0 auto; box-sizing: border-box; }
+.section-label {
+  font-family: 'IBM Plex Mono', monospace !important; font-size: 0.65rem;
+  letter-spacing: 0.2em; text-transform: uppercase; color: #1f8577 !important; margin-bottom: 0.8rem; display: block;
+}
+.section-title {
+  font-family: 'Playfair Display', serif !important;
+  font-size: clamp(1.6rem, 4vw, 2.6rem) !important;
+  color: #111111 !important; margin-bottom: 1.5rem; line-height: 1.2;
+}
+.stats-row {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem;
+  padding: 2.5rem 0;
+  border-top: 1px solid rgba(0,0,0,0.08);
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+@media (min-width: 600px) { .stats-row { grid-template-columns: repeat(4, 1fr); } }
+.stat-num {
+  font-family: 'Playfair Display', serif !important;
+  font-size: clamp(1.5rem, 5vw, 2.4rem); color: #c2620c !important; display: block;
+}
+.stat-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem;
+  letter-spacing: 0.1em; color: #777777 !important; text-transform: uppercase; margin-top: 0.3rem;
+}
+.pillar-grid {
+  display: grid; grid-template-columns: 1fr; gap: 1px;
+  background: rgba(0,0,0,0.09); margin-top: 2rem;
+}
+@media (min-width: 600px) { .pillar-grid { grid-template-columns: repeat(2, 1fr); } }
+.pillar { background: #ffffff !important; padding: 2rem 1.5rem; }
+.pillar-num {
+  font-family: 'IBM Plex Mono', monospace; font-size: 2rem; font-weight: 600;
+  color: rgba(230,57,70,0.18) !important; line-height: 1; margin-bottom: 0.8rem;
+}
+.pillar h3 { font-family: 'Playfair Display', serif !important; font-size: 1.1rem !important; color: #111111 !important; margin-bottom: 0.6rem; }
+.pillar p { font-size: 0.88rem; color: #5e5e5e !important; line-height: 1.7; margin: 0; }
+.quote-block {
+  border-left: 3px solid #e63946; padding: 1.5rem 2rem;
+  margin: 3rem 0; background: rgba(230,57,70,0.04);
+}
+.quote-block p {
+  font-family: 'Playfair Display', serif !important; font-style: italic;
+  font-size: clamp(1rem, 3vw, 1.3rem) !important; color: #333333 !important; line-height: 1.6; margin: 0 0 0.8rem;
+}
+.quote-block cite { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: #1f8577 !important; }
+
+/* ============================================================
+   About (about.qmd)
+   ============================================================ */
+.two-col { display: grid; grid-template-columns: 1fr; gap: 3rem; }
+@media (min-width: 700px) { .two-col { grid-template-columns: 1fr 1.6fr; gap: 5rem; } }
+.tag-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem; }
+.tag {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
+  letter-spacing: 0.1em; padding: 0.3rem 0.7rem;
+  border: 1px solid rgba(42,157,143,0.3); color: #1f8577 !important;
+}
+.contact-block a {
+  display: block; font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem;
+  color: #c2620c !important; text-decoration: none !important; margin-bottom: 0.5rem;
+  letter-spacing: 0.06em; word-break: break-all; transition: color 0.2s;
+}
+.contact-block a:hover { color: #e63946 !important; }
+.bio-main h2 {
+  font-family: 'Playfair Display', serif !important; font-size: 1.25rem !important;
+  color: #111111 !important; margin: 2.5rem 0 0.75rem;
+  border-bottom: 1px solid rgba(0,0,0,0.08); padding-bottom: 0.5rem;
+}
+.bio-main h2:first-child { margin-top: 0; }
+.bio-main p { color: #4b4b4b !important; line-height: 1.82; font-size: 0.97rem; margin-bottom: 1rem; }
+.bio-main strong { color: #1f1f1f !important; font-weight: 400; }
+.timeline { margin: 0.5rem 0 0; padding: 0; list-style: none !important; }
+.timeline li {
+  padding: 0.9rem 0 0.9rem 1.4rem;
+  border-left: 1px solid rgba(0,0,0,0.1);
+  position: relative; color: #4b4b4b !important; font-size: 0.92rem; line-height: 1.65;
+}
+.timeline li::before {
+  content: ''; width: 7px; height: 7px; background: #e63946;
+  border-radius: 50%; position: absolute; left: -4px; top: 1.3rem;
+}
+.timeline .year {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
+  letter-spacing: 0.12em; color: #457b9d !important; display: block; margin-bottom: 0.2rem;
+}
+.philosophy-quote {
+  margin: 2.5rem 0; padding: 1.5rem 2rem;
+  background: rgba(230,57,70,0.05); border-left: 3px solid #e63946;
+}
+.philosophy-quote p {
+  font-family: 'Playfair Display', serif !important; font-style: italic;
+  font-size: clamp(1rem, 2.5vw, 1.15rem) !important; color: #333333 !important; line-height: 1.65; margin: 0;
+}
+
+/* ============================================================
+   Work (work.qmd)
+   ============================================================ */
+.page-intro { color: #4b4b4b !important; font-size: 1rem; line-height: 1.8; max-width: 600px; margin-bottom: 3.5rem; }
+.section-divider {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: #457b9d !important; margin: 3.5rem 0 1.5rem; display: block;
+  padding-bottom: 0.5rem; border-bottom: 1px solid rgba(69,123,157,0.2);
+}
+.work-grid {
+  display: grid; grid-template-columns: 1fr; gap: 1px;
+  background: rgba(0,0,0,0.09);
+}
+@media (min-width: 640px) { .work-grid { grid-template-columns: repeat(2, 1fr); } }
+.work-card {
+  background: #ffffff !important; padding: 2rem 1.5rem;
+  display: flex; flex-direction: column; transition: background 0.2s;
+  position: relative; overflow: hidden;
+}
+.work-card:hover { background: #f4f4f2 !important; }
+.work-card::after {
+  content: ''; position: absolute; bottom: 0; left: 0;
+  height: 2px; width: 0; background: #e63946; transition: width 0.3s;
+}
+.work-card:hover::after { width: 100%; }
+.card-domain {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem;
+  letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.9rem; display: block;
+}
+.domain-law { color: #457b9d !important; }
+.domain-labour { color: #c2620c !important; }
+.domain-health { color: #1f8577 !important; }
+.card-title {
+  font-family: 'Playfair Display', serif !important; font-size: 1.1rem !important;
+  color: #111111 !important; line-height: 1.35; margin-bottom: 0.7rem;
+}
+.card-desc { color: #5e5e5e !important; font-size: 0.88rem; line-height: 1.7; flex: 1; margin-bottom: 1.2rem; }
+.card-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.card-tag {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem;
+  letter-spacing: 0.06em; padding: 0.18rem 0.55rem;
+  background: rgba(0,0,0,0.05); color: #777777 !important;
+}
+.card-link {
+  display: inline-block; margin-top: 1rem;
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem;
+  letter-spacing: 0.08em; color: #1f8577 !important; text-decoration: none !important;
+}
+.card-link:hover { color: #e63946 !important; }
+.coming-soon { opacity: 0.45; }
+.coming-badge {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem;
+  letter-spacing: 0.12em; color: #777777 !important;
+  border: 1px solid rgba(107,101,96,0.3); padding: 0.12rem 0.45rem;
+  display: inline-block; margin-bottom: 0.9rem;
+}
+.cta-footer {
+  margin-top: 3.5rem; padding: 2.5rem 2rem;
+  border: 1px solid rgba(0,0,0,0.08); text-align: center;
+}
+.cta-footer p {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem;
+  letter-spacing: 0.1em; color: #777777 !important; margin-bottom: 1rem;
+}
+.cta-footer a {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem;
+  color: #1f8577 !important; text-decoration: none !important; letter-spacing: 0.06em;
+}
+.cta-footer a:hover { color: #e63946 !important; }
+
+/* ── Animations ── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

@@ -26,8 +26,7 @@ title: "Fractional Head of Data"
         aligned to your goals — bringing the statistical rigour and open-data
         methodology of a senior data scientist without the full-time cost.
       </p>
-      <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">Book a free 20-min call →</a>
-      <a href="mailto:kristian.vepsalainen@proton.me" class="btn-secondary">Or email me</a>
+      <a href="mailto:kristian.vepsalainen@proton.me" class="btn-primary">Book a free 20-min call →</a>
       <div class="trust-strip">
         <span>Satisfaction-guaranteed audit</span>
         <span>Free analysis upfront</span>
@@ -98,7 +97,7 @@ title: "Fractional Head of Data"
         <li>Prioritised roadmap with effort/impact estimates</li>
         <li>Written report + presentation</li>
       </ul>
-      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Enquire &rarr;</a>
+      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Enquire &rarr;</a>
     </div>
     <div class="tier featured">
       <div class="tier-name">Core offering</div>
@@ -114,7 +113,7 @@ title: "Fractional Head of Data"
         <li>Monthly decision-support reports</li>
         <li>Async availability between days</li>
       </ul>
-      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Start the conversation &rarr;</a>
+      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Start the conversation &rarr;</a>
     </div>
     <div class="tier">
       <div class="tier-name">Project</div>
@@ -127,7 +126,7 @@ title: "Fractional Head of Data"
         <li>Publication-ready output</li>
         <li>Full code and documentation handover</li>
       </ul>
-      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Enquire &rarr;</a>
+      <a href="mailto:kristian.vepsalainen@proton.me" class="tier-cta">Enquire &rarr;</a>
     </div>
   </div>
 
@@ -164,7 +163,7 @@ title: "Fractional Head of Data"
         strings attached.
       </p>
     </div>
-    <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">Claim your gift →</a>
+    <a href="mailto:kristian.vepsalainen@proton.me" class="btn-primary">Claim your gift →</a>
   </div>
 
   <hr class="divider">
@@ -202,7 +201,7 @@ title: "Fractional Head of Data"
       engagement makes sense for your stage. The audit is satisfaction-guaranteed,
       and the fractional engagement carries no lock-in.
     </p>
-    <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">
+    <a href="mailto:kristian.vepsalainen@proton.me" class="btn-primary">
       Book a call + free analysis &rarr;
     </a>
     <a href="mailto:kristian.vepsalainen@proton.me" class="cta-email">

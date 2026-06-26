@@ -121,6 +121,11 @@ include-in-header:
       }
       .trust-strip span { display: inline-flex; align-items: center; gap: 0.4rem; }
       .trust-strip span::before { content: '✓'; color: #2a9d8f; }
+      .cta-hint {
+        font-family: 'IBM Plex Mono', monospace !important; font-size: 0.66rem;
+        letter-spacing: 0.02em; color: #6b6560 !important; margin-top: 1rem;
+        line-height: 1.65; max-width: 32rem;
+      }
       .scarcity-note {
         font-family: 'IBM Plex Mono', monospace !important; font-size: 0.66rem;
         letter-spacing: 0.03em; color: #f4a261 !important; margin: 1.4rem 0 0;
@@ -200,8 +205,8 @@ include-in-header:
         Lopputulos on konkreettinen: parempi ymmärrys markkinasta, riskeistä
         tai kasvumahdollisuuksista — ja se, mitä päätöksissä ei vielä tiedetä.
       </p>
-      <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">Varaa maksuton 20 min puhelu →</a>
-      <a href="mailto:kristian.vepsalainen@proton.me" class="btn-secondary">Tai laita sähköpostia</a>
+      <a href="mailto:kristian.vepsalainen@proton.me?subject=Kysely%3A%20datakonsultointi" class="btn-primary">Kirjoita minulle →</a>
+      <p class="cta-hint">Kerro parilla lauseella, mitä dataa teillä on ja mikä päätös on edessä — palaan asiaan yleensä saman päivän aikana.</p>
       <div class="trust-strip">
         <span>Tyytyväisyystakuu kartoitukseen</span>
         <span>Ilmainen ennakkoanalyysi</span>
@@ -273,7 +278,7 @@ include-in-header:
         <li>Keskeiset havainnot ja suositukset</li>
         <li>Kirjallinen raportti + etäesitys</li>
       </ul>
-      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Kysy lisää →</a>
+      <a href="mailto:kristian.vepsalainen@proton.me?subject=Kysely%3A%20Avoimen%20datan%20kartoitus" class="tier-cta">Kysy lisää →</a>
     </div>
     <div class="tier featured">
       <div class="tier-name">Ydinpalvelu</div>
@@ -289,7 +294,7 @@ include-in-header:
         <li>Kuukausittainen johdon raportointi — epävarmuus mukaan luettuna</li>
         <li>Tavoitettavuus sovittujen päivien välissä</li>
       </ul>
-      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Aloita keskustelu →</a>
+      <a href="mailto:kristian.vepsalainen@proton.me?subject=Kysely%3A%20Fractional%20Head%20of%20Data" class="tier-cta">Aloita keskustelu →</a>
     </div>
     <div class="tier">
       <div class="tier-name">Projekti</div>
@@ -302,7 +307,7 @@ include-in-header:
         <li>Julkaisukelpoinen lopputulos</li>
         <li>Replikoitava koodi ja dokumentaatio luovutetaan</li>
       </ul>
-      <a href="https://cal.com/kristianvepsalainen/intro" class="tier-cta">Kysy lisää →</a>
+      <a href="mailto:kristian.vepsalainen@proton.me?subject=Kysely%3A%20Strateginen%20analyysi" class="tier-cta">Kysy lisää →</a>
     </div>
   </div>
 
@@ -333,13 +338,13 @@ include-in-header:
       <span class="gift-tag">Maksuton lahja · arvo 500 €+</span>
       <h3>Räätälöity mini-analyysi + whitepaper</h3>
       <p>
-        Varaa esittelypuhelu, niin teen ennakkoon maksuttoman mini-analyysin
+        Laita sähköpostia, niin teen ennakkoon maksuttoman mini-analyysin
         yhdestä valitsemastasi avoimesta datalähteestä ja toimitan sen kanssasi
         Bayeslaista kausaalipäättelyä käsittelevän whitepaperini. Konkreettinen
         näyte siitä, mitä saat — ilman sitoutumista.
       </p>
     </div>
-    <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">Lunasta lahjasi →</a>
+    <a href="mailto:kristian.vepsalainen@proton.me?subject=Maksuton%20ennakkoanalyysi" class="btn-primary">Lunasta lahjasi →</a>
   </div>
 
   <hr class="divider">
@@ -412,11 +417,11 @@ include-in-header:
       onko avoimesta datasta hyötyä organisaatiosi päätöksenteossa.
       Kartoituksella tyytyväisyystakuu, fractional-yhteistyössä ei sitoutumista.
     </p>
-    <a href="https://cal.com/kristianvepsalainen/intro" class="btn-primary">
-      Varaa puhelu + maksuton analyysi →
+    <a href="mailto:kristian.vepsalainen@proton.me?subject=Kysely%3A%20datakonsultointi" class="btn-primary">
+      Kirjoita minulle →
     </a>
-    <a href="mailto:kristian.vepsalainen@proton.me" class="cta-email">
-      tai sähköpostitse kristian.vepsalainen@proton.me
+    <a href="mailto:kristian.vepsalainen@proton.me?subject=Kysely%3A%20datakonsultointi" class="cta-email">
+      kristian.vepsalainen@proton.me
     </a>
   </div>
 </div>

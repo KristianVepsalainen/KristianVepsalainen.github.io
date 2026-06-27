@@ -34,12 +34,17 @@ suppressPackageStartupMessages({
 }
 
 # Suorittaa pyynnön ja uudelleenyrittää MYÖS aikakatkaisut ja verkkovirheet.
-# req_retry tutkii vain HTTP-statuksen; transport-virheessä vastausta ei tule,
-# joten ne on napattava tällä erikseen (tämä oli OYJ-haun kaatumisen syy).
+# req_retry tutkii vain HTTP-statuksen; transport-virheessä vastausta ei tule.
+# HUOM: asiakasvirheet (4xx, paitsi 429) eivät korjaannu uudelleenyrityksellä
+# -> kaadetaan heti. 404 väärästä polusta turha yrittää kuutta kertaa.
 .perform <- function(req, max_tries = 6) {
   for (attempt in seq_len(max_tries)) {
     resp <- tryCatch(req_perform(req), error = function(e) e)
     if (!inherits(resp, "error")) return(resp)
+    # Tunnista HTTP-statuskoodi virheluokasta (esim. "httr2_http_404")
+    http_cls <- grep("^httr2_http_[0-9]{3}$", class(resp), value = TRUE)
+    st <- if (length(http_cls)) as.integer(sub("httr2_http_", "", http_cls)) else NA_integer_
+    if (!is.na(st) && st >= 400 && st < 500 && st != 429) stop(resp)  # asiakasvirhe: kaadu heti
     if (attempt == max_tries) stop(resp)
     wait <- min(2^attempt, 60)
     message(sprintf("    pyyntö epäonnistui (yritys %d/%d): %s — odotetaan %d s",
@@ -285,49 +290,124 @@ fetch_ytj_all_tidy <- function(base = "https://avoindata.prh.fi/opendata-ytj-api
   dplyr::bind_rows(map(company_forms, one_form))
 }
 
-# --- 2) Rekisteröidyt ilmoitukset: krek ----------------------------------------
-# Rekisterimerkinnät 7.11.2014 alkaen. Haku aikavälillä.
-# HUOM: tarkista parametrinimet elävästä Swaggerista:
-#   https://avoindata.prh.fi/en/krek/swagger-ui
-fetch_krek_notifications <- function(start_date, end_date,
-                                     base = "https://avoindata.prh.fi/opendata-krek-api/v3/registered-notifications") {
-  stopifnot(!is.na(as.Date(start_date)), !is.na(as.Date(end_date)))
+# --- 2) Rekisteröidyt ilmoitukset: registerednotices ---------------------------
+# Rekisterimerkinnät 7.11.2014 alkaen.
+#
+# OLENNAISTA RAKENTEESTA (vahvistettu elävästä rajapinnasta):
+#   - Oikea kantaosoite on opendata-REGISTEREDNOTICES-api (EI "krek", joka on
+#     vain Swaggerin slug). Väärä nimi oli kaikkien 404:ien syy.
+#   - Vastauksen juuriavain on `companies` (sama kuori kuin YTJ-perustiedoissa,
+#     totalResults ~820 000), EI litteä `notifications`-lista.
+#   - Ilmoitukset ovat UPOTETTUINA jokaisen yrityksen `publicNotices`-kentässä.
+#     Yksi ilmoitus = {registrationDate, recordNumber, typeOfRegistration,
+#     entryCodes:[...]}.
+#
+# SEURAUS: erillistä ilmoitushakua ei välttämättä tarvita lainkaan — samat
+# `publicNotices` tulevat perustietorajapinnan yritysvastauksessa. Suositeltu
+# tapa on purkaa ilmoitukset suoraan jo haetusta yritysaineistosta
+# `tidy_notices()`-funktiolla (yksi haku, kaksi taulua). Alla oleva fetch on
+# tarjolla, jos haluat hakea ilmoitukset erikseen tämän rajapinnan kautta;
+# se palauttaa saman yrityskuoren, jonka `tidy_notices()` purkaa.
+#
+# HUOM: päivämäärä- ja sivutusparametrien TÄSMÄLLISET nimet on vielä
+# varmistettava Swaggerista (GET / "Try it out"). `extra_query` antaa lisätä ne
+# ilman että funktiota tarvitsee muokata.
+fetch_registered_notices <- function(extra_query = list(), page_param = "page",
+                                     base = "https://avoindata.prh.fi/opendata-registerednotices-api/v3/") {
   page <- 1L
   acc  <- list()
   repeat {
-    resp <- .kvar_req(base) |>
-      req_url_query(
-        registrationDateStart = as.character(start_date),
-        registrationDateEnd   = as.character(end_date),
-        page = page
-      ) |>
-      .perform()
-    
+    q    <- c(extra_query, setNames(list(page), page_param))
+    resp <- .kvar_req(base) |> req_url_query(!!!q) |> .perform()
     parsed <- resp_body_json(resp, simplifyVector = FALSE)
-    items  <- pluck(parsed, "notifications", .default = list())
+    items  <- pluck(parsed, "companies", .default = list())
     if (length(items) == 0) break
     acc[[length(acc) + 1]] <- items
     total <- pluck(parsed, "totalResults", .default = length(items))
-    if (page * 100 >= total) break
+    if (page * length(items) >= total) break
     page <- page + 1L
   }
   unlist(acc, recursive = FALSE)
 }
 
-tidy_krek <- function(raw) {
-  map_dfr(raw, function(n) {
-    codes <- map_chr(pluck(n, "registerEntries", .default = list()),
-                     \(e) pluck(e, "type", .default = NA_character_))
-    tibble(
-      business_id       = pluck(n, "businessId", .default = NA_character_),
-      registration_date = pluck(n, "registrationDate", .default = NA_character_),
-      registered_office = pluck(n, "registeredOffice", .default = NA_character_),
-      record_number     = pluck(n, "recordNumber", .default = NA_character_),
-      type_of_registration = pluck(n, "typeOfRegistration", .default = NA_character_),
-      n_entries         = length(codes),
-      entry_codes       = list(codes)
-    )
+# Purkaa ilmoitukset yrityskuoresta: yksi rivi per ilmoitus.
+# Syöte on `companies`-lista (joko fetch_registered_notices()-vastaus TAI
+# yhtä hyvin perustietohaun raakayrityslista, jossa publicNotices on mukana).
+tidy_notices <- function(companies) {
+  rows <- lapply(companies, function(co) {
+    bid <- .bid(co)
+    pn  <- pluck(co, "publicNotices", .default = list())
+    if (length(pn) == 0) return(NULL)
+    lapply(pn, function(n) {
+      codes <- unlist(pluck(n, "entryCodes", .default = list()), use.names = FALSE)
+      if (is.null(codes)) codes <- character(0)
+      list(
+        business_id          = bid,
+        registration_date    = .as_chr(pluck(n, "registrationDate")),
+        record_number        = .as_chr(pluck(n, "recordNumber")),
+        type_of_registration = .as_chr(pluck(n, "typeOfRegistration")),
+        n_entries            = length(codes),
+        entry_codes          = codes
+      )
+    })
   })
+  rows <- unlist(rows, recursive = FALSE)
+  if (length(rows) == 0) return(tibble(
+    business_id = character(), registration_date = as.Date(character()),
+    record_number = character(), type_of_registration = character(),
+    n_entries = integer(), entry_codes = list()
+  ))
+  tibble(
+    business_id          = map_chr(rows, "business_id"),
+    registration_date    = as.Date(map_chr(rows, "registration_date")),
+    record_number        = map_chr(rows, "record_number"),
+    type_of_registration = map_chr(rows, "type_of_registration"),
+    n_entries            = map_int(rows, "n_entries"),
+    entry_codes          = map(rows, "entry_codes")
+  )
+}
+
+# Hakee KOKO ilmoitusaineiston yhdellä todennetulla kutsulla (GET /), purkaa
+# ilmoitukset sivu kerrallaan tidy-muotoon (ei pidä raskasta yrityskuorta
+# muistissa) ja checkpointtaa joka sivun. Keskeytyksen jälkeen jatkaa siitä,
+# mihin jäi. Palauttaa yhden rivin per ilmoitus; suodata ikkunaan client-side.
+fetch_notices_all_tidy <- function(base = "https://avoindata.prh.fi/opendata-registerednotices-api/v3/",
+                                   checkpoint_dir = NULL, page_param = "page") {
+  if (!is.null(checkpoint_dir)) dir.create(checkpoint_dir, recursive = TRUE, showWarnings = FALSE)
+  cp_path <- function(p) if (!is.null(checkpoint_dir)) file.path(checkpoint_dir, sprintf("notices_page_%05d.qs", p)) else NULL
+  
+  acc <- list(); page <- 1L
+  repeat {
+    cp <- cp_path(page)
+    if (!is.null(cp) && file.exists(cp)) {       # jo haettu -> lue checkpoint ja jatka
+      acc[[length(acc) + 1]] <- .qread(cp)
+      page <- page + 1L
+      next
+    }
+    resp   <- .kvar_req(base) |>
+      req_url_query(!!!setNames(list(page), page_param)) |>
+      .perform()
+    parsed <- resp_body_json(resp, simplifyVector = FALSE)
+    comp   <- pluck(parsed, "companies", .default = list())
+    if (length(comp) == 0) break                 # tyhjä sivu = loppu (ei tarvita totalia)
+    
+    tib <- tidy_notices(comp)                     # PURA HETI -> kompakti
+    if (!is.null(cp)) .qsave(tib, cp)
+    acc[[length(acc) + 1]] <- tib
+    total <- pluck(parsed, "totalResults", .default = NA_integer_)
+    message(sprintf("  ilmoitussivu %d (%d yritystä, %d ilmoitusta)%s",
+                    page, length(comp), nrow(tib),
+                    if (!is.na(total)) sprintf(" / ~%d yritystä", total) else ""))
+    page <- page + 1L
+  }
+  dplyr::bind_rows(acc)
+}
+
+# Yksi rivi per (ilmoitus, entryCode), jos haluat analysoida merkintälajeja
+# (HAL, TASE, TILTAR, NIMP, LAKK, ...) suoraan. Purkaa entry_codes-listan auki.
+unnest_entry_codes <- function(notices) {
+  tidyr::unnest_longer(notices, entry_codes, values_to = "entry_code",
+                       keep_empty = TRUE)
 }
 
 # --- 3) Digitaaliset tilinpäätökset --------------------------------------------

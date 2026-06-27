@@ -20,7 +20,7 @@ execute:
 #| include: false
 
 library(here)
-
+library(knitr)
 source(here("R","ytj", "theme_kristian.R"))
 source(here("R","ytj", "ytj_api.R"))
 
@@ -55,10 +55,8 @@ reaaliaikaiselle suhdannemittarille.
 ## Datan rakenne
 
 Haetaan merkinnät aikaväliltä. Jokaisella ilmoituksella on yksi tai useampi
-**merkintälaji** (esim. `HAL` = hallitus, `KOTI` = kotipaikka/osoite,
-`NIMA`/`NIML` = nimiasiat, `TILTAR` = tilintarkastaja, `PERUS` =
-perustaminen). Nämä koodit ovat se sanasto, jolla yrityksen elämää voi
-lukea.
+**merkintälaji** Nämä koodit ovat se sanasto, jolla yrityksen elämää voi
+lukea. Alla on niistä täydellinen taulukko sekä esimerkki datasta.
 
 ```{r fetch-data}
 #| cache: false
@@ -101,8 +99,33 @@ ilmoitukset <- ilmoitukset |>
 # Aikarajaus pitää: ei merkintöjä ennen 7.11.2014
 stopifnot(min(ilmoitukset$registration_date, na.rm = TRUE) >= as.Date("2014-11-07"))
 
-glimpse(ilmoitukset)
+# EC-koodisto (PRH:n rekisterin oma koodilista, CC BY 4.0).
+# Liitetään entry_code-sarakkeeseen: vasen liitos säilyttää havaitut frekvenssit.
+ec_selitteet <- tibble::tribble(
+  ~entry_code, ~selite,
+  "TASE",   "Tilinpäätösasiakirjat",
+  "HAL",    "Hallitus",
+  "TILTAR", "Tilintarkastajat",
+  "ESR",    "Tosiasialliset edunsaajat",
+  "TAL",    "Toimiala",
+  "OSLUKU", "Osakkeiden lukumäärä",
+  "TMI",    "Toiminimi",
+  "NORTIL", "Normaali tilikausi",
+  "OPO",    "Osakepääoma",
+  "KOTI",   "Kotipaikka",
+  "TOIM",   "Toimitusjohtajat",
+  "POITIL", "Poikkeava tilikausi"
+)
+
+kable(ec_selitteet)
 ```
+
+
+```{r glimpse-ilmoitukset}
+glimpse(ilmoitukset)
+
+```
+
 
 ## Mitä virrasta paljastuu?
 

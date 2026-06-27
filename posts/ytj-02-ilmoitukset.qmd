@@ -150,7 +150,7 @@ ggplot(lajit, aes(x = reorder(entry_codes, n), y = n)) +
     title = "Mitä yritykset rekisteröivät?",
     subtitle = "Yleisimmät merkintälajit (2024–2025)",
     x = "Merkintälaji", y = "Lukumäärä",
-    caption = "HAL=hallitus, KOTI=kotipaikka, NIMA/NIML=nimiasiat, TILTAR=tilintarkastaja\nLähde: PRH avoin data (kaupparekisteri), CC BY 4.0"
+    caption = "Lähde: PRH avoin data (kaupparekisteri), CC BY 4.0"
   )
 ```
 
@@ -186,7 +186,7 @@ p_bar <- per_yritys |>
        x = "Ilmoituksia / yritys", y = "Yrityksiä")
 
 p_box + p_bar
-```
+
 
 > **Päättäjälle.** Hajontasuhde (varianssi / keskiarvo) on selvästi yli
 > yhden. Käytännössä: yrityksen aktiivisuutta ei voi mallintaa pelkällä
@@ -249,27 +249,62 @@ erityisen epävarma. Mallinnetaan osuus Beta-Binomi-mallilla ja näytetään,
 miten epävarmuus kapenee, kun havaintoja on enemmän.
 
 ```{r rare-event}
-n_yht <- n_distinct(ilmoitukset$business_id)
-n_tiltar <- ilmoitukset |>
-  filter(map_lgl(entry_codes, ~ "TILTAR" %in% .x)) |>
-  distinct(business_id) |> nrow()
+library(dplyr); library(purrr); library(ggplot2)
 
-stopifnot(n_tiltar <= n_yht)
+## --- 1) MITTARIN MÄÄRITTELY (korjattu) -------------------------------------
+# Kysymys: kuinka moni yritys on LUOPUNUT tilintarkastusvelvollisuudesta?
+#   TILTAP = Tilintarkastusmääräysten poisto   <- tämä on "poisto"
+#   TILTAR = Tilintarkastajat (valinta/muutos)  <- EI tämä (mittasi päinvastaista)
+#   TILTAE = Eronneet tilintarkastajat          <- tilintarkastaja-aloitteinen, eri asia
+poisto_koodit <- "TILTAP"
 
-post <- tibble(p = seq(0, max(0.05, 3 * n_tiltar / n_yht), length.out = 1000)) |>
-  mutate(tiheys = dbeta(p, 1 + n_tiltar, 1 + n_yht - n_tiltar))
-ci <- qbeta(c(0.025, 0.975), 1 + n_tiltar, 1 + n_yht - n_tiltar)
+# Yritykset, jotka ovat elinkaarensa aikana jättäneet TILTAP-ilmoituksen.
+# HUOM: "joskus poistanut" — yhtiö on voinut myöhemmin palauttaa velvollisuuden.
+poistaneet <- ilmoitukset |>
+  filter(map_lgl(entry_codes, ~ any(poisto_koodit %in% .x))) |>
+  distinct(business_id) |> pull(business_id)
 
-ggplot(post, aes(p, tiheys)) +
-  geom_area(data = filter(post, p >= ci[1], p <= ci[2]),
-            fill = kvar_palette[["red"]], alpha = 0.35) +
-  geom_line(color = kvar_palette[["red"]], linewidth = 1) +
+## --- 2) NIMITTÄJÄ: koko populaatio, ei vain ilmoittaneet -------------------
+# Tilintarkastusvelvollisuus koskee käytännössä osakeyhtiöitä (koodi 16);
+# rajaus tekee osuudesta tulkittavan (AOY:illä, yhdistyksillä eri säännöt).
+
+perustiedot <- qs2::qs_read(here("data","ytj","ytj_perustiedot.qs"))
+pohja  <- perustiedot |> filter(company_form_code == "16")
+n_yht    <- n_distinct(pohja$business_id)
+n_poisto <- sum(pohja$business_id %in% poistaneet)
+stopifnot(n_poisto <= n_yht)
+phat <- n_poisto / n_yht
+
+# Koko populaatiolla tämä on käytännössä census-suure: raportoi se kuvailevana
+# faktana, ÄLÄ piirrä credible intervalia saavutuksena (väli olisi häviävän kapea
+# pelkän n:n vuoksi, ei siksi että tietäisimme jotain tarkasti).
+glue::glue("Osakeyhtiöistä {scales::percent(phat, 0.1)} ",
+           "({scales::comma(n_poisto)} / {scales::comma(n_yht)}) on jossain ",
+           "vaiheessa poistanut tilintarkastusvelvollisuuden.")
+
+## --- 3) Missä epävarmuus on aitoa: osuus yhtiömuodoittain ------------------
+per_form <- perustiedot |>
+  mutate(poisti = business_id %in% poistaneet) |>
+  group_by(company_form) |>
+  summarise(n = n(), k = sum(poisti), .groups = "drop") |>
+  mutate(
+    keskiarvo = (1 + k) / (2 + n),                       # Beta(1+k, 1+n-k) odotusarvo
+    lo = qbeta(0.025, 1 + k, 1 + n - k),
+    hi = qbeta(0.975, 1 + k, 1 + n - k)
+  ) |>
+  arrange(desc(keskiarvo))
+
+ggplot(per_form, aes(keskiarvo, reorder(company_form, keskiarvo))) +
+  geom_errorbar(aes(xmin = lo, xmax = hi), height = 0.3,
+                 color = kvar_palette[["blue"]]) +
+  geom_point(aes(size = n), color = kvar_palette[["red"]]) +
   scale_x_continuous(labels = scales::percent) +
+  scale_size_area(max_size = 6, labels = scales::comma) +
   labs(
-    title = "Kuinka moni yritys poisti tilintarkastajan?",
-    subtitle = sprintf("Posteriori, 95 %% väli [%.2f %%, %.2f %%]",
-                       100 * ci[1], 100 * ci[2]),
-    x = "Osuus yrityksistä", y = "Posterioritiheys"
+    title    = "Tilintarkastusvelvollisuuden poisto yhtiömuodoittain",
+    subtitle = "Piste = posteriorin keskiarvo, jana = 95 % väli.\n Pienillä ryhmillä väli levenee.",
+    x = "Osuus, joka on poistanut velvollisuuden",
+    y = NULL, size = "Yrityksiä"
   )
 ```
 

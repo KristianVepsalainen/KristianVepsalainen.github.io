@@ -88,13 +88,19 @@ stopifnot(
   all(ilmoitukset$n_entries >= 0)
 )
 
+# Viikonpäivän labelit eivät saa riippua käyttöjärjestelmän kielestä:
+# wday(label=TRUE) antaisi "Mon"/"ma" lokaalin mukaan ja rikkoisi renderin.
+# -> numero logiikkaan (1=ma … 7=su), labelit asetetaan itse.
+vko_labels <- c("ma","ti","ke","to","pe","la","su")
 ilmoitukset <- ilmoitukset |>
   mutate(
     registration_date = as.Date(registration_date),
-    vuosi = lubridate::year(registration_date),
-    kk    = lubridate::floor_date(registration_date, "month"),
-    vko   = lubridate::wday(registration_date, week_start = 1, label = TRUE)
+    vuosi   = lubridate::year(registration_date),
+    kk      = lubridate::floor_date(registration_date, "month"),
+    vko_num = lubridate::wday(registration_date, week_start = 1),   # 1=ma … 7=su
+    vko     = factor(vko_labels[vko_num], levels = vko_labels)
   )
+
 
 # Aikarajaus pitää: ei merkintöjä ennen 7.11.2014
 stopifnot(min(ilmoitukset$registration_date, na.rm = TRUE) >= as.Date("2014-11-07"))

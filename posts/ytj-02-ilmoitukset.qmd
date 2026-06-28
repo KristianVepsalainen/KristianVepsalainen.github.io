@@ -78,7 +78,7 @@ ilmoitukset_ikkuna <- ilmoitukset |>
                 registration_date <= as.Date("2025-12-31"))
 
 stopifnot(nrow(ilmoitukset_ikkuna) > 0,
-          !anyNA(ilmoitukset_ikkuna$registration_date))S
+          !anyNA(ilmoitukset_ikkuna$registration_date))
 ```
 
 ```{r integrity-checks}

@@ -165,7 +165,7 @@ ggplot(lajit, aes(x = reorder(entry_codes, n), y = n)) +
 Useimmat yritykset tekevät hyvin vähän merkintöjä. Pieni joukko tekee
 paljon. Tämä on klassinen ylihajonta-tilanne — ja sillä on väliä, koska
 merkintöjen tiheys on osassa 5 yksi voimakkaimmista riskisignaaleista.
-
+```{r distribution-ytj2}
 per_yritys <- ilmoitukset |>
   count(business_id, name = "n_ilmoitusta")
 
@@ -192,7 +192,7 @@ p_bar <- per_yritys |>
        x = "Ilmoituksia / yritys", y = "Yrityksiä")
 
 p_box + p_bar
-
+```
 
 > **Päättäjälle.** Hajontasuhde (varianssi / keskiarvo) on selvästi yli
 > yhden. Käytännössä: yrityksen aktiivisuutta ei voi mallintaa pelkällä

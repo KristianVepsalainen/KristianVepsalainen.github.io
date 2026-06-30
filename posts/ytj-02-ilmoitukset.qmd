@@ -4,7 +4,6 @@ subtitle: "Yritysten käyttäytymisen sormenjälki — mitä rekisterimerkinnät
 author: "Kristian Vepsäläinen"
 date: "2026-06-30"
 categories: [avoin data, YTJ, EDA, R]
-draft: true
 format:
   html:
     toc: true

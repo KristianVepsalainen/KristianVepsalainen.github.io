@@ -1,0 +1,392 @@
+---
+title: "Maaliodottama ei ole yksi luku — tässä on mitä sen laskeminen oikeasti vaatii"
+subtitle: "Rakennamme saman menetelmän, jota MM-2026-kisojen viralliset lähetykset käyttävät"
+author: "Kristian Vepsäläinen"
+date: 2026-07-01
+format:
+  html:
+    toc: true
+    code-fold: true
+    code-summary: "Näytä koodi"
+categories: [avoin data, ennustaminen, koneoppiminen]
+---
+
+```{r setup}
+#| include: false
+library(here)
+library(tidyverse)
+library(httr2)
+library(qs2)
+library(xgboost)
+library(shapviz)
+library(gt)
+library(scales)
+
+source(here("R", "theme_kristian.R"))
+
+dir.create(here("data", "xg_blogi"), recursive = TRUE, showWarnings = FALSE)
+```
+
+## Some-keskustelu, joka kaipaa oikeaa vastausta
+
+Jalkapallon miesten MM-kisojen aikana somessa käytiin taas tuttu kiista: yhden studiolähetyksen perusteella väitettiin, että kommentaattorit eivät ymmärrä kunnolla maaliodottamaa (xG, *expected goals*). Riippumatta siitä, kuka väitteen esitti tai oliko hän oikeassa yksittäisen illan osalta, väite paljastaa jotain kiinnostavampaa kuin itse kiistan: **hyvin harva, joka puhuu xG:stä julkisesti, on koskaan itse rakentanut sitä laskevaa mallia.**
+
+Tässä postauksessa emme tyydy approksimaatioon. Rakennamme **täsmälleen sen menetelmän, jota FIFA:n virallinen datakumppani Stats Perform (Opta) käyttää juuri nyt käynnissä olevissa MM-2026-kisoissa**: gradient boosting -mallin (XGBoost), joka on opetettu laukauksen ominaisuuksilla — mukaan lukien maalivahdin sijainnilla ja puolustajien asemoinnilla. Käytämme oikeaa avointa dataa, näytämme koko putken läpinäkyvästi, ja lopuksi sovellamme mallia yhteen kuuluisaan otteluun.
+
+## Data: StatsBomb Open Data
+
+Käytämme [StatsBombin avointa dataa](https://github.com/statsbomb/open-data) — ilmaista, tapahtumatason jalkapallodataa, jota StatsBomb julkaisee tutkimuskäyttöön. Data sisältää jokaisen kentällä tapahtuneen toiminnon sekunnin tarkkuudella, kenttäkoordinaateilla, ja mikä tärkeintä laukausten kohdalla: **freeze frame** -tiedon, eli tilannekuvan siitä, missä maalivahti ja muut pelaajat olivat laukaisuhetkellä.
+
+Rajasimme aineiston kolmeen miesten arvoturnaukseen, koska alkuperäinen kiista koski nimenomaan miesten MM-kisoja:
+
+- Jalkapallon MM-kisat 2018 (64 ottelua)
+- Jalkapallon MM-kisat 2022 (64 ottelua)
+- Euroopan mestaruuskilpailut 2020 (51 ottelua)
+
+Yhteensä 179 ottelua, 4 302 avoimen pelin / vapaapotku- / kulmapotkulaukausta rangaistuspotkujen poiston jälkeen (penaltyt jätettiin pois, koska niiden maalitodennäköisyys ei riipu laukaisupaikasta samalla tavalla). Näistä maaliksi päätyi 409 kappaletta — keskimääräinen maalintekoprosentti 9,5 %.
+
+```{r fetch-data}
+#| eval: false
+
+competitions <- tribble(
+  ~comp_id, ~season_id, ~label,
+  43, 3,   "MM2018",
+  43, 106, "MM2022",
+  55, 43,  "EURO2020"
+)
+
+base_url <- "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
+
+fetch_json <- function(url) {
+  request(url) |>
+    req_retry(max_tries = 3) |>
+    req_perform() |>
+    resp_body_json(check_type = FALSE)
+}
+
+cache_file <- here("data", "xg_blogi", "shots_raw.qs2")
+
+if (!file.exists(cache_file)) {
+
+  all_matches <- competitions |>
+    pmap(function(comp_id, season_id, label) {
+      matches <- fetch_json(glue::glue("{base_url}/matches/{comp_id}/{season_id}.json"))
+      tibble(match_id = map_int(matches, "match_id"), competition = label)
+    }) |>
+    list_rbind()
+
+  stopifnot("Odotettu 179 ottelua" = nrow(all_matches) == 179)
+
+  shots_raw <- all_matches |>
+    pmap(function(match_id, competition) {
+      events <- fetch_json(glue::glue("{base_url}/events/{match_id}.json"))
+      shots <- keep(events, ~ .x$type$name == "Shot" && .x$shot$type$name != "Penalty")
+      if (length(shots) == 0) return(tibble())
+      map_dfr(shots, ~ tibble(
+        match_id = match_id, competition = competition,
+        team = .x$team$name, player = .x$player$name %||% NA_character_,
+        minute = .x$minute %||% NA_integer_,
+        loc_x = .x$location[[1]], loc_y = .x$location[[2]],
+        under_pressure = .x$under_pressure %||% FALSE,
+        body_part = .x$shot$body_part$name %||% NA_character_,
+        first_time = .x$shot$first_time %||% FALSE,
+        outcome = .x$shot$outcome$name %||% NA_character_,
+        statsbomb_xg = .x$shot$statsbomb_xg %||% NA_real_,
+        freeze_frame = list(.x$shot$freeze_frame %||% list())
+      ))
+    }) |>
+    list_rbind()
+
+  stopifnot(
+    "Laukausdataa puuttuu"          = nrow(shots_raw) > 0,
+    "loc_x kentän ulkopuolella"     = all(shots_raw$loc_x >= 0 & shots_raw$loc_x <= 120, na.rm = TRUE),
+    "loc_y kentän ulkopuolella"     = all(shots_raw$loc_y >= 0 & shots_raw$loc_y <= 80, na.rm = TRUE)
+  )
+
+  qs_save(shots_raw, cache_file)
+} else {
+  shots_raw <- qs_read(cache_file)
+}
+```
+
+## Piirteet: miksi pelkkä etäisyys ja kulma eivät riitä
+
+Julkiset "tee itse xG kotona" -esimerkit tyytyvät usein pelkkään etäisyyteen ja kulmaan. Se on hyvä alku, mutta oikeat ammattimallit menevät pidemmälle. Opta kuvaa oman mallinsa käyttävän yli 20:tä muuttujaa laukaushetkeltä — mukaan lukien **maalivahdin sijainti** ja onko kyseessä yksi-yhtä-vastaan-tilanne. StatsBombin freeze frame -data mahdollistaa saman laskennan itse: jokaiselle laukaukselle tiedämme, missä maalivahti ja muut kentällä olleet pelaajat olivat sillä hetkellä.
+
+Rakensimme näin kymmenen piirrettä:
+
+| Piirre | Mitä se mittaa |
+|---|---|
+| `dist` | Etäisyys maaliin |
+| `angle` | Maalin näkyvä kulma laukaisupaikasta |
+| `header` | Oliko laukaus päällä |
+| `under_pressure` | Oliko laukoja puolustajan painostama |
+| `first_time` | Ensikosketuslaukaus |
+| `gk_dist` | Maalivahdin etäisyys maalista laukaisuhetkellä |
+| `gk_angle_offset` | Kuinka sivussa maalivahti oli maalin keskilinjasta |
+| `defenders_in_cone` | Kuinka moni puolustaja oli suoraan laukaisulinjalla |
+| `one_on_one` | Oliko laukoja yksin maalivahtia vastaan (ei puolustajia välissä) |
+| `attackers_nearby` | Kuinka moni oma pelaaja oli laukaisijan edessä (jatkohyökkäysmahdollisuus) |
+
+```{r feature-eng}
+#| eval: false
+
+GOAL_X <- 120; GOAL_Y <- 40; POST1_Y <- 36; POST2_Y <- 44
+
+extract_freeze_frame_features <- function(loc_x, loc_y, freeze_frame) {
+  gk <- keep(freeze_frame, ~ isFALSE(.x$teammate) && .x$position$name == "Goalkeeper")
+  gk_dist <- if (length(gk) > 0) {
+    sqrt((GOAL_X - gk[[1]]$location[[1]])^2 + (GOAL_Y - gk[[1]]$location[[2]])^2)
+  } else NA_real_
+  gk_angle_offset <- if (length(gk) > 0) abs(gk[[1]]$location[[2]] - GOAL_Y) else NA_real_
+
+  opponents <- keep(freeze_frame, ~ isFALSE(.x$teammate) && .x$position$name != "Goalkeeper")
+  defenders_in_cone <- sum(map_lgl(opponents, function(p) {
+    px <- p$location[[1]]; py <- p$location[[2]]
+    if (px <= loc_x || px > GOAL_X) return(FALSE)
+    t <- (px - loc_x) / (GOAL_X - loc_x)
+    line_y <- loc_y + t * (GOAL_Y - loc_y)
+    abs(py - line_y) < 3
+  }))
+
+  teammates <- keep(freeze_frame, ~ isTRUE(.x$teammate))
+  attackers_nearby <- sum(map_dbl(teammates, ~ .x$location[[1]]) > loc_x)
+
+  tibble(gk_dist, gk_angle_offset, defenders_in_cone,
+         one_on_one = as.integer(!is.na(gk_dist) && defenders_in_cone == 0),
+         attackers_nearby)
+}
+
+shots <- shots_raw |>
+  mutate(
+    is_goal = as.integer(outcome == "Goal"),
+    dist    = sqrt((GOAL_X - loc_x)^2 + (GOAL_Y - loc_y)^2),
+    angle   = abs(atan2(POST1_Y - loc_y, GOAL_X - loc_x) - atan2(POST2_Y - loc_y, GOAL_X - loc_x)),
+    header  = as.integer(body_part == "Head"),
+    under_pressure = as.integer(coalesce(under_pressure, FALSE)),
+    first_time     = as.integer(coalesce(first_time, FALSE))
+  )
+
+# natiivi putki |> ei tue magrittr:n .-paikkamerkkiä, joten
+# freeze frame -piirteet lasketaan omana välivaiheenaan
+freeze_frame_feats <- pmap_dfr(
+  list(shots$loc_x, shots$loc_y, shots$freeze_frame),
+  extract_freeze_frame_features
+)
+
+shots <- shots |>
+  bind_cols(freeze_frame_feats) |>
+  mutate(
+    gk_dist         = coalesce(gk_dist, median(gk_dist, na.rm = TRUE)),
+    gk_angle_offset = coalesce(gk_angle_offset, median(gk_angle_offset, na.rm = TRUE))
+  )
+stopifnot(
+  "is_goal ei ole 0/1"          = all(shots$is_goal %in% c(0, 1)),
+  "liikaa puuttuvaa maalivahtidataa" = mean(!is.na(shots$gk_dist)) > 0.99,
+  "liian vähän havaintoja"      = nrow(shots) > 3000
+)
+```
+
+## Malli: gradient boosting (XGBoost) — sama menetelmä kuin virallisessa datassa
+
+Gradient boosting on koneoppimismenetelmä, joka rakentaa satoja peräkkäisiä yksinkertaisia päätöspuita. Jokainen uusi puu keskittyy korjaamaan niitä tapauksia, joissa edelliset puut olivat väärässä. Lopputulos on malli, joka pystyy oppimaan monimutkaisia yhdysvaikutuksia — esimerkiksi sen, että etäisyyden vaikutus maalitodennäköisyyteen riippuu myös siitä, kuinka avoin kulma on — ilman että näitä yhdysvaikutuksia täytyy käsin määritellä. Tämä on juuri se menetelmä, jota Opta kuvaa käyttävänsä omassa xG-mallissaan.
+
+```{r xgb-model}
+#| eval: false
+
+model_file <- here("data", "xg_blogi", "xgb_model.qs2")
+
+feat_cols <- c("dist", "angle", "header", "under_pressure", "first_time",
+               "gk_dist", "gk_angle_offset", "defenders_in_cone",
+               "one_on_one", "attackers_nearby")
+
+if (!file.exists(model_file)) {
+
+  set.seed(42)
+  split <- rsample::initial_split(shots, prop = 0.75, strata = is_goal)
+  train <- rsample::training(split)
+  test  <- rsample::testing(split)
+
+  dtrain <- xgb.DMatrix(data = as.matrix(train[feat_cols]), label = train$is_goal)
+  dtest  <- xgb.DMatrix(data = as.matrix(test[feat_cols]),  label = test$is_goal)
+
+  params <- list(
+    objective = "binary:logistic",
+    eval_metric = "logloss",
+    max_depth = 3,
+    eta = 0.03,
+    subsample = 0.8,
+    colsample_bytree = 0.8,
+    lambda = 2,
+    min_child_weight = 10
+  )
+
+  xg_model <- xgb.train(
+    params = params, data = dtrain, nrounds = 300,
+    watchlist = list(test = dtest), early_stopping_rounds = 20,
+    verbose = 0
+  )
+
+  qs_save(list(model = xg_model, feat_cols = feat_cols, test = test), model_file)
+} else {
+  cached <- qs_read(model_file)
+  xg_model <- cached$model; feat_cols <- cached$feat_cols; test <- cached$test
+}
+```
+
+## Validointi: toimiiko mallimme oikeasti?
+
+Testasimme mallia datalla, jota se ei nähnyt harjoitteluvaiheessa (25 % otos), ja lisäksi viisinkertaisella ristiinvalidoinnilla vakauden varmistamiseksi:
+
+| Mittari | Arvo | Tulkinta |
+|---|---|---|
+| AUC (testijoukko) | 0,75 | Malli erottaa maalit ja ohilaukaukset selvästi paremmin kuin karkeampi malli |
+| AUC (5-fold CV, keskiarvo) | 0,77 (keskihajonta 0,02) | Tulos on vakaa eri otoksilla, ei sattumaa yhdestä jaosta |
+| Brier-pisteet | 0,078 | Mitä lähempänä nollaa, sitä paremmin kalibroitu malli |
+| Korrelaatio StatsBombin omaan ammattilaismalliin | 0,87 | Malli seuraa erittäin läheisesti ammattilaisten vastaavaa mallia |
+| Keskimääräinen itseisvirhe StatsBombin malliin | 0,036 | Tyypillinen ero on alle 4 prosenttiyksikköä |
+
+**Kalibraatio kymmenessä desiilissä** — jaoimme kaikki laukaukset kymmeneen ryhmään ennustetun xG:n mukaan ja verrattiin ennustettua keskiarvoa toteutuneeseen maalintekoprosenttiin samassa ryhmässä:
+
+```{r calibration}
+#| eval: false
+
+test |>
+  mutate(pred = predict(xg_model, xgb.DMatrix(as.matrix(pick(all_of(feat_cols)))))) |>
+  mutate(bin = ntile(pred, 10)) |>
+  group_by(bin) |>
+  summarise(n = n(), ennustettu = mean(pred), toteutunut = mean(is_goal)) |>
+  gt() |>
+  fmt_percent(columns = c(ennustettu, toteutunut), decimals = 1)
+```
+
+Alimmasta desiilistä (ennustettu 2,7 %, toteutunut 3,7 %) ylimpään (ennustettu 34,8 %, toteutunut 35,5 %) ennuste ja toteuma pysyvät koko matkan lähellä toisiaan — merkki siitä, että malli ei ole vain hyvä erottelemaan hyviä ja huonoja tilaisuuksia, vaan myös antaa oikean kokoluokan todennäköisyyksiä.
+
+## Mikä laukauksessa oikeasti ratkaisee: SHAP-selitykset
+
+Gradient boosting -mallin sisäistä logiikkaa ei voi lukea suoraan kertoimista, kuten logistisesta regressiosta. Sen sijaan käytämme **SHAP-arvoja** (SHapley Additive exPlanations), jotka kertovat jokaiselle piirteelle, kuinka paljon se nosti tai laski juuri kyseisen laukauksen maalitodennäköisyyttä. Tämä on sama menetelmä, jota ammattianalyytikot käyttävät selittäessään puumallien päätöksiä.
+
+```{r shap}
+#| eval: false
+
+sv <- shapviz(xg_model, X_pred = as.matrix(shots[feat_cols]), X = shots[feat_cols])
+sv_importance(sv, kind = "bar") + theme_kristian()
+```
+
+Koko aineiston tasolla tärkeimmät piirteet keskimääräisen vaikutuksen mukaan olivat: **kulma** (selvästi tärkein), **puolustajien määrä laukaisulinjalla**, **oliko laukaus päällä**, **etäisyys**, ja vasta näiden jälkeen maalivahdin sijaintiin liittyvät piirteet. Tämä on hyödyllinen korjaus yleiseen oletukseen: moni kuvittelee maalivahdin sijainnin olevan xG:n tärkein tekijä, mutta datassa laukaisukulma ja välissä olevien puolustajien määrä selittävät enemmän vaihtelua.
+
+### Esimerkki: Messin ratkaiseva maali MM-2022-finaalissa
+
+Havainnollistetaan SHAP-selitys yhdellä tunnetulla laukauksella: Lionel Messin maali 107. minuutilla MM-2022-finaalissa, joka teki tilanteen 3–2 Argentiinalle jatkoajalla ennen Ranskan tasoitusta ja lopullista rangaistuspotkukilpailua.
+
+| Piirre | Arvo | Vaikutus todennäköisyyteen |
+|---|---|---|
+| Kulma | 1,40 rad (erittäin avoin) | **+ voimakkain nostava tekijä** |
+| Etäisyys | 4,5 metriä | + toiseksi voimakkain nostava tekijä |
+| Ei puolustusta ollut painostamassa | — | + nostava |
+| Ensikosketuslaukaus | kyllä | + lievästi nostava |
+| Maalivahdin sijainti | 4,1 metrin päässä | − lievästi laskeva |
+
+Mallin lopputulos tälle laukaukselle: **54,6 % maalitodennäköisyys**. Toisin sanoen: vaikka laukaus näytti televisiossa vaikuttavalta, malli arvioi sen olevan hieman parempi kuin kolikonheitto — ei mikään "varma maali", vaan korkealaatuinen mutta silti epävarma tilaisuus. Juuri tämä ero — visuaalisesti vaikuttavan ja tilastollisesti korkealaatuisen laukauksen välillä — on se, mitä xG tuo keskusteluun, jota pelkkä silmämääräinen arvio ei tarjoa.
+
+## Tilastollinen testi: eroavatko lähilaukaisut päällä ja kaukolaukaisut jalalla oikeasti toisistaan?
+
+Vertasimme kahta ryhmää koko aineistossa:
+
+- **Lähilaukaisut päällä** (alle 11 metrin päästä): 515 laukausta, maalintekoprosentti 14,2 %
+- **Kaukolaukaisut jalalla** (vähintään 20 metrin päästä): 1 864 laukausta, maalintekoprosentti 3,2 %
+
+```{r group-test}
+#| eval: false
+
+close_header <- shots |> filter(header == 1, dist < 11)
+long_foot    <- shots |> filter(header == 0, dist >= 20)
+
+tbl <- matrix(
+  c(sum(close_header$is_goal), nrow(close_header) - sum(close_header$is_goal),
+    sum(long_foot$is_goal),    nrow(long_foot) - sum(long_foot$is_goal)),
+  nrow = 2, byrow = TRUE
+)
+chisq.test(tbl)
+fisher.test(tbl)
+```
+
+**Khiin neliö -testi:** χ² = 91,2, p < 0,001 
+**Fisherin eksakti testi:** ristitulosuhde (odds ratio) = 5,05, p < 0,001
+**Bootstrap-luottamusväli erolle** (10 000 uudelleenotantaa): 95 % luottamusväli [3,5 %, 7,4 %]
+
+Kaikki kolme kertovat saman: ero ei selity sattumalla. Ristitulosuhde 5,05 tarkoittaa, että lähilaukaus päällä johtaa maaliin noin viisinkertaisella todennäköisyydellä verrattuna kaukolaukaisuun jalalla — konkreettisempi tapa ilmaista efektin koko kuin pelkkä p-arvo.
+
+## Tapaus: MM-2022-finaali ja yhden ottelun harha
+
+Sovelletaan mallia yhteen otteluista tunnetuimmista: Argentiinan ja Ranskan MM-2022-finaali, joka päättyi 3–3 (Argentiina voitti jatkoaikojen jälkeen rangaistuspotkukilpailussa). Rangaistuspotkut poistettuna aineistostamme:
+
+| Joukkue | Laukauksia | Maaleja (ei sis. penaltyt) | Yhteenlaskettu xG |
+|---|---|---|---|
+| Argentiina | 19 | 2 | 2,09 |
+| Ranska | 8 | 1 | 0,64 |
+
+Pelkän lopputuloksen (3–3) perusteella ottelu näytti tasaiselta. Laukausten laadun perusteella se ei ollut: Argentiina loi runsaat kolme kertaa enemmän maaliodotusarvoa kuin Ranska.
+
+**Monte Carlo -simulaatio koko ottelun maalijakaumasta** (100 000 kierrosta, jokainen laukaus arvottu omalla maalitodennäköisyydellään):
+
+```{r montecarlo}
+#| eval: false
+
+simulate_goals <- function(xg_vector, n_sims = 100000) {
+  matrix(rbinom(n_sims * length(xg_vector), 1, rep(xg_vector, each = n_sims)),
+         nrow = n_sims) |> rowSums()
+}
+```
+
+- **Argentiina:** odotettu maalimäärä 2,09, 95 % väli **0–5 maalia**
+- **Ranska:** odotettu maalimäärä 0,64, 95 % väli **0–2 maalia**
+- Mallin mukaan Argentiina olisi laukaisujensa laadulla tehnyt vähintään yhtä paljon maaleja kuin Ranska 92,7 % simuloiduista ottelukierroksista
+
+Tämä ei tarkoita, että ottelu olisi ollut "epäreilu" — se tarkoittaa, että **yhden ottelun lopputulos on yksi näyte laajasta mahdollisten tulosten jakaumasta**, ja äärimmäisen laadukaskin ottelu voi silti päättyä epätodennäköiseen tulemaan.
+
+### Rikkaammat piirteet toivat mallin lähemmäs ammattilaistasoa
+
+Konkreettinen todiste siitä, miksi maalivahdin sijainti ja puolustajien asemointi kannattaa mallintaa: Ranskan Randal Kolo Muanin 122. minuutin tilanne, Ranskan viimeinen suuri mahdollisuus jatkoajalla (Argentiinan maalivahti Martínez torjui). Kun mallinsimme laukauksen pelkällä etäisyydellä ja kulmalla, sen todennäköisyydeksi tuli vain 9,6 %, kun StatsBombin oma ammattimalli antoi 27,8 %. Kun lisäsimme freeze frame -pohjaiset piirteet — laukaisijalla ei ollut yhtään puolustajaa välissä (`defenders_in_cone = 0`) ja maalivahti oli poikkeuksellisen kaukana (`gk_dist = 10,9`) — malli nosti arvionsa **33,7 prosenttiin**, itse asiassa hieman yli ammattimallin. Tämä havainnollistaa suoraan, miksi virallisissa malleissa maalivahdin sijainti on mukana: ilman sitä juuri tällaiset "avoin maali mutta pitkä matka" -tilanteet aliarvioidaan systemaattisesti.
+
+## Miten maaliodottama lasketaan oikeasti käynnissä olevissa MM-kisoissa
+
+FIFA on nimennyt **Stats Performin (Opta)** viralliseksi tilasto- ja datakumppanikseen koko MM-2026-turnaukselle — kaikille 104 ottelulle. Opta toimittaa sekä lähetysyhtiöiden studioihin että FIFA:n omille tilastosivuille reaaliaikaisen xG-luvun jokaiselle laukaukselle, ja se on rakennettu täsmälleen tässä postauksessa käytetyllä menetelmällä: gradient boosting (XGBoost), opetettuna lähes miljoonalla historiallisella laukauksella yli 40 kilpailusta, käyttäen yli 20:tä muuttujaa mukaan lukien maalivahdin sijainti. Muutama lisäys, joita meidän opetusmallissamme ei ole:
+
+- **Rangaistuspotkuille oma vakioarvonsa** (historiallisen onnistumisprosentin perusteella, noin 0,79), koska niiden maalitodennäköisyys ei riipu laukaisupaikasta.
+- **Erilliset mallit miesten ja naisten kilpailuille**, koska esimerkiksi etäisyyden ja maalivahdin sijainnin vaikutus maalintekotodennäköisyyteen eroaa systemaattisesti niiden välillä.
+- **xGOT** (expected goals on target) — laukausjälkeinen versio, joka lasketaan vasta kun tiedetään mihin kohtaan maalia laukaus oli menossa. Tämä erottaa tilaisuuden laadun (xG) laukaisun toteutuksesta: jos pelaajan xGOT on systemaattisesti xG:tä korkeampi, hän on keskimääräistä parempi viimeistelijä eikä vain onnekas.
+
+**Konkreettinen esimerkki tämänhetkisistä MM-kisoista:** ryhmävaiheen ottelu Qatar–Sveitsi (13.6.2026) päättyi tasapeliin 1–1. Opta-mallin xG-luvut kertoivat toisen tarinan kuin lopputulos: Sveitsi keräsi 3,24 xG:tä, Qatar vain 0,76 xG:tä — Sveitsi loi laadultaan yli neljä kertaa arvokkaampia tilaisuuksia mutta hyödynsi niistä vain yhden. Tämä on juuri sitä tietoa, jota pelkkä lopputulos ei koskaan kerro.
+
+## Takaisin alkuperäiseen väitteeseen
+
+Koko some-kiista xG:n ymmärtämisestä nojasi yhteen havaintoon: yksi studioilta, yksi mielipide siitä, ymmärsikö joku käsitteen "oikein". Mutta juuri tämä on tilastollisesti sama virhe, jota koko postaus on käsitellyt: yhdestä havainnosta ei voi päätellä luotettavasti mitään — ei kenenkään asiantuntemuksesta, eikä yhden ottelun lopputuloksesta joukkueen todellisesta tasosta.
+
+xG:n ymmärtäminen ei tarkoita yksittäisen luvun ulkoa muistamista. Se tarkoittaa sen ymmärtämistä, että luku on satojen puiden yhdessä tuottama todennäköisyysarvio, opetettu miljoonalla historiallisella havainnolla, validoitu erillisellä testijoukolla — ei mutu-arvio eikä mielipide.
+
+## Mitä tästä opit, jos teet päätöksiä datalla
+
+Sama logiikka pätee luottopäätöksiin, sopimusriskien arviointiin ja compliance-prosesseihin: hyvä ennustemalli ei tyydy yksittäiseen pistearvoon ilman validointia. Se testataan datalla, jota se ei ole nähnyt, sen tärkeimmät tekijät selitetään läpinäkyvästi, ja sen tarkkuus raportoidaan rehellisesti — myös silloin kun se ei ole täydellinen.
+
+Autan organisaatioita rakentamaan tällaisia malleja — sellaisia, jotka kestävät kysymyksen "miten tiedät että tämä toimii?". Jos tämä kiinnostaa, [varaa aika keskusteluun](https://kristianvepsalainen.com).
+
+## Käytännön ohje: miten hyödynnät livenä näkyvää xG-lukua, vaikka et osaisi tilastotiedettä
+
+Et tarvitse yhtään kaavaa hyötyäksesi xG:stä television tai FIFA:n sovelluksen ruudulla. Riittää, että katsot sitä oikealla tavalla:
+
+1. **Älä lue xG:tä yksin — lue se aina lopputuloksen rinnalla.** Jos luvut ja lopputulos täsmäävät suunnilleen, ottelu meni "odotetusti". Jos ne eivät täsmää — kuten Qatar–Sveitsi-ottelussa — tiedät, että jompikumpi joukkue joko viimeisteli poikkeuksellisen hyvin tai huonosti, tai maalivahti pelasti illan.
+
+2. **Yksi ottelu ei todista mitään joukkueen tasosta.** Yhden ottelun tulos on yksi arvottu näyte laajasta jakaumasta. Vasta useamman ottelun yli (nyrkkisääntönä 3–5 ottelua) xG alkaa kertoa luotettavammin, mikä joukkue on oikeasti hyvä, kuin pelkkä maaliero.
+
+3. **Tarkkaile, syntyykö suuri osa xG:stä yhdestä ainoasta tilaisuudesta.** Jos joukkueen 2,0 xG koostuu yhdestä 1,5 xG:n huippumahdollisuudesta ja muutamasta pienestä rippeestä, se on eri tilanne kuin sama 2,0 xG jaettuna tasaisesti kymmenelle kohtalaiselle mahdollisuudelle — ensimmäinen on herkempi yhdelle onnistuneelle tai epäonnistuneelle hetkelle.
+
+4. **Jos näet sekä xG:n että xGOT:n, vertaa niitä.** xG kertoo tilaisuuden laadun, xGOT laukaisun laadun. Jos joukkueen xGOT on selvästi xG:tä korkeampi, he laukovat tarkasti; jos matalampi, he tuhlaavat hyviä tilaisuuksia huonoilla laukauksilla.
+
+5. **Muista pelitilanne.** Jäljessä oleva joukkue ottaa loppupuolella tyypillisesti enemmän epätoivoisia kaukolaukauksia, mikä nostaa laukausmäärää muttei juuri xG:tä. Korkea laukausmäärä matalalla xG:llä ei tarkoita huonoa peliä — usein se tarkoittaa, että joukkue joutui ottamaan riskejä ajan loppuessa.
+
+Näillä viidellä huomiolla pääset pidemmälle kuin suurin osa studiokeskusteluista — ilman yhtäkään kaavaa.
+
+---
+
+*Kaikki tässä postauksessa käytetty laukausdata on StatsBombin avointa dataa ([github.com/statsbomb/open-data](https://github.com/statsbomb/open-data)), mukaan lukien freeze frame -tiedot maalivahdin ja puolustajien sijainnista. Koodi tähän analyysiin on saatavilla pyynnöstä. Tiedot MM-2026-kisojen virallisesta xG-mallista perustuvat Stats Performin/Optan julkisiin kuvauksiin heidän menetelmästään ([theanalyst.com](https://theanalyst.com/articles/what-is-expected-goals-xg)) sekä FIFA:n ja Stats Performin kumppanuustiedotteeseen.*

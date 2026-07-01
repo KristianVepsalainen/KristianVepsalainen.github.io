@@ -137,7 +137,12 @@ jobs:
             "stan-dev/cmdstanr",
             "remotes",
             "GlobalFishingWatch/gfwr", 
-            "qs2" 
+            "qs2",
+            "xgboost",
+            "gt",
+            "shapviz",
+            "rsample"
+            
           ))
 
         shell: Rscript {0}

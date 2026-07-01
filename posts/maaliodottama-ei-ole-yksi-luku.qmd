@@ -273,7 +273,7 @@ sv <- shapviz(xg_model, X_pred = as.matrix(shots[feat_cols]), X = shots[feat_col
 sv_importance(sv, kind = "bar") + theme_kristian()
 ```
 
-Koko aineiston tasolla tärkeimmät piirteet keskimääräisen vaikutuksen mukaan olivat: **kulma** (selvästi tärkein), **puolustajien määrä laukaisulinjalla**, **oliko laukaus päällä**, **etäisyys**, ja vasta näiden jälkeen maalivahdin sijaintiin liittyvät piirteet. Tämä on hyödyllinen korjaus yleiseen oletukseen: moni kuvittelee maalivahdin sijainnin olevan xG:n tärkein tekijä, mutta datassa laukaisukulma ja välissä olevien puolustajien määrä selittävät enemmän vaihtelua.
+Koko aineiston tasolla tärkeimmät piirteet keskimääräisen vaikutuksen mukaan olivat: **kulma** (selvästi tärkein), **puolustajien määrä laukaisulinjalla**,**maalivahdin etäisyys maalista**, **oliko laukaus päällä** , ja vasta näiden jälkeen muut maalivahdin sijaintiin liittyvät piirteet. Tämä on hyödyllinen korjaus yleiseen oletukseen: moni kuvittelee maalivahdin sijainnin olevan xG:n tärkein tekijä, mutta datassa laukaisukulma ja välissä olevien puolustajien määrä selittävät enemmän vaihtelua.
 
 ### Esimerkki: Messin ratkaiseva maali MM-2022-finaalissa
 

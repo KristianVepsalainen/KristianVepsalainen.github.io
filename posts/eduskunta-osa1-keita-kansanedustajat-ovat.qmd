@@ -6,7 +6,6 @@ description: >
   arvioimme seuraavaa eduskuntaa, katsotaan dataan: keitä kansanedustajat ovat
   olleet sadan vuoden ajan — ja kuinka paljon eduskunta poikkeaa väestöstä.
 date: 2026-07-02
-draft: TRUE
 author: "Kristian Vepsäläinen"
 categories: [eduskunta, avoin data, bayes, jakaumat, edustavuus]
 format:

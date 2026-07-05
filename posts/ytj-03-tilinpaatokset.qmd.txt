@@ -1,0 +1,280 @@
+---
+title: "Suomalainen yrityskenttä jakaumana, osa 3: Digitaaliset tilinpäätökset"
+subtitle: "Luvut tulevat tästä — mutta kuinka harva ne avoimesti raportoi?"
+author: "Kristian Vepsäläinen"
+date: "2026-07-07"
+categories: [avoin data, YTJ, tilinpäätös, XBRL, EDA, R]
+draft: true
+format:
+  html:
+    toc: true
+    code-fold: true
+    code-tools: true
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{r setup}
+#| include: false
+library(here)
+source(here("R", "theme_kristian.R"))
+source(here("R","ytj", "ytj_api.R"))
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(patchwork)
+  library(qs2)
+})
+
+data_dir <- here("data","ytj")
+dir.create(data_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+> **Sarjan osa 3/20.** Kolmas rajapinta tuo kvantitatiiviset luvut:
+> liikevaihdon, tuloksen, oman pääoman ja taseen loppusumman. Mutta tärkein
+> havainto on heti aluksi: **vain iXBRL-muodossa toimitetut tilinpäätökset**
+> ovat tässä avoimesti saatavilla. Se tekee kattavuudesta itsessään
+> kiinnostavan tutkimuskohteen.
+
+## Uutiskytkin: "yritysten kannattavuus heikkeni"
+
+*"Suomalaisyritysten kannattavuus heikkeni"* on tyypillinen otsikko, joka
+nojaa joko pörssiyhtiöiden lukuihin tai Tilastokeskuksen otokseen. Mutta
+pörssiyhtiöitä on muutama sata; kaupparekisterissä on satojatuhansia
+yrityksiä. Mitä tapahtuu, kun katsomme koko avoimen tilinpäätösdatan
+**jakaumaa** — emme mediaaniyrityksen pistelukua emmekä pörssin kärkeä?
+
+Ensimmäinen este on kattavuus. Avoin XBRL-rajapinta ei sisällä kaikkien
+yritysten tilinpäätöksiä — vain sähköisesti iXBRL-kielellä jätetyt. Tämä on
+politiikan ja datan rajapinta, ja se itsessään on tarina.
+
+## Datan haku
+
+Käytämme osan 1 yrityslistaa ja haemme niille tilinpäätökset. Koska
+rajapinta on yrityskohtainen, kysely tehdään silmukassa — throttlattuna ja
+kertaalleen paikallisesti.
+
+```{r fetch-data}
+#| cache: false
+xbrl_path <- file.path(data_dir, "xbrl_tilinpaatokset.rds")
+
+if (!file.exists(xbrl_path)) {
+  yritykset <- qs_read(here("data","ytj", "ytj_perustiedot.qs"))
+  idt <- unique(yritykset$business_id)
+  idt <- idt[!is.na(idt)]
+
+  # Haetaan tilinpäätökset; NULL = ei iXBRL-aineistoa kyseiselle yritykselle
+  tilinpaatokset <- map_dfr(idt, function(id) {
+    raw <- fetch_xbrl_financial(id)
+    tidy_xbrl(raw, id)
+  })
+  saveRDS(tilinpaatokset, xbrl_path)
+}
+
+tp <- readRDS(xbrl_path)
+```
+
+```{r integrity-checks}
+stopifnot(
+  nrow(tp) > 0,
+  all(c("business_id", "period_end", "revenue", "profit",
+        "equity", "balance_total") %in% names(tp))
+)
+
+tp <- tp |>
+  mutate(
+    period_end = as.Date(period_end),
+    tilikausi  = lubridate::year(period_end)
+  ) |>
+  # Järkevyysrajat: poistetaan ilmeiset syöttövirheet (negatiivinen liikevaihto yms.)
+  filter(is.na(revenue) | revenue >= 0)
+
+# Liitetään perustiedot (yhtiömuoto, toimiala) analyysia varten
+yritykset <- qs_read(here("data", "ytj","ytj_perustiedot.qs"))
+tp <- tp |> left_join(
+  yritykset |> select(business_id, company_form_code, main_line, registered_office),
+  by = "business_id"
+)
+
+glimpse(tp)
+```
+
+## Havainto 1: kattavuus on valikoitunut
+
+Ennen kuin tulkitsemme yhtäkään lukua, on tiedettävä, **keitä data
+edustaa.** Lasketaan, kuinka suurelle osalle osan 1 yrityksistä löytyi
+avoin iXBRL-tilinpäätös, ja katsotaan, jakautuuko kattavuus tasaisesti
+yhtiömuodoittain.
+
+```{r coverage}
+n_kaikki <- n_distinct(yritykset$business_id)
+n_loytyi <- n_distinct(tp$business_id)
+kattavuus <- n_loytyi / n_kaikki
+
+katt_muoto <- yritykset |>
+  mutate(on_tp = business_id %in% tp$business_id) |>
+  group_by(company_form_code) |>
+  summarise(osuus = mean(on_tp), n = n(), .groups = "drop") |>
+  filter(n >= 30) |>
+  slice_max(n, n = 6)
+
+ggplot(katt_muoto, aes(reorder(company_form_code, osuus), osuus)) +
+  geom_col(fill = kvar_palette[["teal"]]) +
+  geom_text(aes(label = scales::percent(osuus, accuracy = 1)),
+            hjust = -0.1, color = "#8b949e", size = 3.5) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = sprintf("Avoin tilinpäätös löytyi %.0f %%:lle yrityksistä", 100 * kattavuus),
+    subtitle = "Kattavuus yhtiömuodoittain — valikoituminen on systemaattista",
+    x = "Yhtiömuoto", y = "Kattavuus",
+    caption = "Lähde: PRH avoin data (XBRL), CC BY 4.0"
+  )
+```
+
+> **Päättäjälle.** Jos data kattaa vain osan yrityksistä eikä valikoituminen
+> ole satunnaista, koko aineistosta laskettu "keskiarvo" on harhainen. Tämä
+> on otantaharha, ja se on syytä nostaa esiin **ennen** lukuja — ei
+> alaviitteessä niiden jälkeen. Osassa 20 korjaamme tätä Tilastokeskuksen
+> kokonaisluvuilla.
+
+## Havainto 2: rahamääräiset jakaumat ovat log-normaaleja
+
+Liikevaihto, tase ja oma pääoma ovat tyypillisesti monta
+kymmenkertaluokkaa kattavia ja oikealle vinoja. Lineaarinen asteikko on
+tällöin lähes lukukelvoton; logaritminen paljastaa rakenteen.
+
+```{r distributions}
+pitka <- tp |>
+  select(business_id, revenue, balance_total, equity) |>
+  pivot_longer(c(revenue, balance_total, equity),
+               names_to = "mittari", values_to = "arvo") |>
+  filter(!is.na(arvo), arvo > 0) |>
+  mutate(mittari = recode(mittari,
+    revenue = "Liikevaihto", balance_total = "Taseen loppusumma", equity = "Oma pääoma"))
+
+ggplot(pitka, aes(arvo, fill = mittari)) +
+  geom_histogram(bins = 50, alpha = 0.8, color = kvar_palette[["dark"]]) +
+  scale_x_log10(labels = scales::label_number(scale_cut = scales::cut_short_scale())) +
+  scale_fill_kristian() +
+  facet_wrap(~ mittari, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Rahamääräiset tunnusluvut ovat log-normaaleja",
+    subtitle = "Logaritminen x-akseli paljastaa lähes symmetrisen jakauman",
+    x = "Arvo (€, log10)", y = "Yrityksiä"
+  ) +
+  theme(legend.position = "none")
+```
+
+Kun jakauma on log-normaali, oikea sijaintiluku on **geometrinen
+keskiarvo** (eli mediaani), ei aritmeettinen keskiarvo. Tämä on
+toistuva virhe julkisessa keskustelussa: aritmeettinen keskiliikevaihto
+yliarvioi "tyypillistä" yritystä rajusti.
+
+```{r mean-vs-median}
+rev_ok <- tp |> filter(!is.na(revenue), revenue > 0)
+tibble(
+  mittari = "Liikevaihto",
+  aritmeettinen_ka = mean(rev_ok$revenue),
+  mediaani         = median(rev_ok$revenue),
+  geom_ka          = exp(mean(log(rev_ok$revenue)))
+) |>
+  mutate(across(where(is.numeric), ~ round(.x))) |>
+  knitr::kable(format.args = list(big.mark = " "))
+```
+
+## Eroaako kannattavuus toimialojen välillä tilastollisesti?
+
+Verrataan kahden toimialan kannattavuutta (tulos / liikevaihto).
+Tunnusluvut ovat vinoja eivätkä normaalijakautuneita, joten emme käytä
+t-testiä raakaluvuille. **Wilcoxonin järjestyssummatesti** (Mann–Whitney)
+ei oleta normaalisuutta ja vertaa jakaumien sijaintia. Raportoimme myös
+efektikoon.
+
+```{r group-test}
+kannattavuus <- tp |>
+  filter(!is.na(revenue), revenue > 0, !is.na(profit), !is.na(main_line)) |>
+  mutate(margin = profit / revenue) |>
+  filter(is.finite(margin), abs(margin) < 5)  # poistetaan absurdit suhdeluvut
+
+# Valitaan kaksi runsaslukuisinta toimialaa
+top2 <- kannattavuus |> count(main_line, sort = TRUE) |> slice_head(n = 2) |> pull(main_line)
+parit <- kannattavuus |> filter(main_line %in% top2)
+
+stopifnot(length(top2) == 2, all(table(parit$main_line) >= 20))
+
+w <- wilcox.test(margin ~ main_line, data = parit, conf.int = TRUE)
+
+# Efektikoko: rank-biserial korrelaatio
+n1 <- sum(parit$main_line == top2[1]); n2 <- sum(parit$main_line == top2[2])
+U  <- as.numeric(w$statistic)
+rank_biserial <- 1 - 2 * U / (n1 * n2)
+
+tibble(
+  vertailu = paste(top2, collapse = "  vs.  "),
+  mediaanierotus = round(as.numeric(w$estimate), 4),
+  p_arvo = format.pval(w$p.value, digits = 3),
+  efektikoko_rb = round(rank_biserial, 3)
+) |> knitr::kable()
+```
+
+```{r group-plot}
+ggplot(parit, aes(main_line, margin, fill = main_line)) +
+  geom_violin(alpha = 0.5, color = NA) +
+  geom_boxplot(width = 0.15, fill = kvar_palette[["dark"]], color = "#c9d1d9", outlier.size = 0.5) +
+  scale_fill_kristian() +
+  scale_y_continuous(labels = scales::percent) +
+  coord_flip() +
+  labs(title = "Kannattavuuden jakauma kahdella toimialalla",
+       subtitle = "Viulukuvio näyttää koko jakauman, ei vain mediaania",
+       x = NULL, y = "Tulos / liikevaihto") +
+  theme(legend.position = "none")
+```
+
+## Bayesilainen kysymys: kuinka moni yritys teki tappiota?
+
+Lopuksi: mikä osuus yrityksistä raportoi tappiollisen tilikauden? Esitämme
+sen posteriorina, jotta epävarmuus näkyy.
+
+```{r loss-proportion}
+tulos_ok <- tp |> filter(!is.na(profit))
+k <- sum(tulos_ok$profit < 0)
+n <- nrow(tulos_ok)
+stopifnot(n > 0, k <= n)
+
+post <- tibble(p = seq(0, 1, length.out = 1000)) |>
+  mutate(tiheys = dbeta(p, 1 + k, 1 + n - k))
+ci <- qbeta(c(0.025, 0.975), 1 + k, 1 + n - k)
+
+ggplot(post, aes(p, tiheys)) +
+  geom_area(data = filter(post, p >= ci[1], p <= ci[2]),
+            fill = kvar_palette[["orange"]], alpha = 0.4) +
+  geom_line(color = kvar_palette[["orange"]], linewidth = 1) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(
+    title = "Tappiollisten tilikausien osuus",
+    subtitle = sprintf("Posteriori, 95 %% väli [%.1f %%, %.1f %%]",
+                       100 * ci[1], 100 * ci[2]),
+    x = "Osuus tappiollisista", y = "Posterioritiheys"
+  )
+```
+
+## Yhteenveto ja seuraava osa
+
+Tilinpäätösrajapinta antaa luvut, mutta vasta kattavuuden ymmärtäminen
+tekee luvuista luotettavia. Rahamääräiset tunnusluvut ovat log-normaaleja,
+joten mediaani on rehellisempi kuin keskiarvo, ja toimialojen
+kannattavuuserot ovat testattavissa oikeilla, jakaumaoletukset huomioivilla
+menetelmillä.
+
+**Osassa 4** yhdistämme kaikki kolme rajapintaa yhdeksi yritysnäkymäksi:
+perustiedot + käyttäytyminen (ilmoitukset) + luvut (tilinpäätökset). Vasta
+yhdistetty aineisto mahdollistaa osien 5–10 yllättävät analyysit.
+
+---
+
+*Onko organisaatiollasi tilinpäätösdataa, jonka jakaumaa kukaan ei ole
+katsonut kunnolla? Autan muuttamaan sen päätöksiksi.
+[kristianvepsalainen.com](https://www.kristianvepsalainen.com)*

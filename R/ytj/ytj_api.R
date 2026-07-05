@@ -415,12 +415,18 @@ unnest_entry_codes <- function(notices) {
 # tilikauden päättymispäivän). VARMISTA paikallisesti, palauttaako /financials
 # itse tunnusluvut vai vain saatavilla olevat tilikaudet — jälkimmäisessä
 # tapauksessa tarvitaan kaksivaihehaku /financial-päätepisteellä per tilikausi.
+#
+# MASSAKÄYTTÖ: timeout_s ja max_tries pidetään pieninä, jotta kuollut tai tyhjä
+# pyyntö epäonnistuu sekunneissa eikä 12 minuutissa. 404 = ei iXBRL-aineistoa
+# (täysin normaalia, valtaosalla ei ole) -> palautetaan NULL nopeasti.
 fetch_xbrl_financial <- function(business_id,
-                                 base = "https://avoindata.prh.fi/opendata-xbrl-api/v3/financials") {
+                                 base = "https://avoindata.prh.fi/opendata-xbrl-api/v3/financials",
+                                 timeout_s = 30, max_tries = 2) {
   req <- .kvar_req(base) |>
     req_url_query(businessId = business_id) |>
-    req_error(is_error = \(resp) FALSE)    # ei heittoa HTTP-statuksesta; käsitellään itse
-  resp <- .perform(req)                    # uudelleenyrittää vain timeout/verkkovirheet
+    req_timeout(timeout_s) |>                # ohittaa .kvar_req:n 120 s massahaussa
+    req_error(is_error = \(resp) FALSE)      # ei heittoa HTTP-statuksesta; käsitellään itse
+  resp <- .perform(req, max_tries = max_tries)
   if (resp_status(resp) >= 400) return(NULL)  # 404 = ei iXBRL-aineistoa kyseiselle yritykselle
   resp_body_json(resp, simplifyVector = FALSE)
 }

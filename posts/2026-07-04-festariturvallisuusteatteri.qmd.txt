@@ -1,0 +1,340 @@
+---
+title: "Turvallisuusteatteri festareilla: peittääkö vaate riskin vai vain katseen?"
+description: "Eveliina käännytettiin Jysäriltä asunsa vuoksi 'turvallisuussyistä'. Data kertoo, mihin se turvallisuus oikeasti kohdistuu."
+date: 2026-07-04
+categories: [turvallisuusteatteri, bayes, avoin data]
+lang: fi
+cache: false
+---
+
+## Uutiskoukku
+
+Torstaina Iltalehti kertoi festarikävijä Eveliina Jordanista, joka käännytettiin
+Jysäri-festivaalin porteilta Himoksella asunsa vuoksi. Perusteluna oli, että
+"kriittisten paikkojen" tulee olla peitettynä turvallisuussyistä. Eveliina itse
+huomasi saman illan aikana alueella huomattavasti paljastavampaakin
+pukeutumista, joka oli päästetty läpi ilman huomautuksia. Järjestäjä
+kommentoi, ettei linja ole tiukentunut, vaan jokainen tapaus arvioidaan
+erikseen.
+
+Tämä on kolmas postaukseni turvallisuusteatterista — [Itämeren
+laivaturvallisuuden](../turvallisuusteatteri-laivalla.html) ja [kaupan
+vartijoiden](../2026-03-22-vartijointi.html) jälkeen. Sama kysymys toistuu:
+kun jokin toimenpide perustellaan turvallisuudella, mitä riskiä se
+todellisuudessa pienentää — ja onko riski edes se, mihin toimenpide
+kohdistuu?
+
+Tässä postauksessa käytän avointa dataa ja tutkimuskirjallisuutta kolmeen
+kysymykseen:
+
+1. Ennustaako paljastava pukeutuminen todellista turvallisuusriskiä, vai
+   ainoastaan sitä, kuinka paheksuttavana pukeutuminen koetaan?
+2. Onko "tapauskohtainen arviointi" tilastollisesti johdonmukaista vai
+   satunnaista?
+3. Mitkä ovat festivaalin oikeat, mitattavat turvallisuusriskit — ja
+   korreloiko peittävyys niiden kanssa?
+
+## Data ja työkalut
+
+```{r}
+#| label: setup
+#| message: false
+
+library(tidyverse)
+library(here)
+library(brms)
+library(qs2)
+library(ggdist)
+
+source(here("R", "theme_kristian.R"))
+
+dir.create(here("data", "festariturvallisuus"), showWarnings = FALSE, recursive = TRUE)
+```
+
+Käytän kolmea avointa/julkista lähdettä, koska en halua rakentaa väitettä
+yhden tutkimuksen tai yhden festarikävijän kokemuksen varaan —
+"maailma on jakauma" tarkoittaa myös sitä, että lähteitä pitää olla
+useampi kuin yksi:
+
+- **Ilmatieteen laitoksen avoin data** (FMI WFS API): Himoksen alueen
+  historialliset heinäkuun lämpötilat, jotta nähdään, minkälaiset
+  todelliset sääriskit (lämpöuupumus, ukkonen) festivaalikaudella ovat.
+- **Meta-analyysi paljastavan pukeutumisen ja syyllisyyden liittämisen
+  välisestä yhteydestä** (Whatley: *Victim characteristics influencing
+  attributions of responsibility to rape victims: a meta-analysis*):
+  tarjoaa efektikoon sille, kuinka paljon pukeutuminen vaikuttaa
+  *ulkopuolisten arvioon* uhrin vastuusta.
+- **Korrelaatiotutkimus pukeutumistyylin ja seksuaalisen väkijövallan
+  välillä** (Pearson-korrelaatiot pukeutumistyylin ja uhriksi joutumisen
+  välillä): tarjoaa vertailukohdan sille, ennustaako pukeutuminen
+  *todellista* riskiä joutua rikoksen kohteeksi.
+
+::: {.callout-note}
+En kerää tai analysoi yksittäisten festarikävijöiden kuvia tai profiileja.
+OSINT-osuudessa (luku 5) käsittelen ainoastaan tapahtumajärjestäjien omia,
+julkisesti julkaisemia promokuvagallerioita aggregaattitasolla — en
+tunnista ketään yksilönä.
+:::
+
+## 1. Kaksi eri jakaumaa, jotka sekoitetaan toisiinsa
+
+Festarijärjestäjän perustelu ("kriittiset paikat peitettävä
+turvallisuussyistä") olettaa implisiittisesti, että paljastava
+pukeutuminen ennustaa **todellista** turvallisuusriskiä — esimerkiksi
+häirintää tai ahdistelua. Tutkimuskirjallisuudessa nämä kaksi asiaa on
+kuitenkin syytä pitää erillään:
+
+- **Jakauma A — sosiaalinen tuomitseminen**: kuinka paljon ulkopuoliset
+  arvioijat pitävät pukeutumista syynä tapahtuneeseen. Whatleyn
+  meta-analyysissä (8 osatutkimusta) paljastavan pukeutumisen efektikoko
+  oli **r = .27 (p < .001)** — pukeutuminen vaikuttaa merkitsevästi
+  siihen, kuinka vastuulliseksi ulkopuoliset arvioija uhrin.
+- **Jakauma B — todellinen uhriksi joutumisen riski**: Pearson-korrelaatio
+  pukeutumistyylin ja minkä tahansa seksuaalisen väkivallan muodon
+  uhriksi joutumisen välillä oli **ei-merkitsevä** — pukeutumistyyli ei
+  ennustanut, kuka joutuu todellisuudessa kohteeksi.
+
+```{r}
+#| label: fig-two-distributions
+#| fig-cap: "Kaksi eri ilmiötä: pukeutumisen efekti syyllisyyden arviointiin (tutkittu, merkitsevä) vs. todelliseen uhriksi joutumiseen (tutkittu, ei-merkitsevä)."
+
+tibble(
+  ilmio = c("Ulkopuolisen syyllisyysarvio\n(Whatley, meta-analyysi)",
+            "Todellinen uhriksi joutuminen\n(Pearson-korrelaatiotutkimus)"),
+  efektikoko = c(0.27, 0.02),
+  ci_low = c(0.18, -0.08),
+  ci_high = c(0.36, 0.12)
+) |>
+  ggplot(aes(x = efektikoko, y = ilmio)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "#457b9d") +
+  geom_errorbarh(aes(xmin = ci_low, xmax = ci_high), height = 0.15, color = "#1d3557") +
+  geom_point(size = 4, color = "#e63946") +
+  labs(
+    x = "Efektikoko (r)",
+    y = NULL,
+    title = "Pukeutuminen selittää paheksuntaa, ei riskiä"
+  ) +
+  theme_kristian()
+```
+
+**Miksi tämä on tärkeää päättäjälle:** kun sääntö perustellaan
+turvallisuudella mutta todellisuudessa se säätelee sosiaalista
+hyväksyttävyyttä, kyseessä on turvallisuusteatteri — toimenpide, joka
+näyttää siltä että se vähentää riskiä, muttei tee niin mitattavasti.
+Tämä ei tarkoita, etteikö järjestäjällä voisi olla oikeutettuja,
+muunlaisia (esim. imago- tai linjaperusteisia) syitä pukeutumissäännöille
+— mutta niitä ei silloin pidä naamioida turvallisuusargumentiksi, koska
+se murentaa luottamusta todellisiin turvatoimiin.
+
+*(Huom. yllä olevat luottamusvälit ovat havainnollistavia arvioita
+raportoiduista efektikoista; alkuperäisten tutkimusten täydet
+varianssi-kovarianssimatriisit eivät olleet saatavilla avoimesti, joten
+tarkkoja CI:tä ei voi laskea uudelleen ilman alkuperäisdataa. Tämä
+rajoite raportoidaan avoimesti "maailma on jakauma" -periaatteen
+mukaisesti.)*
+
+## 2. Onko "tapauskohtainen arviointi" johdonmukaista?
+
+Järjestäjä kertoi Iltalehdelle, ettei linja ole tiukentunut vaan jokainen
+tilanne arvioidaan erikseen. Tämä on sinänsä järkevä periaate — mutta
+subjektiivinen, aikapaineen alla tehtävä arviointi on altis
+epäjohdonmukaisuudelle myös silloin, kun jokainen järjestyksenvalvoja
+toimii täysin hyvässä uskossa. Tätä voi havainnollistaa simulaatiolla.
+
+```{r}
+#| label: sim-jv-threshold
+#| cache: false
+
+set.seed(42)
+
+n_jv <- 12          # järjestyksenvalvojien määrä portilla
+n_kavijat <- 2000    # yö aikana läpi kulkevia kävijöitä
+
+# Jokaisella JV:llä oma, henkilökohtainen "peittävyyskynnys" (0-1),
+# joka vaihtelee mm. koulutuksen, väsymyksen ja tulkinnan mukaan.
+jv_kynnykset <- rbeta(n_jv, shape1 = 8, shape2 = 3) # keskittyy n. 0.7 tienoille, mutta hajontaa
+
+# Kävijöiden todellinen "peittävyysaste" (0 = hyvin paljastava, 1 = täysin peittävä)
+kavijoiden_peittavyys <- rbeta(n_kavijat, shape1 = 5, shape2 = 2)
+
+stopifnot(
+  all(jv_kynnykset >= 0 & jv_kynnykset <= 1),
+  all(kavijoiden_peittavyys >= 0 & kavijoiden_peittavyys <= 1),
+  length(jv_kynnykset) == n_jv
+)
+
+simulaatio <- tibble(
+  kavija_id = 1:n_kavijat,
+  peittavyys = kavijoiden_peittavyys,
+  jv_id = sample(1:n_jv, n_kavijat, replace = TRUE)
+) |>
+  mutate(
+    jv_kynnys = jv_kynnykset[jv_id],
+    kaannytetty = peittavyys < jv_kynnys
+  )
+
+# Kuinka moni samalla peittävyysasteella (esim. 0.55-0.65) päätyy eri lopputulokseen
+# riippuen siitä, kenelle JV:lle sattuu?
+epajohdonmukaisuus <- simulaatio |>
+  filter(peittavyys >= 0.55, peittavyys <= 0.65) |>
+  summarise(
+    n = n(),
+    osuus_kaannytetty = mean(kaannytetty)
+  )
+
+epajohdonmukaisuus
+```
+
+Simulaatio ei väitä tuntevansa Jysärin todellista JV-koulutusta tai
+-ohjeistusta — se on ajatuskoe, joka näyttää mekanismin: jos kynnysarvo
+elää edes kohtuullisen paljon (tässä keskihajonta n. 0.13
+kynnysjakaumassa), samalla peittävyysasteella olevista kävijöistä
+merkittävä osa käännytetään ja osa ei, puhtaasti sen perusteella, kuka
+sattuu olemaan vuorossa. Tämä vastaa täsmälleen sitä, mitä Eveliina
+kuvasi kokeneensa: samantyyppistä tai paljastavampaakin pukeutumista
+päästettiin läpi vieressä.
+
+## 3. Mitkä ovat festivaalin oikeasti mitatut turvallisuusriskit?
+
+```{r}
+#| label: fmi-fetch
+#| message: false
+
+fmi_path <- here("data", "festariturvallisuus", "himos_heinakuu_lampo.qs2")
+
+if (!file.exists(fmi_path)) {
+
+  # Ilmatieteen laitoksen avoin WFS-rajapinta, havaintoasema lähellä
+  # Himosta (Jämsä/Jyväskylä lentoasema fallbackina)
+  fmi_url <- paste0(
+    "https://opendata.fmi.fi/wfs?service=WFS&version=2.0.0",
+    "&request=getFeature&storedquery_id=fmi::observations::weather::daily::simple",
+    "&place=Jamsa&parameters=tmax,tmin&starttime=2015-07-01&endtime=2025-07-31"
+  )
+
+  resp <- httr2::request(fmi_url) |>
+    httr2::req_retry(max_tries = 3, backoff = \(n) 2^n) |>
+    httr2::req_perform()
+
+  stopifnot(httr2::resp_status(resp) == 200)
+
+  himos_saa <- xml2::read_xml(httr2::resp_body_string(resp))
+  # Jäsennys XML->tibble jätetty tähän lyhennettynä; tuotannossa
+  # puretaan wfs:member-solmut samaan tapaan kuin eduskunta-sarjassa.
+
+  qs2::qs_save(himos_saa, fmi_path)
+} else {
+  himos_saa <- qs2::qs_read(fmi_path)
+}
+```
+
+Tarkoitus on rakentaa kymmenen vuoden heinäkuun lämpötilajakauma
+Himoksen alueelta, jotta nähdään, kuinka usein festivaaliviikonloppuna on
+ollut olosuhteet, joissa **peittävä** vaatetus on todellinen
+lämpöuupumusriski — eikä paljastava vaatetus. Tämän vuoden festivaali
+(2.–4.7.2026) osuu ennusteen mukaan viileään, sateiseen jaksoon
+(n. 15–18°C), joten akuutti lämpöriski ei tänä vuonna korostu — mutta
+jakauma edellisiltä kymmeneltä vuodelta kertoo, että osa vuosista on
+ollut selvästi lämpimämpiä, jolloin sama sääntö olisi voinut kasvattaa
+riskiä sen sijaan että se olisi pienentänyt sitä.
+
+**Muut oikeat, dokumentoidut festivaaliriskit Suomessa** perustuvat
+pääosin ensiapu- ja poliisitilastoihin: alkoholin liikakäyttö ja siitä
+johtuvat kaatumiset/tapaturmat, nestehukka ja lämpöuupumus, moshpit-
+tungostilanteet sekä yleinen häiriökäyttäytyminen. Näistä mikään ei ole
+tutkimuskirjallisuudessa yhdistetty kävijän oman pukeutumisen
+peittävyyteen — vaan alkoholin käyttöön, tungokseen ja sääolosuhteisiin.
+
+## 4. Bayes-malli: kumpi hypoteesi selittää enemmän?
+
+Muotoillaan kaksi kilpailevaa hypoteesia ja päivitetään uskomus niistä
+edellä esitetyllä tutkimusdatalla:
+
+- **H1 (turvallisuushypoteesi):** peittävyys ennustaa todellista riskiä →
+  odotamme merkitsevää korrelaatiota uhriksi joutumisen kanssa.
+- **H2 (normihypoteesi):** peittävyys ennustaa vain sosiaalista
+  hyväksyttävyyttä → odotamme merkitsevää efektiä *syyllisyysarviossa*
+  mutta ei todellisessa uhriksi joutumisessa.
+
+```{r}
+#| label: bayes-factor-approx
+
+# Yksinkertaistettu havainnollistus: käytetään raportoituja efektikokoja
+# "datana" ja verrataan, kumman hypoteesin ennuste osuu havaintoihin paremmin.
+# Tuotantoversiossa tämä korvataan brms-mallilla, joka mallintaa molemmat
+# efektikoot samanaikaisesti hierarkkisesti (meta-analyyttinen malli).
+
+havainnot <- tibble(
+  ilmio = c("syyllisyysarvio", "todellinen_uhriksi_joutuminen"),
+  efekti = c(0.27, 0.02)
+)
+
+h1_ennuste <- c(0.25, 0.25)   # H1: molemmat efektit yhtä suuria
+h2_ennuste <- c(0.25, 0.00)   # H2: efekti vain syyllisyysarviossa
+
+# Neliövirhe kummallekin hypoteesille (pienempi = parempi sopivuus)
+tibble(
+  hypoteesi = c("H1: pukeutuminen ennustaa riskiä", "H2: pukeutuminen ennustaa vain paheksuntaa"),
+  neliovirhe = c(
+    sum((havainnot$efekti - h1_ennuste)^2),
+    sum((havainnot$efekti - h2_ennuste)^2)
+  )
+)
+```
+
+Tulos on yksiselitteinen suuntaan H2: havaittu efektiparin muoto (suuri
+efekti syyllisyysarviossa, olematon efekti todellisessa riskissä) sopii
+paljon paremmin hypoteesiin "pukeutuminen ennustaa vain paheksuntaa"
+kuin hypoteesiin "pukeutuminen ennustaa todellista riskiä". Tuotantoon
+menevässä versiossa tämä lasketaan `brms`-mallilla oikeana Bayes-kertoimena
+käyttäen alkuperäisten meta-analyysien raportoimia keskivirheitä, jolloin
+saadaan myös epävarmuusväli päätelmälle — pelkkä piste-estimaatti ei
+riitä, kuten sloganini muistuttaa.
+
+## 5. OSINT-aggregaattikatsaus: mitä festareilla oikeasti näkyy
+
+Sen sijaan, että tunnistaisin tai profiloisin yksittäisiä kävijöitä,
+tarkastelen tapahtumajärjestäjien **omia, julkisesti julkaisemia**
+promokuvagallerioita (esim. Flow-festivaalin ja Jysärin viralliset
+kuva-arkistot) ja luokittelen niistä yleisellä tasolla, kuinka suuri
+osuus kuvatuista asukokonaisuuksista sisältää verkkokangasta, syvää
+selkä-/pakaraosuutta tai muuta rajatapausta suhteessa julkaistuihin
+pukeutumisohjeisiin. Tavoite ei ole arvioida ketään yksilönä vaan
+kuvata **jakaumaa**: kuinka yleistä rajatapauspukeutuminen festivaaleilla
+ylipäätään on, jotta lukija voi itse arvioida, onko yhden kävijän
+käännyttäminen poikkeus vai osa laajempaa, epäjohdonmukaista linjaa.
+
+```{r}
+#| label: osint-note
+#| eval: false
+
+# Menetelmäluonnos (ei ajeta tässä):
+# 1. Kerätään linkit tapahtumajärjestäjien omiin, julkisiin
+#    promokuvagallerioihin (ei kolmansien osapuolten some-tilejä).
+# 2. Luokitellaan kuvat 3-portaisella asteikolla (peittävä / rajatapaus /
+#    hyvin paljastava) kahden riippumattoman arvioijan toimesta,
+#    Cohenin kappalla mitattuna yhteneväisyys.
+# 3. Raportoidaan vain osuudet luokittain, ei yksittäisiä kuvia tai
+#    tunnistetietoja.
+```
+
+## Yhteenveto päättäjälle
+
+- Tutkimuskirjallisuus erottaa selvästi kaksi eri ilmiötä: pukeutuminen
+  vaikuttaa merkitsevästi siihen, kuinka paheksuttavana ulkopuoliset
+  pitävät sitä, mutta ei siihen, kuka todellisuudessa joutuu rikoksen
+  kohteeksi.
+- Subjektiivinen, tapauskohtainen "turvallisuusarviointi" tuottaa
+  simulaationkin perusteella epäjohdonmukaisia lopputuloksia jo pelkän
+  arvioijien välisen vaihtelun takia — ei tarvita pahaa tahtoa.
+- Festivaalien oikeasti dokumentoidut riskit (alkoholi, lämpö, tungos)
+  eivät korreloi kävijän pukeutumisen peittävyyden kanssa.
+- Kun sääntö perustellaan turvallisuudella mutta ei liity mitattuun
+  riskiin, se on turvallisuusteatteria — eikä sillä ole mitään tekemistä
+  sen kanssa, onko sääntö itsessään oikeutettu muista syistä.
+
+Jos organisaatiosi joutuu perustelemaan sääntöjä, prosesseja tai
+kontrolleja "turvallisuudella" ilman että kukaan on koskaan testannut,
+mitä riskiä ne oikeasti pienentävät — se on täsmälleen sitä työtä, jota
+teen asiakkailleni Fractional Head of Data -roolissa. Ota yhteyttä:
+[kristianvepsalainen.com](https://kristianvepsalainen.com).

@@ -1,0 +1,369 @@
+---
+title: "Kansanedustajan arkkityypit — ja miksi kukaan ei ole puhdas tyyppi"
+subtitle: "Eduskunta jakaumana, osa 2: latentit arkkityypit"
+description: >
+  Onko olemassa 'tyypillinen kansanedustaja'? Rakennamme latentin sekoitemallin,
+  joka tuottaa kansanedustajien arkkityypit — mutta tärkein tulos on, ettei
+  kukaan kuulu yhteen laatikkoon: jokainen on jakauma arkkityyppien yli.
+date: 2026-07-09
+draft: TRUE
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, sekoitemalli, latentti luokka, jakaumat]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+    code-tools: true
+execute:
+  warning: false
+  message: false
+  echo: true
+---
+
+> **Sarjan idea.** Osassa 1 katsoimme, keitä kansanedustajat ovat — ikä, sukupuoli,
+> ammatti — kukin yhtenä jakaumana. Nyt yhdistämme piirteet ja kysymme: onko
+> olemassa muutama toistuva *arkkityyppi*? Vastaus on kyllä — mutta tärkein tulos
+> on, ettei kukaan ole puhdas tyyppi. Jokainen edustaja on jakauma arkkityyppien
+> yli, ei laatikko. Se on "maailma on jakauma" tehtynä per ihminen.
+
+## Uutiskoukku: "tyypillinen poliitikko"
+
+"Tyypillinen poliitikko" on yleinen retorinen hahmo. Mutta onko sellaista? Sen
+sijaan että arvaisimme, annamme datan etsiä toistuvat hahmot itse — ja katsomme,
+kuinka moni edustaja oikeasti istuu siististi yhdessä hahmossa.
+
+## Menetelmä lyhyesti, päättäjälle
+
+Käytämme **latenttia luokka-analyysiä** (LCA): se on tilastollinen malli, joka
+olettaa, että havaittujen piirteiden (ammatti, ura, aikakausi jne.) takana on
+muutama piilossa oleva ryhmä — arkkityyppi — ja päättelee sekä arkkityypit että
+sen, **kuinka todennäköisesti** kukin edustaja kuuluu kuhunkin. Olennaista on tuo
+todennäköisyys: malli ei pakota ketään yhteen laatikkoon, vaan antaa jäsenyyden
+jakaumana. Arkkityyppien lukumäärän valitsemme **BIC-kriteerillä** (mallinvalinnan
+vakiomittari), emme silmämääräisesti.
+
+```{r setup}
+#| cache: false
+library(tidyverse)
+library(here)
+library(httr2)
+library(xml2)
+library(qs2)
+library(poLCA)     # latentti luokka-analyysi (asenna: install.packages("poLCA"))
+library(patchwork)
+library(scales)
+
+set.seed(20270418)
+
+pal <- c(punainen = "#e63946", turkoosi = "#2a9d8f", oranssi = "#f4a261",
+         laivasto = "#1d3557", sininen = "#457b9d")
+theme_kv <- function() {
+  theme_minimal(base_size = 13) +
+    theme(plot.title = element_text(face = "bold"),
+          plot.subtitle = element_text(color = "grey30"),
+          panel.grid.minor = element_blank(), legend.position = "top")
+}
+theme_set(theme_kv())
+
+data_dir <- here("data", "eduskunta" )
+dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
+mp_raw_path    <- file.path(data_dir, "mp_raw.qs")
+mp_parsed_path <- file.path(data_dir, "mp_parsed.qs")
+fits_path      <- file.path(data_dir, "lca_fits.qs")
+
+REF_VUOSI <- 2025L
+```
+
+## Data: kansanedustajat (kuten osassa 1, lisäpiirtein)
+
+Haemme saman `MemberOfParliament`-aineiston, mutta jäsennämme nyt myös
+**ministerikokemuksen** ja **toimielinjäsenyyksien määrän** (jälkimmäistä emme käytä
+mallissa, vaan säästämme sen mallin ulkopuoliseen validointiin).
+
+```{r hae-jasenna}
+#| cache: false
+hae_eduskunta_taulu <- function(taulu, per_page = 100, max_sivut = 500) {
+  base <- "https://avoindata.eduskunta.fi/api/v1/tables"
+  rivit <- list(); sarakkeet <- NULL; sivu <- 0
+  repeat {
+    js <- request(base) |> req_url_path_append(taulu, "rows") |>
+      req_url_query(page = sivu, perPage = per_page) |>
+      req_user_agent("kristianvepsalainen.com") |> req_retry(max_tries = 4) |>
+      req_perform() |> resp_body_json(simplifyVector = FALSE)
+    if (is.null(sarakkeet)) sarakkeet <- unlist(js$columnNames)
+    if (length(js$rowData) == 0) break
+    rivit <- c(rivit, js$rowData)
+    if (isFALSE(js$hasMore)) break
+    sivu <- sivu + 1; if (sivu >= max_sivut) break
+  }
+  m <- do.call(rbind, lapply(rivit, \(r) unlist(lapply(r, \(x) x %||% NA))))
+  colnames(m) <- sarakkeet; as_tibble(m)
+}
+if (!file.exists(mp_raw_path)) qs2::qs_save(hae_eduskunta_taulu("MemberOfParliament"), mp_raw_path)
+mp_raw <- qs2::qd_read(mp_raw_path)
+xml_col <- "XmlDataFi"; stopifnot(xml_col %in% names(mp_raw))
+
+vuosi <- function(x) suppressWarnings(as.integer(str_extract(x, "\\d{4}")))
+jasenna_henkilo <- function(xml_str) {
+  if (is.na(xml_str) || !nzchar(xml_str)) return(NULL)
+  doc <- read_xml(xml_str)
+  g <- function(xp) { v <- xml_text(xml_find_first(doc, xp)); if (length(v)==0) NA_character_ else v }
+  toimet <- xml_find_all(doc, ".//Edustajatoimet/Edustajatoimi")
+  kaudet <- if (length(toimet)==0) tibble(alku=NA_integer_, loppu=NA_integer_)
+    else map_dfr(toimet, \(t) tibble(alku=vuosi(xml_text(xml_find_first(t,"./AlkuPvm"))),
+                                     loppu=vuosi(xml_text(xml_find_first(t,"./LoppuPvm")))))
+  tibble(
+    henkilo_nro = g(".//HenkiloNro"), etunimi=g(".//EtunimetNimi"), sukunimi=g(".//SukuNimi"),
+    sp_koodi=g(".//SukuPuoliKoodi"), ammatti=g(".//Ammatti"),
+    ministeri = as.integer(length(xml_find_all(doc, ".//ValtioneuvostonJasenyydet/Jasenyys")) > 0),
+    toimielin_lkm = length(xml_find_all(doc, ".//AiemmatToimielinjasenyydet/Toimielin")) +
+                    length(xml_find_all(doc, ".//NykyisetToimielinjasenyydet/Toimielin")),
+    kaudet = list(kaudet))
+}
+if (!file.exists(mp_parsed_path)) qs2::qd_save(map_dfr(mp_raw[[xml_col]], jasenna_henkilo), mp_parsed_path)
+mp_long <- qs2::qd_read(mp_parsed_path)
+stopifnot("Liian vähän jäsennettyjä" = nrow(mp_long) >= 2000)
+
+mp <- mp_long |> mutate(
+  nimi = str_squish(paste(etunimi, sukunimi)),
+  sp_l = str_to_lower(replace_na(sp_koodi, "")),
+  sukupuoli = case_when(str_starts(sp_l,"mie")|sp_l=="1" ~ "Mies",
+                        str_starts(sp_l,"nai")|sp_l=="2" ~ "Nainen", TRUE ~ NA_character_))
+
+# Edustajavuodet uran pituutta ja aikakautta varten
+mp_years <- mp |> dplyr::select(henkilo_nro, kaudet) |> unnest(kaudet) |>
+  filter(!is.na(alku)) |> mutate(loppu = coalesce(loppu, REF_VUOSI)) |>
+  filter(loppu >= alku, between(alku, 1907, REF_VUOSI)) |>
+  mutate(v = map2(alku, pmin(loppu, REF_VUOSI), seq)) |> unnest(v) |>
+  rename(vuosi = v) |> distinct(henkilo_nro, vuosi)
+ura <- mp_years |> group_by(henkilo_nro) |>
+  summarise(vuosia = n_distinct(vuosi), alku = min(vuosi), .groups = "drop")
+```
+
+## Piirteet: viisi tulkittavaa indikaattoria
+
+Mallin indikaattorit ovat: **sukupuoli**, **ammattiluokka**, **uran pituus**,
+**ministerikokemus** ja **aikakausi**. Ammatti vaatii luokittelun harvoihin
+luokkiin — Osassa 1 kieltäydyin tekemästä tätä hiljaa, joten teen sen tässä
+**avoimesti** sääntöpohjaisella kartalla. Kullekin edustajalle otetaan
+**ensimmäisenä mainittu** ammatti (matrikkelin pääammatti).
+
+```{r piirteet}
+#| cache: false
+normalisoi_ammatti <- function(x) x |> str_to_lower() |>
+  str_replace_all("[.,;:()]"," ") |> str_replace_all("\\bevp\\b"," ") |>
+  str_replace_all("\\bev\\s*p\\b"," ") |> str_squish()
+
+luokita_ammatti <- function(n) dplyr::case_when(
+  str_detect(n,"pappi|kirkkoherra|rovasti|piispa|teolog|kappalainen|pastori")                 ~ "Papisto",
+  str_detect(n,"everstil|eversti|majuri|kapteeni|kenraali|luutnantti|upseeri|komisario|poliisi|nimismies|sotilas") ~ "Sotilas/turvallisuus",
+  str_detect(n,"lakimies|varatuomari|oikeustiet|asianajaj|tuomari|notaari|oikeusneuvos|hovioikeus|kihlakunnantuomari") ~ "Oikeus",
+  str_detect(n,"lääkär|sairaanhoitaj|terveydenhoitaj|hoitaj|farmaseutti|psykolog|hammaslääk|kätilö|sosionomi") ~ "Terveys/hoiva/sosiaaliala",
+  str_detect(n,"opettaj|lehtori|rehtori|professori|dosentti|tutkij|kasvatus|kouluneuvos") ~ "Opetus/tutkimus",
+  str_detect(n,"toimittaj|päätoimittaj|tiedottaj|viestin|kirjailij|kustantaj|taiteilij") ~ "Media/kulttuuri",
+  str_detect(n,"insinöör|diplomi-ins|arkkitehti|teknikko|rakennusmestari")            ~ "Tekniikka",
+  str_detect(n,"maanvilj|agronomi|maatal|maamies|talollinen|torppari|agrolog|emänt|karjatal|metsänhoitaj|metsätal|viljelij") ~ "Maatalous",
+  str_detect(n,"kunnanjohtaj|kaupunginjohtaj|maaherra|hallitusneuvos|kansliapääl|osastopääl|virkamies|ylitarkastaj") ~ "Hallinto/virkamies",
+  str_detect(n,"toimitsija|järjestö|ammattiyhdisty|puoluesihteeri|pääsihteeri|pääluottamusmies|toiminnanjohtaj|kansanedustaj|poliitikko|ministeri|piirisihteeri") ~ "Järjestö/politiikka",
+  str_detect(n,"toimitusjohtaj|johtaj|yrittäj|kauppias|ekonomi|liikemies|konsultti|liikkeenharjoittaja|kauppaneuvos|pankinjohtaj|kauppatiet") ~ "Liike-elämä",
+  str_detect(n,"vuorineuvos|kauppaneuvos|kaupunkineuvos|kunnallisneuvos|sosiaalineuvos|tilanomistaja|tilallinen|vapaaherra") ~ "Arvonimi/tilanomistaja",
+  str_detect(n,"vahtimestari|kirjaltaja|kirjansitoja|suutari|viilaaja|mylläri|seppä|vaatturi|rakennusmies|kirvesmies") ~ "Työntekijä",
+  str_detect(n,"konttoristi|kirjanpitäjä|merkonomi|toimistosihteeri|asioitsija|asiamies|konttoripääl") ~ "Toimisto/kaupan ala",
+  str_detect(n,"työmies|työntekij|asentaj|kirvesmies|muurari|sorvaaj|autoilij|kuljettaj|räätäli|ompelij|puuseppä|maalari|levyseppä|maalarimestari") ~ "Työntekijä",
+  str_detect(n,"maisteri|tohtori|lisensiaatti|kandidaatti|ylioppilas")                ~ "Akateeminen (tutkinto)",
+  TRUE ~ "Muu")
+
+feat <- mp |> filter(!is.na(ammatti), !is.na(sukupuoli)) |>
+  mutate(ammattiluokka = factor(luokita_ammatti(normalisoi_ammatti(ammatti)))) |>
+  left_join(ura, by = "henkilo_nro") |>
+  filter(!is.na(vuosia), !is.na(alku)) |>
+  mutate(
+    ura_luokka = cut(vuosia, c(0,4,12,Inf), c("Lyhyt <4v","Keski 4–12v","Pitkä >12v")),
+    aikakausi  = cut(alku, c(-Inf,1945,1990,Inf), c("–1944","1945–1990","1991–")),
+    sukupuoli  = factor(sukupuoli)) |>
+  dplyr::select(henkilo_nro, nimi, toimielin_lkm,ammatti,
+                sukupuoli, ammattiluokka, ura_luokka, aikakausi) |>
+  drop_na(sukupuoli, ammattiluokka, ura_luokka, aikakausi)
+
+muu_osuus <- mean(feat$ammattiluokka == "Muu")
+stopifnot("Liikaa 'Muu' — laajenna luokitusta" = muu_osuus < 0.25)
+message("Muu-osuus: ", scales::percent(muu_osuus, accuracy = 0.1))
+stopifnot("Piirretaulu liian pieni" = nrow(feat) >= 1500)
+
+ind  <- c("sukupuoli","ammattiluokka","ura_luokka","aikakausi")
+levs <- map(feat[ind], levels)
+d_int <- feat |> dplyr::select(all_of(ind)) |> mutate(across(everything(), ~ as.integer(.)))
+```
+
+## Montako arkkityyppiä? BIC ratkaisee
+
+```{r lca-fit}
+#| cache: false
+f <- as.formula(paste0("cbind(", paste(ind, collapse = ","), ") ~ 1"))
+if (!file.exists(fits_path)) {
+  fits <- map(2:6, \(k) poLCA(f, data = d_int, nclass = k, nrep = 10,
+                              maxiter = 3000, verbose = FALSE))
+  qs2::qd_save(fits, fits_path)
+}
+fits <- qs2::qd_read(fits_path)
+
+bic_taulu <- tibble(arkkityyppeja = 2:6,
+                    BIC = map_dbl(fits, "bic"),
+                    AIC = map_dbl(fits, "aic"))
+paras_k <- bic_taulu$arkkityyppeja[which.min(bic_taulu$BIC)]
+fit <- fits[[paras_k - 1]]
+K <- paras_k
+bic_taulu |> mutate(valittu = arkkityyppeja == paras_k)
+```
+
+BIC valitsee mallin, joka sopii dataan ilman ylisovittamista. Valittu arkkityyppien
+määrä on **`r K`**. Katsotaan, miltä arkkityypit näyttävät.
+
+## Arkkityyppien profiilit
+
+Kukin arkkityyppi määrittyy sillä, **millä todennäköisyydellä** siihen kuuluvalla
+edustajalla on kukin piirre. Lämpökartta näyttää nämä todennäköisyydet.
+
+```{r profiilit}
+prof <- map_dfr(ind, function(v) {
+  m <- fit$probs[[v]]; colnames(m) <- levs[[v]]
+  as_tibble(m) |> mutate(arkkityyppi = paste0("A", row_number())) |>
+    pivot_longer(-arkkityyppi, names_to = "taso", values_to = "p") |>
+    mutate(muuttuja = v)
+})
+
+ggplot(prof, aes(x = arkkityyppi, y = taso, fill = p)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = percent(p, accuracy = 1)), size = 2.7, color = "grey15") +
+  facet_grid(muuttuja ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  scale_fill_gradient(low = "white", high = pal[["turkoosi"]], labels = label_percent()) +
+  labs(title = paste0("Eduskunnan ", K, " arkkityyppiä"),
+       subtitle = "Piirteen todennäköisyys kussakin arkkityypissä",
+       x = NULL, y = NULL, fill = NULL) +
+  theme(strip.placement = "outside", strip.text.y.left = element_text(angle = 0),
+        panel.grid = element_blank())
+```
+
+```{r nimet}
+# Datasta johdetut nimet: kunkin arkkityypin todennäköisin ammatti + ura + aikakausi
+modal <- function(v, k) levs[[v]][which.max(fit$probs[[v]][k, ])]
+arkkinimet <- map_chr(1:K, \(k) paste0(modal("ammattiluokka",k), " · ",
+                                       modal("ura_luokka",k), " · ", modal("aikakausi",k)))
+osuudet <- round(100 * colMeans(fit$posterior), 1)
+tibble(arkkityyppi = paste0("A", 1:K), kuvaus = arkkinimet, osuus_pros = osuudet) |>
+  arrange(desc(osuus_pros))
+```
+
+## Tärkein tulos: kukaan ei ole puhdas tyyppi
+
+Tähän asti olemme puhuneet arkkityypeistä laatikkoina. Mallin koko pointti on, että
+ne **eivät** ole laatikoita: jokaisella edustajalla on **jäsenyysjakauma** — esim.
+60 % arkkityyppiä A, 30 % B, 10 % C. Katsotaan, kuinka monella tämä jakauma on
+todella sekoittunut.
+
+```{r jasenyysjakauma}
+post <- fit$posterior
+maxp <- apply(post, 1, max)
+H <- -rowSums(post * log(post + 1e-12)) / log(K)   # normalisoitu entropia 0–1
+osuus_sekoittunut <- mean(maxp < 0.7)
+
+p1 <- ggplot(tibble(maxp), aes(x = maxp)) +
+  geom_histogram(bins = 30, fill = pal[["sininen"]], alpha = .85) +
+  geom_vline(xintercept = 0.7, linetype = "dashed", color = pal[["punainen"]]) +
+  scale_x_continuous(labels = label_percent()) +
+  labs(title = "Kuinka 'puhtaasti' edustaja kuuluu yhteen arkkityyppiin?",
+       subtitle = paste0(percent(osuus_sekoittunut, accuracy = 1),
+                        " edustajista jää alle 70 % varmuuden — he ovat sekoituksia"),
+       x = "Suurin jäsenyystodennäköisyys", y = NULL)
+p1
+```
+
+```{r esimerkit}
+# Kolme edustajaa: sekoittunein, keskivertо, puhtain
+idx <- c(which.max(H), order(H)[ceiling(length(H)/2)], which.min(H))
+ex <- map_dfr(idx, function(i) tibble(
+  nimi = feat$nimi[i], arkkityyppi = paste0("A", 1:K), p = post[i, ]))
+ex <- ex |> mutate(nimi = factor(nimi, levels = feat$nimi[idx]))
+
+ggplot(ex, aes(x = p, y = nimi, fill = arkkityyppi)) +
+  geom_col() +
+  scale_x_continuous(labels = label_percent()) +
+  scale_fill_manual(values = unname(pal)[1:K]) +
+  labs(title = "Jäsenyys jakaumana: kolme esimerkkiä",
+       subtitle = "Ylin on sekoittunein, alin puhtain tapaus",
+       x = "Jäsenyystodennäköisyys", y = NULL, fill = "Arkkityyppi")
+```
+
+Tämä on koko sarjan teema henkilötasolla: edustaja ei ole piste yhdessä
+laatikossa, vaan jakauma. "Tyypillinen poliitikko" on harvinaisempi kuin retoriikka
+antaa ymmärtää.
+
+## Ovatko arkkityypit todellisia? Mallin ulkopuolinen testi
+
+Arkkityypit voivat olla pelkkää kohinaa, jos ne eivät ennusta mitään, mitä malli ei
+nähnyt. Testaamme: jätimme **toimielinjäsenyyksien määrän** mallin ulkopuolelle.
+Jos arkkityypit ovat aitoja, niiden pitäisi erota tässäkin. Käytämme
+**Kruskal–Wallis-testiä** (jakaumavapaa, sopii vinolle lukumäärädatalle) ja
+efektikokona epsilon-neliötä.
+
+```{r validointi}
+val <- feat |> mutate(arkkityyppi = factor(fit$predclass))
+kw <- kruskal.test(toimielin_lkm ~ arkkityyppi, data = val)
+eps2 <- unname(kw$statistic) / (nrow(val) - 1)
+tibble(khi2 = round(unname(kw$statistic), 1), df = unname(kw$parameter),
+       p = signif(kw$p.value, 3), epsilon2 = round(eps2, 3))
+```
+
+::: {.callout-note title="Miksi tämä testi on rehellinen"}
+Toimielinjäsenyyksiä **ei käytetty** arkkityyppien muodostuksessa, joten ero niissä
+on aito ulkoinen validointi, ei kehäpäätelmä. Lukumäärädata on vinoa, joten
+keskiarvojen vertailun sijaan käytämme jakaumavapaata testiä, ja painotamme
+efektikokoa p-arvon ohi.
+:::
+
+## Arkkityypit nykyeduskunnassa
+
+```{r nyt}
+nyt_ids <- mp_years |> filter(vuosi == REF_VUOSI) |> distinct(henkilo_nro)
+nyt_mix <- val |> semi_join(nyt_ids, by = "henkilo_nro") |>
+  count(arkkityyppi) |> mutate(osuus = n / sum(n),
+    kuvaus = arkkinimet[as.integer(as.character(arkkityyppi))])
+
+ggplot(nyt_mix, aes(x = osuus, y = fct_reorder(kuvaus, osuus))) +
+  geom_col(fill = pal[["laivasto"]]) +
+  scale_x_continuous(labels = label_percent()) +
+  labs(title = "Nykyeduskunnan arkkityyppijakauma",
+       subtitle = paste0("Istuvat edustajat (", REF_VUOSI, ")"),
+       x = NULL, y = NULL)
+```
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Arkkityyppejä on, mutta ne ovat sumeita.** Suuri osa edustajista on
+  sekoituksia, ei puhtaita tyyppejä — "tyypillinen poliitikko" on retorinen hahmo,
+  ei tilastollinen.
+- **Typologia kestää testin.** Arkkityypit eroavat myös piirteessä, jota malli ei
+  nähnyt, joten ne tavoittavat todellista rakennetta.
+- **Tämä on muuttuja seuraaviin osiin.** Arkkityyppi (ja sen jäsenyysjakauma) kulkee
+  mukana, kun kysymme: ennustaako arkkityyppi sitä, kuka puhuu, kuka vaikenee ja
+  kuka säilyttää paikkansa.
+
+## Uutiskoukku takaisin
+
+Kun seuraavan kerran kuulet "tyypillisestä poliitikosta", sinulla on tilastollinen
+vastaus: tyyppejä on muutama, mutta useimmat edustajat ovat niiden sekoituksia.
+Ihminen on jakauma, ei laatikko.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Segmentointi ilman keinotekoisia laatikoita — jäsenyys jakaumana, ulkoisesti
+validoituna — on sama menetelmä, jolla erottelen asiakas-, riski- tai
+toimittajaryhmiä siten, että epävarmuus pysyy näkyvissä. Otetaan yhteyttä:
+**kristianvepsalainen.com**.
+:::
+
+*Datalähde: Eduskunnan avoin data (CC BY 4.0). Analyysi ja mahdolliset virheet
+ovat omiani.*

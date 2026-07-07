@@ -141,7 +141,8 @@ jobs:
             "xgboost",
             "gt",
             "shapviz",
-            "rsample"
+            "rsample",
+            "poLCA"
             
           ))
 

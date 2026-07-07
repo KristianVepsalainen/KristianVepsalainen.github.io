@@ -3,7 +3,6 @@ title: "Kuka ilmoittaa tilinpäätöksensä digitaalisesti?"
 subtitle: "Viiden prosentin ansa — ja miksi avoin tilinpäätösrajapinta johtaa harhaan, jos sitä lukee väärin"
 date: 2026-07-07
 categories: [avoin data, bayes, valikoituminen, YTJ]
-draft: true
 execute:
   warning: false
   message: false

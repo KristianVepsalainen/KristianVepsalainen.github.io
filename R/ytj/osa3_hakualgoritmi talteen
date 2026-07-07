@@ -1,0 +1,42 @@
+  #Jos data tarvitsee ajaa, se tehdään näin:
+  #   tulokset <- vector("list", length(otos_idt))
+#   keskeytyi <- FALSE
+#   for (i in seq_along(otos_idt)) {
+#     id <- otos_idt[i]
+#     cp <- file.path(xbrl_cp, paste0(id, ".qs"))
+#     if (file.exists(cp)) { tulokset[[i]] <- qs2::qs_read(cp); next }
+# 
+#     rivi <- tryCatch({
+#       raw <- fetch_xbrl_financial(id, timeout_s = 30, max_tries = 2)
+#       # Vahvistettu rakenne: vastaus on { totalResults, financials }.
+#       # totalResults = 0 ja tyhjä financials-lista = ei iXBRL-tilinpäätöstä.
+#       # (Rajapinta palauttaa 200 + tyhjän kuoren, ei 404:ää — siksi lippu on
+#       #  totalResults, ei null-tarkistus.)
+#       n_tk <- if (is.null(raw)) 0L else as.integer(pluck(raw, "totalResults", .default = 0L))
+#       tibble(business_id = id,
+#              on_ixbrl    = n_tk > 0L,
+#              n_tilikausi = n_tk)
+#     },
+#     kvar_ratelimit = function(e) NULL)     # rajoitin: älä cachetä, keskeytä siististi
+# 
+#     if (is.null(rivi)) {
+#       message("Rajoitin osui kohdassa ", i, "/", length(otos_idt),
+#               " — aja chunk uudelleen jatkaaksesi (tauota tarvittaessa).")
+#       keskeytyi <- TRUE
+#       break
+#     }
+#     qs2::qs_save(rivi, cp)                  # cachetetaan VAIN aito vastaus
+#     tulokset[[i]] <- rivi
+#     if (i %% 1000 == 0) message(sprintf("  %d / %d", i, length(otos_idt)))
+#   }
+#   stopifnot(!keskeytyi)                     # render pysähtyy siistiin virheeseen, jos kesken
+#   kattavuus <- bind_rows(tulokset)
+#   qs2::qs_save(kattavuus, xbrl_cov_path)
+# } else {
+#   kattavuus <- qs2::qs_read(xbrl_cov_path)
+# }
+#Otos on näin:
+  #set.seed(20260705)          # toistettavuus: sama otos joka ajolla
+#otos_koko <- 20000L
+#otos_idt  <- sample(kohde$business_id, min(otos_koko, n_kohde))
+#stopifnot(length(otos_idt) == length(unique(otos_idt)))

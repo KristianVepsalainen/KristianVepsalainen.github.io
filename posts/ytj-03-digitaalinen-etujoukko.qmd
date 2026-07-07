@@ -1,0 +1,315 @@
+---
+title: "Kuka ilmoittaa tilinpäätöksensä digitaalisesti?"
+subtitle: "Viiden prosentin ansa — ja miksi avoin tilinpäätösrajapinta johtaa harhaan, jos sitä lukee väärin"
+date: 2026-07-07
+categories: [avoin data, bayes, valikoituminen, YTJ]
+draft: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(here)
+library(patchwork)
+library(ggdist)
+source(here("R", "ytj","ytj_api.R"))
+source(here("R", "ytj","theme_kristian.R"))
+source(here("R", "ytj","toimiala_sektori.R"))
+
+theme_set(theme_kristian())
+```
+
+Kun Patentti- ja rekisterihallitus avasi keväällä 2025 rajapinnan digitaalisiin
+tilinpäätöstietoihin, se oli pieni mutta oikea askel kohti läpinäkyvämpää
+talousdataa. Otsikoissa toistui lupaus: yritysten tuloslaskelmat ja taseet nyt
+koneluettavassa muodossa, kenen tahansa haettavissa.
+
+On kuitenkin yksi luku, joka muuttaa koko kuvan. **Vain noin viisi prosenttia**
+PRH:lle toimitetuista tilinpäätöksistä on digitaalisessa (iXBRL-)muodossa. Loput
+95 % ovat yhä pdf- tai paperimuodossa, saatavilla vain erikseen. Rajapinta ei siis
+näytä "suomalaisten yritysten taloutta" — se näyttää sen pienen etujoukon, joka on
+jo siirtynyt digitaaliseen raportointiin.
+
+Tässä piilee virhe, jonka moni päätöksentekijä tekee tietämättään: kun dataa on
+helposti saatavilla, sitä käytetään ikään kuin se edustaisi kokonaisuutta. Jos
+laskisit näistä viidestä prosentista vaikkapa "suomalaisen osakeyhtiön
+keskimääräisen liikevaihdon", saisit luvun, joka kertoo enemmän
+raportointiohjelmistojen käyttäjäkunnasta kuin Suomen yrityskentästä. Se olisi
+piste, joka esittää olevansa jakauma.
+
+Tämän kirjoituksen kysymys ei siksi ole *"mitä tilinpäätökset kertovat"* — siihen
+vino viiden prosentin otos ei rehellisesti vastaa. Kysymys on: **kuka kuuluu tähän
+digitaaliseen etujoukkoon, ja voimmeko ennustaa sen?** Se on vastattavissa, ja
+vastaus paljastaa tarkalleen, minkä suuntaan rajapinta vääristää — ja miten
+vääristymä korjataan.
+
+## Mistä datassa on kyse?
+
+::: {.callout-note}
+Tämä analyysi perustuu kolmeen PRH:n avoimen datan rajapintaan (perustiedot,
+rekisteröidyt ilmoitukset, digitaaliset tilinpäätökset; CC BY 4.0). Kaupparekisteri
+kattaa rekisteröidyt oikeushenkilöt, ei toiminimiyrittäjiä. Rajaan tarkastelun
+**osakeyhtiöihin, jotka ovat jättäneet tilinpäätösilmoituksen (TASE-merkintä)
+vuodesta 2021 alkaen** — eli yrityksiin, joilla on tosiasiassa ollut tilinpäätös
+rekisteröitävänä. Näin vertailu on reilu: kysymys ei ole *jättikö* yritys
+tilinpäätöksen, vaan jättikö se sen **digitaalisesti vai paperilla**. Velvollisuus
+on kaikilla sama; valinta ei.
+:::
+
+Tämä rajaus on itsessään "maailma on jakauma" -periaatteen ydin: ennen kuin
+mittaat mitään, sinun on päätettävä populaatio, ja se päätös muokkaa jokaisen
+luvun. Sanon sen siksi ääneen.
+
+```{r data-perusta}
+# Perustiedot on haettu osassa 1; luetaan välimuistista. Se on vertailukehyksemme:
+# koko elävä osakeyhtiörekisteri, jota vasten digitaalista näkyvyyttä verrataan.
+perustiedot <- qs2::qs_read(here("data", "ytj", "ytj_perustiedot.qs"))
+
+stopifnot(
+  all(c("business_id", "company_form_code", "registration_date",
+        "main_line_code", "location", "trade_register_status") %in% names(perustiedot))
+)
+
+# Vertailukehys on ELÄVÄ osakeyhtiörekisteri: rekisterissä olevat osakeyhtiöt.
+# Miksi ei "kaikki koskaan rekisteröidyt": digitaaliset tilinpäätökset alkoivat
+# ~2021, joten esim. 2005 lakannut yhtiö ei rakenteellisesti voi näkyä
+# digitaalisessa aineistossa. Jos ne olisivat mukana, malli ennustaisi lähinnä
+# "onko yritys yhä olemassa" — mekaaninen valikoituminen, joka peittäisi
+# kiinnostavat erot. Rajaus eläviin tekee vertailusta mielekkään.
+# (trade_register_status == "1" = rekisterissä; muut arvot = lakannut tms.)
+kohde <- perustiedot |>
+  filter(company_form_code == "16",              # 16 = osakeyhtiö
+         trade_register_status == "1") |>        # elävä = rekisterissä
+  distinct(business_id, .keep_all = TRUE)
+
+stopifnot(nrow(kohde) > 10000)                   # eläviä OY:itä on satoja tuhansia; jos alle, koodi tulkitsee statusta väärin
+n_kohde <- nrow(kohde)
+```
+
+Elävässä osakeyhtiörekisterissä on `r format(n_kohde, big.mark = " ")` yhtiötä.
+Tätä joukkoa vasten kysymme, ketkä siitä löytyvät myös digitaalisesta
+tilinpäätösaineistosta.
+
+## Otos: jo kerätty kattavuusaineisto
+
+Emme voi kysyä rajapinnalta jokaisesta sadastatuhannesta yhtiöstä erikseen — se
+on tarkoitettu sovelluksille, ei massalatauksiin, ja rajoittaa pyyntötahtia. Siksi
+digitaalinen näkyvyys on selvitetty **otokselle** rekisterin yhtiöistä: jokaiselle
+on haettu rajapinnasta tieto siitä, löytyykö sille digitaalinen (iXBRL-)tilinpäätös.
+Tämä otos on kerätty erikseen ja tallennettu, joten tässä analyysissä luemme sen
+valmiina emmekä kuormita rajapintaa uudelleen.
+
+Otos on tietoinen menetelmävalinta, ei oikaisu: edustava otos kertoo koko rekisterin
+jakauman, ja epävarmuus voidaan kvantifioida rehellisesti. Se on myös ainoa tapa
+liittää "näkyykö digitaalisessa datassa" -tieto rekisterin yhtiöihin, koska tuota
+tietoa ei ole perustiedoissa valmiina — se on peräisin tilinpäätösrajapinnasta.
+
+```{r lataa-kattavuus}
+xbrl_cov_path <- here("data", "ytj", "xbrl_kattavuus.qs")
+xbrl_cp       <- here("data", "ytj", "xbrl_otos")   # sivukohtaiset checkpointit
+
+# Lataa digitaalisen tilinpäätösaineiston yritykset (koottu tiedostosta tai
+# checkpoint-kansiosta). Tämä aineisto on niiden yritysten JOUKKO, jotka näkyvät
+# digitaalisessa aineistossa.
+if (file.exists(xbrl_cov_path)) {
+  kattavuus <- qs2::qs_read(xbrl_cov_path)
+} else {
+  cp_tiedostot <- list.files(xbrl_cp, pattern = "\\.qs$", full.names = TRUE)
+  stopifnot(length(cp_tiedostot) > 0)
+  kattavuus <- purrr::map(cp_tiedostot, qs2::qs_read) |> bind_rows()
+  qs2::qs_save(kattavuus, xbrl_cov_path)
+}
+kattavuus <- kattavuus |> distinct(business_id, .keep_all = TRUE)
+stopifnot(all(c("business_id") %in% names(kattavuus)), nrow(kattavuus) > 100)
+
+# Digitaalisten ilmoittajien tunnukset. Jos aineistossa on on_ixbrl-lippu,
+# otetaan vain sen mukaiset; muuten koko joukko tulkitaan digitaalisiksi.
+digital_ids <- if ("on_ixbrl" %in% names(kattavuus)) {
+  kattavuus |> filter(on_ixbrl) |> pull(business_id)
+} else {
+  kattavuus$business_id
+} |> unique()
+
+stopifnot(length(digital_ids) > 100)
+
+# ---- OLENNAINEN: merkitään KOKO elävä rekisteri sen mukaan, kuuluuko yritys ----
+# ---- digitaaliseen joukkoon. Vertailu on digitaaliset ilmoittajat vs. koko  ----
+# ---- perustiedot-rekisteri, EI otoksen sisäinen tarkastelu.                  ----
+rekisteri <- kohde |>
+  mutate(on_ixbrl = business_id %in% digital_ids)
+
+# Tarkistukset koko rekisterin tasolla
+osuus_rek <- mean(rekisteri$on_ixbrl)
+stopifnot(
+  n_distinct(rekisteri$on_ixbrl) == 2,     # molemmat luokat läsnä (vertailu mahdollinen)
+  osuus_rek > 0,                            # digitaalisia löytyy rekisteristä
+  osuus_rek < 0.60                          # digitaaliset ovat murto-osa rekisteristä
+)
+
+k_dig <- sum(rekisteri$on_ixbrl)            # digitaalisia rekisterissä
+n_rek <- nrow(rekisteri)                    # koko elävä OY-rekisteri
+```
+
+Digitaalisessa aineistossa näkyy `r format(k_dig, big.mark = " ")` osakeyhtiötä
+`r format(n_rek, big.mark = " ")` elävän osakeyhtiön rekisteristä. Näitä kahta
+joukkoa — digitaalisia ilmoittajia ja koko rekisteriä — verrataan seuraavaksi.
+
+## Kattavuus: kuinka suuri osuus rekisteristä on digitaalinen?
+
+Ensimmäinen jakaumakysymys: kuinka suuri osuus koko elävästä osakeyhtiörekisteristä
+näkyy digitaalisessa aineistossa? Koska tunnemme sekä digitaaliset ilmoittajat että
+koko rekisterin, tämä osuus tunnetaan käytännössä tarkasti — se on kuvaileva fakta,
+ei estimaatti. Tässä en siis piirrä leveää epävarmuusväliä: kuten sarjan osassa 1
+totesin, kun käytössä on koko populaatio, uskottavuusväli kutistuu pisteeksi eikä
+kerro mitään uutta. Epävarmuus kuuluu sinne, missä ennustamme — ei tähän.
+
+```{r kattavuus-osuus}
+# Kuvaileva rekisteritason osuus: digitaaliset vs. koko elävä rekisteri.
+osuus_rek <- k_dig / n_rek
+
+kattavuus_df <- tibble(
+  ryhma = c("Näkyy digitaalisessa\naineistossa", "Ei näy\n(paperi tai ei tilinpäätöstä)"),
+  n     = c(k_dig, n_rek - k_dig)
+) |>
+  mutate(osuus = n / sum(n))
+
+ggplot(kattavuus_df, aes(osuus, reorder(ryhma, osuus), fill = ryhma)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = scales::percent(osuus, accuracy = 0.1)),
+            hjust = -0.1, color = kvar_palette[["navy"]]) +
+  scale_fill_manual(values = c(kvar_palette[["teal"]], kvar_palette[["orange"]])) +
+  scale_x_continuous(labels = scales::percent, expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Digitaalinen etujoukko koko rekisterin mittakaavassa",
+       subtitle = sprintf("%s / %s elävää osakeyhtiötä näkyy digitaalisessa aineistossa (%.1f %%)",
+                          format(k_dig, big.mark = " "), format(n_rek, big.mark = " "),
+                          100 * osuus_rek),
+       x = "Osuus elävästä osakeyhtiörekisteristä", y = NULL)
+```
+
+::: {.callout-tip}
+## Kaksi eri lukua, joita ei saa sekoittaa
+PRH:n mainitsema "noin 5 %" tarkoittaa *toimitetuista tilinpäätöksistä* digitaalisten
+osuutta. Tässä laskettu luku on eri asia: kuinka suuri osuus **koko elävästä
+osakeyhtiörekisteristä** näkyy digitaalisessa aineistossa. Se on tyypillisesti
+matalampi, koska moni rekisterin yhtiö ei ole jättänyt tilinpäätöstä tarkastelujaksolla
+lainkaan. Juuri tällaisten lukujen erottaminen on osa "maailma on jakauma" -ajattelua:
+sama sana ("osuus") tarkoittaa eri populaatiota, ja populaatio ratkaisee.
+:::
+
+Osuus itsessään on vasta lähtöpiste. Ratkaisevaa on, että **digitaalisuus ei jakaudu
+tasaisesti rekisterissä** — ja juuri se epätasaisuus tekee viiden prosentin luvusta
+harhaanjohtavan, jos sitä käytetään koko yrityskentän kuvana. Seuraavaksi vertaamme
+digitaalisia ilmoittajia koko rekisteriä vasten ja puramme epätasaisuuden auki.
+
+## Kuka on digitaalinen? Ryhmävertailut
+
+Rakennamme koko rekisterille selittävät muuttujat: yhtiön **ikä**,
+**toimialasektori** ja **sijainti** (suuri kaupunki vai muu). Nämä ovat tietoja,
+jotka meillä on jokaisesta rekisterin yhtiöstä — emme siis tarvitse tilinpäätöksen
+sisältöä lainkaan sen ennustamiseen, kuka kuuluu digitaaliseen etujoukkoon. Vertailu
+on koko ajan **digitaaliset ilmoittajat vs. koko elävä rekisteri**.
+
+```{r piirteet}
+suuret_kaupungit <- c("HELSINKI","ESPOO","TAMPERE","VANTAA","OULU",
+                      "TURKU","JYVÄSKYLÄ","KUOPIO","LAHTI")
+
+mallidata <- rekisteri |>                     # KOKO elävä rekisteri, on_ixbrl jäsenyyden mukaan
+  mutate(
+    ika        = 2026 - lubridate::year(as.Date(registration_date)),
+    sektori    = toimiala_sektori(main_line_code),
+    kaupunki   = if_else(toupper(location) %in% suuret_kaupungit,
+                         "Suuri kaupunki", "Muu Suomi"),
+    on_ixbrl_i = as.integer(on_ixbrl)
+  ) |>
+  filter(!is.na(ika), ika >= 0, !is.na(sektori)) |>
+  mutate(sektori = fct_lump_min(factor(sektori), min = 100))  # yhdistä pienimmät
+
+stopifnot(
+  nrow(mallidata) > 0,
+  !anyNA(mallidata$sektori),
+  n_distinct(mallidata$on_ixbrl) == 2         # vertailu koko rekisteriä vasten on olemassa
+)
+
+ref_sektori <- levels(mallidata$sektori)[1]   # perustaso (yleisin toimiala) raporttiin
+
+```
+
+### Toimiala
+
+Ensimmäinen vertailu: eroaako digitaalisuus toimialoittain? Koska kyseessä ovat
+kategoriat ja binäärinen tulos, oikea testi on **khiin neliö -riippumattomuustesti**.
+Suurella otoksella lähes mikä tahansa ero tuottaa pienen p-arvon, joten p ei ole
+kiinnostava — raportoin sen rinnalla **efektikoon** (Cramérin V), joka kertoo eron
+*voimakkuuden*, en pelkkää olemassaoloa. Tämä on "maailma on jakauma" käytännössä:
+merkitsevyys on halpaa, suuruus ratkaisee.
+
+```{r testi-toimiala}
+tab_sektori <- table(mallidata$sektori, mallidata$on_ixbrl)
+khii_sektori <- chisq.test(tab_sektori)
+stopifnot(all(khii_sektori$expected >= 5))     # khiin neliön pätevyysehto
+
+# Cramérin V efektikokona
+cramers_v <- function(chi) {
+  sqrt(as.numeric(chi$statistic) /
+       (sum(chi$observed) * (min(dim(chi$observed)) - 1)))
+}
+v_sektori <- cramers_v(khii_sektori)
+
+osuudet_sektori <- mallidata |>
+  group_by(sektori) |>
+  summarise(n = n(), osuus = mean(on_ixbrl), .groups = "drop") |>
+  arrange(desc(osuus))
+
+ggplot(osuudet_sektori, aes(osuus, reorder(sektori, osuus))) +
+  geom_col(fill = kvar_palette[["navy"]]) +
+  geom_vline(xintercept = osuus_rek, color = kvar_palette[["red"]], linetype = "dashed") +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Digitaalisen tilinpäätöksen osuus toimialoittain",
+       subtitle = sprintf("Punainen katkoviiva = koko rekisterin keskiarvo (%.1f %%). Cramérin V = %.3f",
+                          100*osuus_rek, v_sektori),
+       x = "Digitaalisten osuus", y = NULL)
+```
+
+### Ikä ja sijainti
+
+Yhtiön ikä on jatkuva ja voimakkaasti vino (paljon nuoria, vähän hyvin vanhoja),
+joten normaalijakaumaan nojaava t-testi ei ole oikea väline. Käytän
+**Mann–Whitneyn U-testiä** (Wilcoxonin järjestyssummatesti), joka vertaa
+jakaumia ilman normaalisuusoletusta, ja raportoin efektikokona
+**rank-biserial-korrelaation**.
+
+```{r testi-ika}
+ika_dig <- mallidata |> filter(on_ixbrl)  |> pull(ika)
+ika_pap <- mallidata |> filter(!on_ixbrl) |> pull(ika)
+
+wilcox_ika <- wilcox.test(ika_dig, ika_pap, conf.int = FALSE)
+
+# Rank-biserial efektikoko U-testistä
+U <- as.numeric(wilcox_ika$statistic)
+rb <- 1 - 2 * U / (length(ika_dig) * length(ika_pap))
+
+ika_plot <- ggplot(mallidata, aes(ika, fill = on_ixbrl)) +
+  geom_density(alpha = 0.5, color = NA) +
+  scale_fill_manual(values = c(`TRUE` = kvar_palette[["teal"]],
+                               `FALSE` = kvar_palette[["orange"]]),
+                    labels = c(`TRUE` = "Digitaalinen", `FALSE` = "Paperi")) +
+  coord_cartesian(xlim = c(0, 40)) +
+  labs(title = "Digitaalisesti ilmoittavat yritykset ovat nuorempia",
+       subtitle = sprintf("Mann–Whitney p = %s, rank-biserial = %.3f",
+                          format.pval(wilcox_ika$p.value, digits = 2), rb),
+       x = "Yhtiön ikä (vuotta)", y = "Tiheys", fill = NULL)
+
+ika_plot
+```
+
+
+---
+
+*Tämä analyysi on osa avoimen datan sarjaani, jossa käsittelen suomalaista
+yritys- ja yhteisötietoa jakaumina, en pistelukuina. Autan organisaatioita
+tekemään avoimesta ja omasta datasta luotettavia päätöksiä — myös silloin, kun
+data on vino. Vuokrattava Head of Data -palveluni ja yhteydenotto:
+[kristianvepsalainen.com](https://www.kristianvepsalainen.com).*

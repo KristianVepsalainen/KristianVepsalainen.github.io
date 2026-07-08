@@ -102,7 +102,7 @@ hae_eduskunta_taulu <- function(taulu, per_page = 100, max_sivut = 500) {
   colnames(m) <- sarakkeet; as_tibble(m)
 }
 if (!file.exists(mp_raw_path)) qs2::qs_save(hae_eduskunta_taulu("MemberOfParliament"), mp_raw_path)
-mp_raw <- qs2::qd_read(mp_raw_path)
+mp_raw <- qs2::qs_read(mp_raw_path)
 xml_col <- "XmlDataFi"; stopifnot(xml_col %in% names(mp_raw))
 
 vuosi <- function(x) suppressWarnings(as.integer(str_extract(x, "\\d{4}")))
@@ -115,7 +115,7 @@ jasenna_henkilo <- function(xml_str) {
     else map_dfr(toimet, \(t) tibble(alku=vuosi(xml_text(xml_find_first(t,"./AlkuPvm"))),
                                      loppu=vuosi(xml_text(xml_find_first(t,"./LoppuPvm")))))
   tibble(
-    henkilo_nro = g(".//HenkiloNro"), etunimi=g(".//EtunimetNimi"), sukunimi=g(".//SukuNimi"),
+    henkilo_nro = g(".//HenkiloNro"), etunimi=g(".//EtunimetNimi"),         sukunimi=g(".//SukuNimi"), synt_pvm=g(".//SyntymaPvm"),
     sp_koodi=g(".//SukuPuoliKoodi"), ammatti=g(".//Ammatti"),
     ministeri = as.integer(length(xml_find_all(doc, ".//ValtioneuvostonJasenyydet/Jasenyys")) > 0),
     toimielin_lkm = length(xml_find_all(doc, ".//AiemmatToimielinjasenyydet/Toimielin")) +

@@ -230,7 +230,7 @@ if (!file.exists(pop_path)) {
   px_df <- as.data.frame(px, column.name.type = "text", variable.value.type = "text")
   qs2::qs_save(px_df, pop_path)
 }
-px_df <- qs2::qs_read(pop_path)
+px_df <- qs2::qd_read(pop_path)
 
 # Sarakkeet tulevat muuttujien teksteinä — ratkaistaan ne nimien perusteella,
 # ettei koodi hajoa jos otsikointi muuttuu.

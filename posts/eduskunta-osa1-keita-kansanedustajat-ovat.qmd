@@ -115,9 +115,9 @@ hae_eduskunta_taulu <- function(taulu, per_page = 100, max_sivut = 500) {
 
 if (!file.exists(mp_raw_path)) {
   mp_raw <- hae_eduskunta_taulu("MemberOfParliament")
-  qs2::qd_save(mp_raw, mp_raw_path)
+  qs2::qs_save(mp_raw, mp_raw_path)
 }
-mp_raw <- qs2::qd_read(mp_raw_path)
+mp_raw <- qs2::qs_read(mp_raw_path)
 
 stopifnot("MP-haku tyhjä" = nrow(mp_raw) > 0,
           "MP-rivejä epäilyttävän vähän" = nrow(mp_raw) >= 2000)
@@ -160,9 +160,9 @@ jasenna_henkilo <- function(xml_str) {
 
 if (!file.exists(mp_parsed_path)) {
   mp_long <- map_dfr(mp_raw[[xml_col]], jasenna_henkilo)
-  qs2::qd_save(mp_long, mp_parsed_path)
+  qs2::qs_save(mp_long, mp_parsed_path)
 }
-mp_long <- qs2::qd_read(mp_parsed_path)
+mp_long <- qs2::qs_read(mp_parsed_path)
 stopifnot("Liian vähän jäsennettyjä" = nrow(mp_long) >= 2000)
 
 mp <- mp_long |>

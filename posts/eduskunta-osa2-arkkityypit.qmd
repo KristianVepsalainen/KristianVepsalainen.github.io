@@ -6,7 +6,6 @@ description: >
   joka tuottaa kansanedustajien arkkityypit — mutta tärkein tulos on, ettei
   kukaan kuulu yhteen laatikkoon: jokainen on jakauma arkkityyppien yli.
 date: 2026-07-09
-draft: TRUE
 author: "Kristian Vepsäläinen"
 categories: [eduskunta, avoin data, sekoitemalli, latentti luokka, jakaumat]
 format:

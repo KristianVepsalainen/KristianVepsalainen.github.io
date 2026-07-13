@@ -1,0 +1,532 @@
+---
+title: "Yrityksen rekisterijalanjälki"
+subtitle: "Kun kolme avointa aineistoa yhdistetään, rekisteri alkaa ennustaa, mikä yritys lakkaa — ja mikä selviää"
+date: 2026-07-14
+categories: [avoin data, bayes, eloonjääminen, luottoriski, YTJ]
+draft: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(here)
+library(patchwork)
+library(ggdist)
+library(survival)
+source(here("R","ytj", "theme_kristian.R"))
+source(here("R","ytj", "toimiala_sektori.R"))
+source(here("R","ytj", "yhdista_apu.R"))
+theme_set(theme_kristian())
+```
+
+Jokainen suomalainen yritys jättää jälkeensä julkisen jäljen. Se syntyy
+kaupparekisteriin, vaihtaa hallitusta, valitsee tai hylkää tilintarkastajan,
+muuttaa nimeään, ilmoittaa edunsaajansa, toimittaa tilinpäätöksensä — ja lopulta
+joko jatkaa tai lakkaa. Kukin näistä tapahtumista on erikseen vähäpätöinen.
+Yhdessä ne muodostavat **rekisterijalanjäljen**, joka kertoo yrityksestä enemmän
+kuin yksikään tapahtuma yksinään.
+
+Tämän sarjan kolme edellistä osaa käsittelivät kutakin jälkeä erikseen:
+perustiedot, rekisteröidyt ilmoitukset ja digitaaliset tilinpäätökset. Tässä
+osassa ne yhdistetään yhdeksi yritystason massaksi ja kysytään kysymys, jolla on
+suoraa arvoa luottoriskin ja compliancen kannalta: **ennakoivatko tietyt
+rekisteröidyt käyttäytymiset yrityksen lakkaamista?** Toisin sanoen — voiko
+pelkästä julkisesta jäljestä nähdä, mikä yritys on vaarassa, ennen kuin se
+tapahtuu?
+
+Vastaus ei ole yksittäinen luku. Se on jakauma: eloonjäämisen todennäköisyys ajan
+yli, ja se, miten jalanjälki siirtää tuota jakaumaa. Juuri siksi tässä ei riitä
+"näin monta prosenttia yrityksistä lakkaa" — olennaista on, *kenen* kohdalla ja
+*milloin*.
+
+## Mistä datassa on kyse?
+
+::: {.callout-note}
+Analyysi yhdistää kolme PRH:n avointa aineistoa (CC BY 4.0): perustiedot
+(yhtiömuoto, ikä, toimiala, sijainti), rekisteröidyt ilmoitukset (hallitus-,
+nimi-, tilintarkastaja- ja päättymistapahtumat) ja digitaalisen tilinpäätöksen
+näkyvyyden. Tarkastelu rajataan **osakeyhtiöihin**, koska niillä on yhtenäiset
+rekisteröinti- ja raportointivelvoitteet. Lakkaaminen tunnistetaan rekisterin
+päättymisilmoituksesta (tyyppi END: purkautuminen, sulautumisen täytäntöönpano,
+konkurssin päättyminen tms.).
+:::
+
+```{r lataa-data}
+perustiedot <- qs2::qs_read(here("data", "ytj", "ytj_perustiedot.qs"))
+ilmoitukset <- qs2::qs_read(here("data","ytj", "krek_ilmoitukset.qs"))
+
+stopifnot(
+  all(c("business_id","company_form_code","registration_date","main_line_code",
+        "location","trade_register_status") %in% names(perustiedot)),
+  all(c("business_id","registration_date","type_of_registration","entry_codes")
+      %in% names(ilmoitukset))
+)
+
+# Digitaalisen aineiston yritykset osasta 3 (jäsenyyslippu koko rekisterille).
+kattavuus   <- qs2::qs_read(here("data", "ytj", "xbrl_kattavuus.qs"))
+digital_ids <- if ("on_ixbrl" %in% names(kattavuus)) {
+  kattavuus |> filter(on_ixbrl) |> pull(business_id)
+} else kattavuus$business_id
+digital_ids <- unique(digital_ids)
+
+# Osakeyhtiöt (sekä elävät että lakanneet — tarvitsemme molemmat kuolleisuuteen).
+oy <- perustiedot |>
+  filter(company_form_code == "16") |>
+  distinct(business_id, .keep_all = TRUE) |>
+  transmute(
+    business_id,
+    synty     = as.Date(registration_date),
+    sektori   = toimiala_sektori(main_line_code),
+    kaupunki  = if_else(toupper(location) %in%
+                        c("HELSINKI","ESPOO","TAMPERE","VANTAA","OULU",
+                          "TURKU","JYVÄSKYLÄ","KUOPIO","LAHTI"),
+                        "Suuri kaupunki", "Muu Suomi"),
+    on_ixbrl  = business_id %in% digital_ids
+  ) |>
+  filter(!is.na(synty), !is.na(sektori))
+
+stopifnot(nrow(oy) > 10000)
+```
+
+## Datan yhdistäminen: yksi rivi per yritys
+
+Yhdistämisen ydin on tislata miljoonat yksittäiset ilmoitukset yritystason
+piirteiksi. Jokaiselle osakeyhtiölle lasketaan sen jalanjälki: montako
+hallitusmuutosta, montako nimenmuutosta, luopuiko se tilintarkastajasta,
+ilmoittiko se edunsaajansa — ja milloin se mahdollisesti lakkasi.
+
+Menetelmällinen tarkkuus on tässä ratkaisevaa. Puramme ilmoitusten merkintälajit
+auki kerran ja laskemme piirteet yritystasolla. Päättymispäivä poimitaan
+END-tyyppisistä ilmoituksista.
+
+```{r yhdista}
+yhd_path <- here("data", "ytj", "yhdistetty_yritystaso.qs")
+
+# --- HAVAINTOHETKI: kiinteä kalenteripäivä, ei yrityksen ikään sidottu --------
+# Jalanjälki mitataan IKKUNA-vuoden ajalta ENNEN havaintohetkeä, ja lakkaamista
+# ennustetaan havaintohetken JÄLKEEN. Kaikille yrityksille sama ikkuna samoilla
+# säännöillä — sekä eläville että myöhemmin lakanneille.
+HAVAINTOHETKI <- as.Date("2021-01-01")
+IKKUNA        <- 3      # vuotta taaksepäin: tuore käytös, ei syntymähetken
+SEURANTA      <- 5      # vuotta eteenpäin: ennustejakso
+
+if (!file.exists(yhd_path)) {
+  pitka <- ilmoitukset |>
+    mutate(nid = row_number(),
+           pvm = as.Date(registration_date)) |>
+    select(business_id, nid, pvm, type_of_registration, entry_codes) |>
+    tidyr::unnest_longer(entry_codes, values_to = "koodi")
+
+  koodifrekvenssit <- pitka |> count(koodi, sort = TRUE)
+
+  # Lakkaamispäivä ja koko elinajan ilmoitusmäärä (kuvailua varten).
+  elinkaari <- pitka |>
+    group_by(business_id) |>
+    summarise(
+      n_ilmoitus = n_distinct(nid),
+      lakk_pvm   = min_pvm(pvm[type_of_registration == "END"]),
+      .groups = "drop"
+    )
+
+  # Jalanjälki: VAIN havaintohetkeä edeltävä IKKUNA. Näin malli ei näe
+  # lakkaamisprosessin omia tapahtumia (selvitystila, purkautuminen), jotka
+  # tapahtuvat havaintohetken jälkeen — se olisi kehäpäätelmä.
+  ikkuna_alku <- HAVAINTOHETKI - lubridate::days(round(IKKUNA * 365.25))
+  jalanjalki <- pitka |>
+    filter(pvm >= ikkuna_alku, pvm < HAVAINTOHETKI) |>
+    group_by(business_id) |>
+    summarise(
+      n_hallitus     = n_distinct(nid[koodi == "HAL"]),
+      n_nimenmuutos  = n_distinct(nid[koodi %in% c("TMI","NIMP","NIMA")]),
+      n_tilintark    = n_distinct(nid[koodi %in% c("TILTAR","TILTAP","TILTAE")]),
+      n_ikkuna       = n_distinct(nid),
+      ilm_edunsaajat = any(koodi == "ESR"),
+      .groups = "drop"
+    )
+
+  yhdistetty <- oy |>
+    left_join(elinkaari,  by = "business_id") |>
+    left_join(jalanjalki, by = "business_id") |>
+    mutate(
+      across(c(n_ilmoitus, n_hallitus, n_nimenmuutos, n_tilintark, n_ikkuna),
+             \(x) coalesce(x, 0L)),
+      ilm_edunsaajat = coalesce(ilm_edunsaajat, FALSE),
+      lakannut       = !is.na(lakk_pvm)
+    )
+  qs2::qs_save(list(yhdistetty = yhdistetty, koodit = koodifrekvenssit), yhd_path)
+} else {
+  .obj <- qs2::qs_read(yhd_path)
+  yhdistetty       <- .obj$yhdistetty
+  koodifrekvenssit <- .obj$koodit
+}
+
+# Elinaika ja eloonjäämisanalyysin muuttujat.
+cutoff <- max(as.Date(ilmoitukset$registration_date), na.rm = TRUE)
+yhdistetty <- yhdistetty |>
+  mutate(
+    loppu       = if_else(lakannut, lakk_pvm, cutoff),
+    ika_vuosina = as.numeric(difftime(loppu, synty, units = "days")) / 365.25,
+    hallitus_vaihtui = n_hallitus >= 2      # vaihtuvuus havaintoikkunassa
+  ) |>
+  filter(ika_vuosina >= 0)
+
+stopifnot(
+  all(yhdistetty$ika_vuosina >= 0),
+  nrow(yhdistetty) > 10000,
+  n_distinct(yhdistetty$hallitus_vaihtui) == 2,
+  n_distinct(yhdistetty$lakannut) == 2
+)
+
+konkordanssi <- perustiedot |>
+  filter(company_form_code == "16") |>
+  distinct(business_id, .keep_all = TRUE) |>
+  transmute(business_id, status_lakannut = trade_register_status != "1") |>
+  inner_join(select(yhdistetty, business_id, lakannut), by = "business_id") |>
+  summarise(sama = mean(status_lakannut == lakannut)) |>
+  pull(sama)
+```
+
+Aineistossa on nyt `r format(nrow(yhdistetty), big.mark = " ")` osakeyhtiötä, kukin
+yhdellä rivillä ja täydellä jalanjäljellä. END-ilmoituksista johdettu lakkaaminen
+täsmää rekisterin statustiedon kanssa
+`r scales::percent(konkordanssi, accuracy = 0.1)` tapauksista — hyvä
+yhdenmukaisuus, joka antaa luottaa siihen, että yhdistäminen onnistui.
+
+## Mitä yritykset todella rekisteröivät?
+
+Ennen mallinnusta kannattaa katsoa, mistä jalanjälki koostuu. Merkintälajien
+jakauma kertoo, mitä rekisteriin oikeasti kirjataan.
+
+```{r koodit-top}
+ec_selitteet <- tibble::tribble(
+  ~koodi,   ~selite,
+  "TASE",   "Tilinpäätösasiakirjat",
+  "HAL",    "Hallitus",
+  "TILTAR", "Tilintarkastajat",
+  "ESR",    "Tosiasialliset edunsaajat",
+  "TAL",    "Toimiala",
+  "OSLUKU", "Osakkeiden lukumäärä",
+  "TMI",    "Toiminimi",
+  "NORTIL", "Normaali tilikausi",
+  "OPO",    "Osakepääoma",
+  "KOTI",   "Kotipaikka",
+  "TOIM",   "Toimitusjohtajat",
+  "POITIL", "Poikkeava tilikausi"
+)
+
+koodifrekvenssit |>
+  slice_head(n = 12) |>
+  left_join(ec_selitteet, by = "koodi") |>
+  mutate(osuus = n / sum(koodifrekvenssit$n)) |>
+  transmute(Koodi = koodi, Merkintälaji = selite,
+            Lukumäärä = scales::comma(n),
+            Osuus = scales::percent(osuus, accuracy = 0.1)) |>
+  knitr::kable(caption = "Yleisimmät merkintälajit (selitteet PRH:n omasta koodilistasta)")
+```
+
+::: {.callout-important}
+## Löydös, joka ei näy tilastoissa: kadonnut koodi
+Rekisterin koodilistassa on merkintälaji **TILTAP — "tilintarkastusmääräysten
+poisto"** eli tilanne, jossa yhtiö luopuu tilintarkastusvelvollisuudestaan. Pienet
+osakeyhtiöt saavat lain mukaan tehdä niin raja-arvojen alittuessa, joten koodin
+pitäisi olla yleinen.
+
+Aineistossa se esiintyy **nolla kertaa.** Sama koskee koodia TILTAE (eronneet
+tilintarkastajat). Käytössä on vain TILTAR (tilintarkastajien valinta tai vaihto),
+`r scales::comma(koodifrekvenssit$n[koodifrekvenssit$koodi == "TILTAR"])` kertaa.
+
+Tilintarkastajasta luopuminen ei siis näy rekisteridatassa omana tapahtumanaan —
+se tapahtuu käytännössä yhtiöjärjestyksen muutoksena (STA) tai ei jätä jälkeä
+lainkaan. Tämä on tärkeä varoitus jokaiselle, joka rakentaa analytiikkaa
+koodilistan varaan: **se, että koodi on olemassa, ei tarkoita että sitä
+käytetään.** Jos olisin luottanut koodistoon kysymättä dataa, olisin raportoinut
+luvun, jota ei ole olemassa.
+:::
+
+## Jalanjälki on jakauma, ei keskiarvo
+
+Ennen mallinnusta katsotaan itse massaa. Rekisteröityjen ilmoitusten määrä
+yritystä kohti on tyyppiesimerkki suureesta, jota keskiarvo kuvaa huonosti: harva
+yritys tuottaa valtaosan tapahtumista, ja enemmistöllä jälki on ohut. Tämä on
+"maailma on jakauma" konkreettisesti — jos raportoisit "keskimäärin X ilmoitusta
+per yritys", antaisit harhaanjohtavan kuvan tyypillisestä yrityksestä.
+
+```{r jakauma-ilmoitukset}
+mediaani  <- median(yhdistetty$n_ilmoitus)
+keskiarvo <- mean(yhdistetty$n_ilmoitus)
+
+ggplot(yhdistetty, aes(n_ilmoitus)) +
+  geom_histogram(binwidth = 1, fill = kvar_palette[["blue"]], boundary = 0) +
+  geom_vline(xintercept = mediaani,  color = kvar_palette[["teal"]], linewidth = 1) +
+  geom_vline(xintercept = keskiarvo, color = kvar_palette[["red"]],
+             linetype = "dashed", linewidth = 1) +
+  coord_cartesian(xlim = c(0, quantile(yhdistetty$n_ilmoitus, 0.99))) +
+  labs(title = "Rekisteröityjen ilmoitusten määrä yritystä kohti",
+       subtitle = sprintf("Mediaani %d (turkoosi) vs. keskiarvo %.1f (punainen katkoviiva) — vino jakauma",
+                          mediaani, keskiarvo),
+       x = "Ilmoituksia yrityksen elinaikana", y = "Yrityksiä")
+```
+
+Mediaanin ja keskiarvon ero kertoo vinouden: muutama hyvin aktiivinen yritys vetää
+keskiarvon selvästi tyypillisen yläpuolelle.
+
+## Eloonjääminen: kuinka kauan yritys elää?
+
+Yrityksen elinaika on aika-tapahtuma-jakauma, ja sitä kuvaa **eloonjäämiskäyrä**.
+Käytän Kaplan–Meier-estimaattoria, joka käsittelee oikein sen, että suuri osa
+yrityksistä on yhä elossa (sensuroituja) — emme ole nähneet niiden loppua, emmekä
+saa olettaa niitä kuolleiksi. Menetelmävalinnalla on väliä: jos laskisit vain
+"kuinka moni on lakannut", jättäisit huomiotta sen, etteivät nuoret yritykset ole
+vielä ehtineet lakata.
+
+Vertaan kahta ryhmää: yritykset, joiden **hallitus on vaihtunut vähintään
+kahdesti**, ja ne, joilla vaihtuvuutta on ollut vähemmän. Hallitusmuutos on
+aineiston yleisimpiä rekisteritapahtumia, ja se on luottoriskin kannalta
+kiinnostava kysymys: onko toistuva hallituksen vaihtuvuus merkki taustalla
+olevasta epävakaudesta — vai vain normaalia yritystoiminnan liikettä?
+
+```{r survival-km}
+surv_obj <- Surv(time = yhdistetty$ika_vuosina, event = yhdistetty$lakannut)
+
+fit_km <- survfit(surv_obj ~ hallitus_vaihtui, data = yhdistetty)
+km_df  <- km_tidy(fit_km) |>
+  mutate(ryhma = if_else(str_detect(ryhma, "TRUE"),
+                         "Hallitus vaihtui ≥ 2 kertaa", "Vakaa hallitus (0–1)"))
+
+# Log-rank-testi ryhmäerolle + Coxin riskisuhde efektikokona
+logrank <- survdiff(surv_obj ~ hallitus_vaihtui, data = yhdistetty)
+p_lr    <- 1 - pchisq(logrank$chisq, df = length(logrank$n) - 1)
+cox     <- coxph(surv_obj ~ hallitus_vaihtui, data = yhdistetty)
+hr      <- exp(coef(cox))[[1]]
+
+ggplot(km_df, aes(aika, surv, color = ryhma, fill = ryhma)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.15, color = NA) +
+  geom_step(linewidth = 1) +
+  scale_color_manual(values = c(kvar_palette[["red"]], kvar_palette[["teal"]])) +
+  scale_fill_manual(values  = c(kvar_palette[["red"]], kvar_palette[["teal"]])) +
+  scale_y_continuous(labels = scales::percent) +
+  coord_cartesian(xlim = c(0, 20)) +
+  labs(title = "Yritysten eloonjääminen hallituksen vaihtuvuuden mukaan",
+       subtitle = sprintf("Log-rank p = %s, riskisuhde (Cox) = %.2f",
+                          format.pval(p_lr, digits = 2), hr),
+       x = "Ikä (vuotta)", y = "Eloonjäämistodennäköisyys", color = NULL, fill = NULL)
+```
+
+::: {.callout-tip}
+## Riskisuhteen tulkinta päättäjälle
+Riskisuhde (hazard ratio) kertoo, kuinka moninkertainen lakkaamisen "vaara" on
+ryhmällä toiseen verrattuna kunakin hetkenä. Arvo yli 1 tarkoittaa suurempaa
+riskiä, alle 1 pienempää. Se ei ole sama kuin "kuinka moni lakkaa", vaan kuvaa
+lakkaamisen *tahtia* — juuri sitä, mitä luottoriskin ennakoinnissa tarvitaan.
+:::
+
+## Eroavatko lakanneet ja selvinneet tilastollisesti?
+
+Ennen ennustemallia testaan, eroavatko lakanneet ja yhä toimivat yritykset
+jalanjäljeltään. Kategorisille piirteille käytän khiin neliö -testiä ja raportoin
+efektikoon (Cramérin V); jatkuvalle, vinolle ilmoitusmäärälle Mann–Whitneyn testiä
+ja rank-biserial-efektikoon. Koska aineisto on suuri, p-arvot ovat väistämättä
+pieniä — siksi painotan efektikokoa, joka kertoo eron *suuruuden*, en pelkkää
+olemassaoloa.
+
+```{r ryhmatestit}
+tab  <- table(yhdistetty$hallitus_vaihtui, yhdistetty$lakannut)
+khii <- chisq.test(tab)
+v    <- cramers_v(khii)
+stopifnot(all(khii$expected >= 5))
+
+ilm_lakk  <- yhdistetty |> filter(lakannut)  |> pull(n_ilmoitus)
+ilm_eloss <- yhdistetty |> filter(!lakannut) |> pull(n_ilmoitus)
+mw <- wilcox.test(ilm_lakk, ilm_eloss)
+rb <- rank_biserial(ilm_lakk, ilm_eloss)
+
+testit <- tibble::tibble(
+  Vertailu   = c("Hallituksen vaihtuvuus × lakkaaminen",
+                 "Ilmoitusmäärä: lakanneet vs. selvinneet"),
+  Testi      = c("Khiin neliö", "Mann–Whitney U"),
+  p          = c(khii$p.value, mw$p.value),
+  Efektikoko = c(sprintf("Cramérin V = %.3f", v),
+                 sprintf("rank-biserial = %.3f", rb))
+)
+knitr::kable(testit, digits = 3, caption = "Ryhmäerojen testit efektikokoineen")
+```
+
+## Ennustemalli: mikä jalanjälki ennakoi lakkaamista?
+
+Nyt ytimeen. Rakennan mallin, joka ennustaa yrityksen lakkaamisen todennäköisyyden
+sen **varhaisen jalanjäljen** perusteella. Jotta ennuste on rehellinen eikä
+kehäpäätelmä, teen kaksi menetelmävalintaa, jotka on syytä perustella:
+
+Ensinnäkin kaikki mitataan **samasta kalenterihetkestä**: havaintohetki on
+1.1.2021. Mukaan otetaan kaikki osakeyhtiöt, jotka olivat silloin toiminnassa —
+niin kolmivuotiaat kuin kolmekymmenvuotiaat. Yrityksen ikä on oma muuttujansa, ei
+rajausperuste.
+
+Toiseksi — ja tämä on ratkaisevaa — **jalanjälki mitataan havaintohetkeä
+edeltäviltä kolmelta vuodelta** (2018–2020), ja lakkaamista ennustetaan vasta
+havaintohetken jälkeen. Tuore käytös on se, jolla on merkitystä: 30-vuotiaan
+yrityksen syntymähetken tapahtumat eivät kerro sen nykyisestä tilasta mitään.
+Yhtä tärkeää on, ettei malli näe havaintohetken jälkeisiä tapahtumia — muuten se
+näkisi lakkaamisprosessin omat merkinnät (selvitystila, purkautuminen) ja
+"ennustaisi" lakkaamista lakkaamisesta. Se olisi kuin ennustaisi sadetta siitä,
+että maa on jo märkä.
+
+Tämä on täsmälleen se asetelma, jossa luottoriskimallia oikeasti käytetään: *mitä
+tämä yritys on tehnyt viimeisen kolmen vuoden aikana, ja mikä on riski
+lähivuosina?*
+
+Malli on **bayesilainen logistinen regressio**. Valitsen sen, koska se antaa
+jokaiselle vaikutukselle koko todennäköisyysjakauman — näemme, kuinka varmoja
+ennusteesta voimme olla — eikä pelkkää pistearvoa.
+
+```{r kohortti}
+kohortti <- yhdistetty |>
+  # Elossa havaintohetkellä: perustettu ennen sitä eikä lakannut ennen sitä.
+  filter(synty < HAVAINTOHETKI,
+         is.na(lakk_pvm) | lakk_pvm >= HAVAINTOHETKI) |>
+  mutate(
+    ika_havainnolla = as.numeric(difftime(HAVAINTOHETKI, synty, units = "days")) / 365.25,
+    # Lakkasiko seuranta-aikana havaintohetken jälkeen?
+    lakkasi = !is.na(lakk_pvm) &
+              lakk_pvm <= HAVAINTOHETKI + lubridate::days(round(SEURANTA * 365.25)),
+    sektori  = fct_lump_min(factor(sektori), min = 100, other_level = "Muut toimialat"),
+    kaupunki = factor(kaupunki, levels = c("Muu Suomi","Suuri kaupunki"))
+  ) |>
+  filter(ika_havainnolla >= 0)
+
+stopifnot(
+  nrow(kohortti) > 10000,
+  n_distinct(kohortti$lakkasi) == 2,
+  # Vuodon esto: kukaan kohortissa ei saa olla lakannut ennen havaintohetkeä
+  all(is.na(kohortti$lakk_pvm) | kohortti$lakk_pvm >= HAVAINTOHETKI)
+)
+
+osuus_lakk <- mean(kohortti$lakkasi)
+```
+
+Kohortissa on `r format(nrow(kohortti), big.mark = " ")` osakeyhtiötä, jotka olivat
+toiminnassa 1.1.2021. Niistä `r scales::percent(osuus_lakk, accuracy = 0.1)` lakkasi
+seuraavien viiden vuoden aikana. Mediaani-ikä havaintohetkellä oli
+`r round(median(kohortti$ika_havainnolla), 1)` vuotta — kohortti kattaa siis sekä
+nuoret että vakiintuneet yritykset.
+
+```{r malli}
+malli_path <- here("data", "ytj", "lakkaamismalli.qs")
+
+if (!file.exists(malli_path)) {
+  set.seed(20260707)
+  # Edustava otos pitää prevalenssin oikeana (absoluuttiset todennäköisyydet
+  # säilyvät tulkittavina) ja sovittamisen kevyenä.
+  otos <- kohortti |> slice_sample(n = min(nrow(kohortti), 25000L))
+  fit <- rstanarm::stan_glm(
+    lakkasi ~ n_hallitus + n_nimenmuutos + n_tilintark +
+              ika_havainnolla + ilm_edunsaajat + on_ixbrl +
+              sektori + kaupunki,
+    data   = otos,
+    family = binomial(),
+    prior  = rstanarm::normal(0, 2.5),
+    prior_intercept = rstanarm::normal(0, 5),
+    chains = 4, iter = 2000, seed = 20260707, refresh = 0
+  )
+  qs2::qs_save(list(fit = fit, otos = otos), malli_path)
+} else {
+  obj  <- qs2::qs_read(malli_path)
+  fit  <- obj$fit
+  otos <- obj$otos
+}
+```
+
+::: {.callout-note}
+Malli kuvaa **assosiaatiota**, ei todistettua syytä: nimenvaihdos ei kaada
+yritystä, mutta voi olla merkki taustalla olevasta epävakaudesta. Loppuvaiheen
+päättymistapahtumat on jätetty ennustajien ulkopuolelle kehäpäättelyn
+välttämiseksi.
+:::
+
+## Counterfactual: kolme yritystä, kolme kohtaloa
+
+Kertoimet ovat abstrakteja; konkretisoin ne vertaamalla kolmea rakennettua
+yritystä, jotka eroavat juuri niiltä piirteiltä, joita malli pitää tärkeinä.
+Kysymys on counterfactual: *jos yritys olisi tällainen, kuinka todennäköisesti se
+lakkaisi ikävuosien 3–8 välillä?* Malli vastaa jakaumana, ei yhtenä lukuna — ja
+juuri epävarmuuden näkyminen erottaa vakuuttavan ennusteen arvauksesta.
+
+```{r counterfactual}
+# Profiilit rakennetaan DATASTA, ei keksityistä ääriarvoista: "levoton" on
+# jalanjäljen 95. persentiili havaintoikkunassa, "tyypillinen" mediaani.
+# Ikä pidetään vakiona (kohortin mediaani), jotta erot johtuvat käytöksestä.
+q_hal   <- quantile(otos$n_hallitus,    c(0.5, 0.95))
+q_nimi  <- quantile(otos$n_nimenmuutos, c(0.5, 0.95))
+med_ika <- median(otos$ika_havainnolla)
+
+profiilit <- tibble(
+  profiili = c("Vakaa: ei muutoksia, edunsaajat ilmoitettu, digitaalinen",
+               "Tyypillinen: mediaanijalanjälki",
+               "Levoton: hallitus ja nimi vaihtuivat (95. persentiili)"),
+  n_hallitus      = c(0, q_hal[[1]],  q_hal[[2]]),
+  n_nimenmuutos   = c(0, q_nimi[[1]], q_nimi[[2]]),
+  n_tilintark     = c(1, 1, 0),
+  ika_havainnolla = med_ika,
+  ilm_edunsaajat  = c(TRUE, TRUE, FALSE),
+  on_ixbrl        = c(TRUE, FALSE, FALSE),
+  sektori  = factor("Kauppa", levels = levels(otos$sektori)),
+  kaupunki = factor(c("Suuri kaupunki","Muu Suomi","Muu Suomi"),
+                    levels = levels(otos$kaupunki))
+)
+stopifnot(!anyNA(profiilit$sektori), !anyNA(profiilit$kaupunki))
+
+pe <- rstanarm::posterior_epred(fit, newdata = profiilit)
+cf <- as_tibble(pe) |> set_names(profiilit$profiili) |>
+  pivot_longer(everything(), names_to = "profiili", values_to = "todnak") |>
+  mutate(profiili = factor(profiili, levels = profiilit$profiili))
+
+# VUOTOVAHTI: jos malli ennustaa lähes varmaa lakkaamista, kyse on lähes aina
+# tietovuodosta (piirteet sisältävät lakkaamisen omat tapahtumat) — ei
+# onnistuneesta ennusteesta. Kaadu heti, älä julkaise epäuskottavaa tulosta.
+stopifnot(max(cf$todnak) < 0.60)
+
+ggplot(cf, aes(todnak, profiili, fill = profiili)) +
+  stat_halfeye(.width = c(0.66, 0.95), slab_alpha = 0.7, show.legend = FALSE) +
+  geom_vline(xintercept = osuus_lakk, color = kvar_palette[["orange"]],
+             linetype = "dashed") +
+  annotate("text", x = osuus_lakk, y = 3.4, hjust = -0.05, size = 3,
+           color = kvar_palette[["orange"]], label = "kohortin keskitaso") +
+  scale_fill_manual(values = c(kvar_palette[["teal"]], kvar_palette[["blue"]],
+                               kvar_palette[["red"]])) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Sama ikä, eri jalanjälki — eri riski lakata",
+       subtitle = "Posteriorin ennustejakauma: lakkaamisen todennäköisyys viiden vuoden sisällä\nJalanjälki mitattu havaintohetkeä (1.1.2021) edeltäviltä kolmelta vuodelta",
+       x = "Lakkaamisen todennäköisyys", y = NULL)
+```
+
+Ero "vakaan" ja "levottoman" yrityksen välillä on suuri, ja — mikä olennaisempaa —
+malli kertoo, kuinka varma ero on: jakaumat tuskin koskettavat toisiaan. Tämä on
+se, mitä pelkkä pisteluku ei koskaan näytä.
+
+## Mitä tämä tarkoittaa päättäjälle?
+
+Rekisterijalanjälki on ennustava. Yhdistämällä kolme julkista aineistoa saadaan
+yritystason signaali, joka siirtää lakkaamisen todennäköisyysjakaumaa
+merkittävästi — ilman mitään sisäistä tai maksullista dataa. Luotonantajalle,
+compliance-toiminnolle tai vastapuoliriskiä arvioivalle tämä on käyttökelpoinen
+varhaisvaroitin: se ei kerro yksittäisen yrityksen kohtaloa varmasti, mutta se
+paikantaa, kenen jakauma on siirtynyt vaaran suuntaan.
+
+Kaksi varausta rehellisyyden vuoksi. Malli kuvaa assosiaatiota, ei välttämättä
+syytä. Ja ennuste on väestötason jakauma, ei tuomio yksittäisestä yrityksestä —
+juuri siksi se on esitetty jakaumana epävarmuuksineen, ei yhtenä lukuna.
+
+Tämä on avoimen datan koko lupaus tiivistettynä: kun kolme vaatimatonta julkista
+rekisteriä yhdistetään huolellisesti, syntyy jotain, jolla on suoraa
+liiketoiminta-arvoa — ja joka on kenen tahansa toistettavissa.
+
+---
+
+*Tämä analyysi on osa avoimen datan sarjaani, jossa käsittelen suomalaista yritys-
+ja yhteisötietoa jakaumina, en pistelukuina. Autan organisaatioita rakentamaan
+avoimesta ja omasta datasta ennustavia, päätöksenteon kestäviä malleja —
+vuokrattavana Head of Data -osaajana. Yhteydenotto:
+[kristianvepsalainen.com](https://www.kristianvepsalainen.com).*

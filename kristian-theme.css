@@ -109,6 +109,8 @@ h1.title {
 }
 
 .quarto-title-banner .description,
+.quarto-title-banner .subtitle,
+.quarto-title-banner p.subtitle,
 .quarto-title-banner .quarto-title-meta,
 .quarto-title-banner .quarto-title-meta-heading,
 .quarto-title-banner .quarto-title-meta-contents {
@@ -121,6 +123,29 @@ h1.title {
   letter-spacing: 0.1em;
   font-weight: 600;
   color: var(--kv-orange) !important;
+}
+
+/* Kategoria-tagit ("AVOIN DATA", "BAYES" jne.) otsikkobannerissa.
+   Quarton oletustyyli (.quarto-category) olettaa vaalean taustan: teksti on
+   himmeä (opacity ~0.6) ja reunaväri vaalea harmaa. Tummansinistä bannerin
+   taustaa vasten tämä katoaa lähes näkymättömiin, joten kontrasti pakotetaan
+   erikseen tässä. */
+.quarto-title-banner .quarto-categories,
+.quarto-title-banner .quarto-category {
+  opacity: 1 !important;
+}
+
+.quarto-title-banner .quarto-category {
+  color: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.quarto-title-banner a.quarto-category:hover,
+.quarto-title-banner .quarto-category:hover {
+  color: var(--kv-navy) !important;
+  background-color: var(--kv-orange) !important;
+  border-color: var(--kv-orange) !important;
 }
 
 /* Punainen korostusviiva otsikon alle */

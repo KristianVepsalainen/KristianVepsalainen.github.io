@@ -3,7 +3,6 @@ title: "Yrityksen rekisterijalanjälki"
 subtitle: "Kun kolme avointa aineistoa yhdistetään, rekisteri alkaa ennustaa, mikä yritys lakkaa — ja mikä selviää"
 date: 2026-07-14
 categories: [avoin data, bayes, eloonjääminen, luottoriski, YTJ]
-draft: true
 execute:
   warning: false
   message: false

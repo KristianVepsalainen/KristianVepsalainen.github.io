@@ -1,0 +1,143 @@
+---
+title: "Kuka eduskunnassa oikeasti puhuu?"
+subtitle: "Eduskunta jakaumana, osa 3: puheajan epätasainen jakauma"
+description: >
+  Kaikki 200 kansanedustajaa istuvat samassa salissa, mutta puheenvuorot eivät
+  jakaudu tasan. Mittaamme puheen keskittymisen — ja huomaamme, että "keskimääräinen
+  kansanedustaja" ei puhu keskimääräisen verran.
+date: 2026-07-16
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, jakaumat, eriarvoisuus]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+> **Sarjan idea.** Osissa 1–2 katsoimme, *keitä* kansanedustajat ovat. Nyt siirrymme
+> siihen, mitä he *tekevät*. Aloitamme yksinkertaisimmasta havaittavasta teosta:
+> puheenvuorosta täysistunnossa.
+
+## Uutiskoukku: 200 edustajaa, yksi mikrofoni
+
+Kansanedustajat valitaan tasavertaisiksi lainsäätäjiksi. Jokaisella on sama oikeus
+käyttää puheenvuoro. Mutta *oikeus* puhua ja *puheen määrä* ovat kaksi eri asiaa.
+
+Jos lukisimme uutisesta, että "kansanedustaja pitää keskimäärin N puheenvuoroa
+vuodessa", muodostaisimme mielikuvan tasaisesta salista. Tämä kirjoitus näyttää,
+miksi se mielikuva on väärä — ja mittaa, kuinka väärä.
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales)
+library(patchwork)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_kv <- function() theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), plot.subtitle = element_text(color="grey30"),
+        panel.grid.minor = element_blank(), legend.position = "top")
+theme_set(theme_kv())
+
+DATA <- here("data", "eduskunta")
+paneeli <- qs2::qs_read(file.path(DATA, "paneeli.qs"))
+stopifnot("Aja ensin R/eduskunta-data-prep.R" = nrow(paneeli) > 0)
+```
+
+## Jakauma ensin
+
+```{r jakauma}
+# Edustajakohtainen puheenvuorojen määrä per vuosi (nollat mukana!)
+ggplot(paneeli, aes(x = n_puheita)) +
+  geom_histogram(bins = 50, fill = pal[["sininen"]], alpha = .9) +
+  labs(title = "Puheenvuorot: harva puhuu paljon, moni vähän",
+       subtitle = "Yksi havainto = yksi edustaja yhtenä vuonna",
+       x = "Puheenvuoroja vuodessa", y = "Edustajavuosia")
+
+tibble(
+  keskiarvo = mean(paneeli$n_puheita),
+  mediaani  = median(paneeli$n_puheita),
+  p90       = quantile(paneeli$n_puheita, .9),
+  maksimi   = max(paneeli$n_puheita)) |> mutate(across(everything(), \(x) round(x, 1)))
+```
+
+Huomaa keskiarvon ja mediaanin ero. Kun ne eroavat näin paljon, keskiarvo ei kuvaa
+ketään todellista edustajaa — se on vino jakauma, jossa muutama huippupuhuja vetää
+keskiarvon ylös. Tämä on koko sloganini ydin yhdessä taulukossa.
+
+## Kuinka epätasaista? Lorenz ja Gini
+
+Puheen keskittymistä voi mitata samalla työkalulla kuin tulonjakoa: **Lorenz-käyrällä**
+ja **Gini-kertoimella**. Gini 0 = kaikki puhuvat yhtä paljon, Gini 1 = yksi puhuu kaiken.
+
+```{r gini}
+gini <- function(x) {
+  x <- sort(x[!is.na(x)]); n <- length(x)
+  if (sum(x) == 0) return(NA_real_)
+  sum((2 * seq_len(n) - n - 1) * x) / (n * sum(x))
+}
+
+vuosittain <- paneeli |> group_by(vuosi) |>
+  summarise(gini = gini(n_puheita), n_edustajia = n(), .groups = "drop") |>
+  filter(n_edustajia > 100)
+
+lorenz <- paneeli |> filter(vuosi == max(vuosi)) |> arrange(n_puheita) |>
+  mutate(osuus_edustajista = row_number()/n(),
+         osuus_puheista = cumsum(n_puheita)/sum(n_puheita))
+
+p1 <- ggplot(lorenz, aes(osuus_edustajista, osuus_puheista)) +
+  geom_abline(linetype = "dashed", color = "grey60") +
+  geom_area(fill = pal[["turkoosi"]], alpha = .3) +
+  geom_line(color = pal[["turkoosi"]], linewidth = 1) +
+  scale_x_continuous(labels = label_percent()) + scale_y_continuous(labels = label_percent()) +
+  labs(title = "Lorenz-käyrä: puheajan keskittyminen",
+       subtitle = paste0("Vuosi ", max(paneeli$vuosi), " · katkoviiva = täysin tasainen jako"),
+       x = "Osuus edustajista (vähiten puhuvista alkaen)", y = "Osuus puheenvuoroista")
+
+p2 <- ggplot(vuosittain, aes(vuosi, gini)) +
+  geom_line(color = pal[["punainen"]], linewidth = 1) + geom_point(color = pal[["laivasto"]]) +
+  ylim(0, 1) +
+  labs(title = "Gini-kerroin vuosittain", subtitle = "0 = tasainen, 1 = yksi puhuu kaiken",
+       x = NULL, y = "Gini")
+
+p1 / p2
+```
+
+```{r keskittyminen}
+# Kuinka suuren osan puheista pitää puheliain 10 % / 20 %?
+kesk <- paneeli |> group_by(vuosi) |>
+  arrange(desc(n_puheita), .by_group = TRUE) |>
+  summarise(top10 = sum(n_puheita[seq_len(ceiling(n()*.1))]) / sum(n_puheita),
+            top20 = sum(n_puheita[seq_len(ceiling(n()*.2))]) / sum(n_puheita),
+            hiljaiset = mean(n_puheita == 0), .groups = "drop")
+kesk |> mutate(across(-vuosi, \(x) percent(x, accuracy = .1)))
+```
+
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Puheaika on jakauma, ei tasajako.** Gini-kerroin kertoo, kuinka paljon salin
+  ääni keskittyy — ja luku on korkeampi kuin useimmat arvaavat.
+- **Keskiarvo johtaa harhaan.** Kun mediaani ja keskiarvo eroavat näin paljon,
+  "keskimääräinen edustaja" on tilastollinen haamu.
+- **Nollat ovat tietoa.** Merkittävä osa edustajavuosista sisältää hyvin vähän tai
+  ei lainkaan täysistuntopuheita. Palaamme näihin hiljaisiin osassa 5.
+
+## Uutiskoukku takaisin
+
+Sali näyttää tasavertaiselta: 200 edustajaa, sama oikeus puhua. Data kertoo toista.
+Ääni jakautuu kuin varallisuus — ja sitä kannattaa mitata samoilla työkaluilla.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Keskittymisen mittaaminen — kuka tuottaa, kuka kuluttaa, kuka on hiljaa — on sama
+menetelmä riippumatta siitä, ovatko yksiköt puheenvuoroja, asiakkaita vai riskejä.
+**kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data (CC BY 4.0).*

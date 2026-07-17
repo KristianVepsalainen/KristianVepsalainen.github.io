@@ -13,6 +13,9 @@ css: styles-en.css
   <a href="/en/about.html">About</a>
   <a href="/en/work.html" class="active">Work</a>
   <a href="/fractional/fractional.html">Fractional HoD</a>
+  <a href="/whitepapers.html">Whitepapers</a>
+  <a href="/talks.html">Talks</a>
+  <a href="/lexverse/index.html">lexverse</a>
   <a href="/" class="nav-fi">🇫🇮 Suomeksi</a>
 </nav>
 

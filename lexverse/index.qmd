@@ -1,0 +1,102 @@
+---
+title: "Lexverse"
+subtitle: "A tidyverse-style standard for legal and regulatory data"
+format:
+  html:
+    toc: false
+    page-layout: article
+---
+
+::: {.columns .v-center}
+
+::: {.column width="35%"}
+![](https://kristianvepsalainen.com/images/kristian-vepsalainen.jpg){.img-fluid .rounded}
+:::
+
+::: {.column width="65%"}
+
+**An open-source ecosystem for legal data analytics in R.**
+
+Building a family of R packages — one jurisdiction at a time — that share a common grammar for accessing, wrangling, and analyzing legislation, court decisions, and regulatory data.
+
+:::
+
+:::
+
+---
+
+# The Lexverse Manifesto
+
+### Law is data. It's time we treated it that way.
+
+Every year, parliaments, courts, and administrations produce an ocean of legal text — statutes, directives, judgments, amendments, metadata trails stretching back decades. It is public. It is, in principle, open. And yet almost none of it is *usable* — not by researchers, not by journalists, not by compliance teams, not by the citizens it governs. It sits behind clunky search portals and inconsistent APIs, one jurisdiction at a time, each with its own quirks, each requiring its own bespoke scraper written from scratch.
+
+This is absurd. Weather data, financial data, genomic data — all have mature, standardized tooling that lets a researcher go from question to answer in minutes. Legal data deserves the same.
+
+**Lexverse is an attempt to build that tooling — one country at a time, in the open, in R.**
+
+## The idea
+
+Take the `tidyverse` — the family of R packages that gave data analysts a shared grammar, shared conventions, and a shared philosophy for working with data — and build its equivalent for legal and regulatory data. Not one monolithic package trying to model every legal system on earth, but a *constellation* of small, focused, jurisdiction-specific packages that all speak the same dialect:
+
+- the same naming conventions,
+- the same tibble-first, pipe-friendly design,
+- the same commitment to reproducibility and CRAN-grade quality,
+- and the same underlying belief that legal data pipelines should be something a researcher can install with one line of code, not something they have to reverse-engineer from a government website.
+
+Where one package ends, the next begins — and eventually, the whole family lets you move from EU directives to national statutes to court decisions without ever leaving R, without ever writing a scraper, and without ever wondering whether the data you pulled last month still matches the data you'd pull today.
+
+## Why this matters
+
+Right now, working with legal data means paying one of two costs. Either you pay a vendor — a legal-tech platform, a commercial database, a bespoke consultancy — for access to data that is, underneath the paywall, public. Or you pay in time: weeks spent writing scrapers against portals that change their HTML without notice, parsing inconsistent date formats, chasing down which version of a statute was actually in force on a given day. Both costs fall hardest on exactly the people who can least afford them — students, early-career researchers, small newsrooms, civil society organizations, one-person compliance teams inside SMEs.
+
+A shared, open, well-tested toolkit collapses both costs at once. Not to zero — legal data will always be messy, and every jurisdiction has real quirks that need real engineering — but down to the point where the interesting question isn't "how do I get the data" but "what does the data tell me." That shift, multiplied across every researcher, journalist, and analyst who ever touches legal data again, is the actual point of lexverse. It isn't really about R packages. It's about who gets to ask questions of the law, and how much friction stands between the question and the answer.
+
+## Who uses this, and for what
+
+Lexverse isn't built for one audience — it's built to be the common substrate under several audiences that are already asking similar questions of very different data:
+
+**Academic and legal researchers** — comparative law, political science, and legal informatics scholars who want to study how legislation evolves, how court doctrine shifts over time, or how EU directives get transposed differently across member states. Instead of hand-coding a dataset for one paper and throwing it away, they build on a shared package, cite it, and leave something reusable behind for the next researcher.
+
+**Journalists and OSINT investigators** — reporters and open-source investigators tracking regulatory changes, lobbying influence on legislation, or patterns in court rulings across borders. A five-minute `install.packages()` call replaces the "data journalist spends a week scraping a parliament website" story that happens over and over, in every country, because nobody built the tool the last time either.
+
+**Compliance, legal-tech, and RegTech teams** — in-house compliance functions and legal-tech vendors who need to monitor regulatory changes across jurisdictions programmatically, rather than relying on manual bulletin-reading or expensive commercial feeds. This is close to home for me — I work in financial-services compliance, and I know exactly how much of that work is still done by a human reading a PDF that a well-built API could have delivered as a tibble.
+
+**Policy analysts and civic-tech organizations** — think tanks, NGOs, and public-sector teams building dashboards or impact assessments on legislative activity, who need reliable, reproducible data pipelines rather than one-off exports they can't audit or rerun.
+
+**Data scientists and consultants** — like me — who want legal and regulatory signals as *features*, not just documents: how regulatory density in a sector correlates with market entry, how the pace of legislative change predicts compliance cost, how court activity in one country leads or lags policy shifts in another. That kind of analysis is basically impossible today without a small army of research assistants. It shouldn't be.
+
+## Where things stand
+
+Lexverse isn't a whitepaper. It's three packages, in progress, right now:
+
+**[eurlex](https://github.com/michalovadek/eurlex)** — the package that started it all, giving R users direct access to EU legislation and case law through the Publications Office's SPARQL and REST APIs. Originally built by Michal Ovádek, I've joined as an active contributor: fixing bugs, hardening the test suite, and now co-designing a rewritten, data-driven query engine at its core.
+
+**[finlex](https://github.com/KristianVepsalainen/finlex)** — my own package, wrapping Finland's Finlex Open Data API. The first fully independent jurisdiction package in the lexverse family, and the proof of concept for what "the next country" should look like: clean tibble output, a shared internal request layer, and a straight path to CRAN.
+
+**[africalaws](https://github.com/OxfordIHTM/africalaws)** — built by the Oxford Centre for the Study of the Rules of Law, wrapping Laws.Africa's Content API for African legal instruments. I'm contributing here too, extending its table-of-contents tooling and test coverage, because a standard that only covers Europe isn't a standard — it's a regional exception.
+
+## Where this is going
+
+Three packages is a start. It is not the destination.
+
+The plan is to keep expanding, jurisdiction by jurisdiction — Sweden, Norway, Estonia, the UK, and onward from there — each new package following the pattern the ones before it established, each one a little faster to build than the last because the scaffolding, the conventions, and the lessons already exist. Somewhere down that road, "lexverse" stops being an ambition and starts being infrastructure: the default way researchers, journalists, and compliance professionals reach for legal data in R, the way they already reach for `dplyr` when they want to wrangle a data frame.
+
+Once enough jurisdictions exist side by side, something new becomes possible that no single package could ever offer: comparative analysis at scale. How does the pace of environmental legislation in the Nordics compare to the Baltics? Does a directive get transposed faster in countries with unicameral parliaments? Which jurisdictions' courts cite each other's case law, and how has that changed over a decade? Questions like these are currently the domain of teams with grant funding and years to spend. Lexverse aims to make them the domain of anyone with R installed and a free afternoon.
+
+Take one concrete example. There is decades of EU research on *when* a member state transposes a directive into national law — the European Commission itself tracks transposition deadlines and infringement procedures. But almost nobody has measured *how faithfully* the text actually travels: whether a directive gets copied nearly verbatim, tightened well beyond what Brussels required ("gold-plating"), or quietly watered down in translation. Not because the question isn't interesting — it's a natural one for anyone studying legal families, political ideology, or regulatory compliance — but because answering it at scale requires machine-readable access to both the original directive text *and* every member state's implementing legislation, harmonized enough to compare programmatically. No single country has built that pipeline in isolation, and building all 27 by hand has simply been too expensive for any one research team to justify. That is precisely the gap a package family like this is built to close: `eurlex` already exposes the directive side; each national package that joins the family — Finland today, the Nordics and Baltics next — extends the comparison by one more jurisdiction, until questions that were once a multi-year grant proposal become a single afternoon's analysis.
+
+I want legal open data to be treated with the same rigor, the same reproducibility, and the same generosity as the best of the open-source data science world — because the law belongs to everyone, and the tools to analyze it should too.
+
+## Join in
+
+This is bigger than one person, and it's meant to be. If you work with legal, regulatory, or judicial data — in your own country, in your own language, in your own field — there's a place for you here:
+
+- **Use the packages.** Install them, break them, file issues. Nothing improves a package faster than someone actually depending on it.
+- **Contribute code.** Bug fixes, tests, new features, documentation — all of it matters, and all of it is welcome via GitHub.
+- **Build the next package.** If you know your country's legal data landscape and it isn't part of the lexverse family yet, let's talk about changing that.
+- **Just talk to me.** Ideas, criticism, war stories about wrestling with government APIs — I want to hear all of it.
+
+Reach out via [email](mailto:kristian.vepsalainen@proton.me) or find me on [GitHub](https://github.com/KristianVepsalainen) and [LinkedIn](https://www.linkedin.com/in/kristian-vepsäläinen).
+
+The law was never meant to be illegible. Let's make it legible, one package at a time.

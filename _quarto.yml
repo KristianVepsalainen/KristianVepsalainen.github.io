@@ -35,6 +35,8 @@ website:
         text: Whitepapers
       - href: talks.qmd
         text: Talks
+      - href: lexverse/index.qmd
+        text: Lexverse
       - href: about.qmd
         text: Minusta
     right:

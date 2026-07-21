@@ -1,0 +1,254 @@
+---
+title: "Kaksi tapaa kuolla"
+subtitle: "Konkurssi ja hiljainen lakkaaminen ovat eri ilmiöt — ja rekisteri erottaa ne toisistaan"
+date: 2026-07-21
+categories: [avoin data, bayes, konkurssi, luottoriski, YTJ]
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(here)
+library(ggdist)
+select <- dplyr::select
+filter <- dplyr::filter
+source(here("R","ytj", "theme_kristian.R"))
+source(here("R","ytj", "toimiala_sektori.R"))
+source(here("R","ytj", "yhdista_apu.R"))
+theme_set(theme_kristian())
+```
+
+Kun yritys katoaa Suomen kaupparekisteristä, julkisessa keskustelussa puhutaan
+yleensä konkursseista. Se on harhaanjohtavaa: valtaosa yrityskuolemista ei ole
+konkursseja. Yritys voi purkautua hallitusti, sulautua toiseen, tulla poistetuksi
+toimimattomana — tai ajautua konkurssiin. Nämä ovat velkojan, työntekijän ja
+sopimuskumppanin näkökulmasta täysin eri tapahtumia: hiljaisessa lakkaamisessa
+velat on tyypillisesti hoidettu, konkurssissa joku jää ilman saataviaan.
+
+Yksi kuolleisuusluku on siis piste, joka kätkee jakauman. Tässä osassa jaamme
+yrityskuolemat kahteen polkuun ja kysymme: kuinka yleinen konkurssipolku on,
+missä se painottuu, ja näkyykö polkujen ero yrityksen käytöksessä jo ennen
+loppua?
+
+## Mistä datassa on kyse?
+
+::: {.callout-note}
+Aineistona ovat PRH:n avoimen datan rekisteröidyt ilmoitukset (7.11.2014 alkaen)
+ja yritysten perustiedot (CC BY 4.0), rajattuna osakeyhtiöihin. **Konkurssipolku**
+tunnistetaan KONALK-merkinnästä (konkurssin alkaminen); **lakkaaminen**
+END-tyypin ilmoituksesta. Koska ilmoitusdata alkaa marraskuusta 2014, tarkastelu
+kattaa vain sen jälkeen näkyvät tapahtumat — tämä rajaus sanotaan ääneen, koska
+populaation määrittely muokkaa jokaista lukua.
+:::
+
+```{r lataa-data}
+perustiedot <- qs2::qs_read(here("data", "ytj", "ytj_perustiedot.qs"))
+ilmoitukset <- qs2::qs_read(here("data", "ytj","krek_ilmoitukset.qs"))
+stopifnot(
+  all(c("business_id","company_form_code","registration_date","main_line_code")
+      %in% names(perustiedot)),
+  all(c("business_id","registration_date","type_of_registration","entry_codes")
+      %in% names(ilmoitukset))
+)
+
+# Pitkä muoto (yksi rivi per ilmoitus x koodi) — jaettu välimuisti osille 5–8.
+pitka_path <- here("data", "ytj", "ilmoitukset_pitka.qs")
+if (!file.exists(pitka_path)) {
+  pitka <- ilmoitukset |>
+    mutate(nid = row_number(), pvm = as.Date(registration_date)) |>
+    select(business_id, nid, pvm, type_of_registration, entry_codes) |>
+    tidyr::unnest_longer(entry_codes, values_to = "koodi")
+  qs2::qs_save(pitka, pitka_path)
+} else {
+  pitka <- qs2::qs_read(pitka_path)
+}
+
+# VAHTI: analyysin ydinkoodien on esiinnyttävä datassa (opetus TILTAP-tapauksesta:
+# koodilistan olemassaolo ei takaa käyttöä).
+loydetyt <- unique(pitka$koodi)
+stopifnot(all(c("KONALK","HAL") %in% loydetyt))
+
+oy_idt <- perustiedot |>
+  filter(company_form_code == "16") |>
+  distinct(business_id) |> pull(business_id)
+```
+
+## Kuolintavan tunnistaminen
+
+Jokaiselle lakanneelle osakeyhtiölle määritetään polku: **konkurssipolku**, jos
+yrityksellä on KONALK-merkintä, muuten **hiljainen lakkaaminen**. Huomaa, että
+konkurssin alkaminen ei aina johda lakkaamiseen (esim. konkurssin raukeaminen
+varojen puutteeseen johtaa yleensä poistoon, mutta sovinto on mahdollinen) —
+siksi ehtona on molempien täyttyminen.
+
+```{r kuolintapa}
+kuolintapa_path <- here("data", "ytj", "kuolintavat.qs")
+
+if (!file.exists(kuolintapa_path)) {
+  per_yritys <- pitka |>
+    filter(business_id %in% oy_idt) |>
+    group_by(business_id) |>
+    summarise(
+      lakk_pvm   = min_pvm(pvm[type_of_registration == "END"]),
+      kon_pvm    = min_pvm(pvm[koodi == "KONALK"]),
+      .groups = "drop"
+    ) |>
+    filter(!is.na(lakk_pvm)) |>                    # vain lakanneet
+    mutate(
+      polku = if_else(!is.na(kon_pvm), "Konkurssipolku", "Hiljainen lakkaaminen"),
+      kuolinvuosi = lubridate::year(lakk_pvm)
+    )
+  qs2::qs_save(per_yritys, kuolintapa_path)
+} else {
+  per_yritys <- qs2::qs_read(kuolintapa_path)
+}
+
+stopifnot(nrow(per_yritys) > 1000, n_distinct(per_yritys$polku) == 2)
+osuus_kon <- mean(per_yritys$polku == "Konkurssipolku")
+```
+
+Lakanneita osakeyhtiöitä on aineistossa
+`r format(nrow(per_yritys), big.mark = " ")`. Niistä konkurssipolun kulki
+`r scales::percent(osuus_kon, accuracy = 0.1)` — eli valtaosa yrityskuolemista on
+hiljaisia. Jos luottotappioriskiä arvioidaan pelkällä kuolleisuudella, riski
+yliarvioidaan moninkertaisesti: vain konkurssipolku jättää tyypillisesti
+saatavia maksamatta.
+
+## Kaksi kuolemaa ajassa
+
+```{r aikasarja}
+vuosittain <- per_yritys |>
+  filter(kuolinvuosi >= 2015, kuolinvuosi <= 2025) |>   # kokonaiset vuodet
+  count(kuolinvuosi, polku)
+
+ggplot(vuosittain, aes(kuolinvuosi, n, color = polku)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = c(kvar_palette[["teal"]], kvar_palette[["red"]])) +
+  scale_x_continuous(breaks = 2015:2025) +
+  labs(title = "Yrityskuolemat polkujen mukaan",
+       subtitle = "Osakeyhtiöiden lakkaamiset vuosittain, jaettuna kuolintavan mukaan",
+       x = NULL, y = "Lakanneita yrityksiä", color = NULL)
+```
+
+Käyrien muodot kertovat kahdesta eri ilmiöstä: hiljaiset lakkaamiset seuraavat
+hallinnollisia aaltoja (mm. rekisterin siivoukset), konkurssit suhdannetta.
+Kahden käyrän summana "yrityskuolleisuus" olisi sekasignaali, jonka tulkinta
+menisi väistämättä väärin.
+
+## Missä konkurssipolku painottuu?
+
+Konkurssiosuus vaihtelee toimialoittain, mutta osa toimialoista on pieniä —
+juuri siellä pistearvo pettää. Siksi jokaiselle toimialalle lasketaan
+konkurssiosuuden **Beta-Binomi-posteriori**: isoilla toimialoilla väli on
+kapea, pienillä rehellisen leveä. Ryhmien eron kokonaisuutena testaa khiin
+neliö, ja efektikoko (Cramérin V) kertoo eron voimakkuuden — suurella
+aineistolla pelkkä p-arvo olisi tyhjä signaali.
+
+```{r toimialat}
+polku_sektori <- per_yritys |>
+  left_join(perustiedot |> select(business_id, main_line_code),
+            by = "business_id") |>
+  mutate(sektori = toimiala_sektori(main_line_code)) |>
+  filter(!is.na(sektori)) |>
+  mutate(sektori = fct_lump_min(factor(sektori), min = 200,
+                                other_level = "Muut toimialat"))
+
+tab  <- table(polku_sektori$sektori, polku_sektori$polku)
+khii <- chisq.test(tab)
+stopifnot(all(khii$expected >= 5))
+v <- cramers_v(khii)
+
+sektori_post <- polku_sektori |>
+  group_by(sektori) |>
+  summarise(n = n(), k = sum(polku == "Konkurssipolku"), .groups = "drop") |>
+  mutate(
+    ka = (1 + k) / (2 + n),
+    lo = qbeta(0.025, 1 + k, 1 + n - k),
+    hi = qbeta(0.975, 1 + k, 1 + n - k)
+  )
+
+ggplot(sektori_post, aes(ka, reorder(sektori, ka))) +
+  geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0.3,
+                 color = kvar_palette[["blue"]]) +
+  geom_point(aes(size = n), color = kvar_palette[["red"]]) +
+  geom_vline(xintercept = osuus_kon, linetype = "dashed",
+             color = kvar_palette[["orange"]]) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_size_area(max_size = 6, labels = scales::comma) +
+  labs(title = "Konkurssipolun osuus yrityskuolemista toimialoittain",
+       subtitle = sprintf("Piste = posteriorin keskiarvo, jana = 95 %% väli. Khiin neliö: Cramérin V = %.3f",
+                          v),
+       x = "Konkurssien osuus lakkaamisista", y = NULL, size = "Lakanneita")
+```
+
+Kuvaajan opetus on kaksitasoinen. Ensinnäkin toimialojen välillä on todellisia
+eroja: työvoima- ja pääomavaltaisilla aloilla velkarahoitteinen loppu on
+yleisempi. Toiseksi — ja tämä on sloganini ydin — pienten toimialojen leveät
+välit näyttävät, missä emme oikeasti tiedä. Pistearvo väittäisi sielläkin
+tarkkaa lukua.
+
+## Näkyykö polku käytöksessä ennen loppua?
+
+Lopuksi verrataan kahden kuolintavan **jalanjälkeä ennen loppua**: laskemme
+hallitusmuutokset (HAL) kolmelta vuodelta ennen kunkin yrityksen omaa
+lakkaamispäivää. Molemmat ryhmät ankkuroidaan omaan kuolinhetkeensä, joten
+vertailu on reilu — kumpikaan ei "näe" toista pidemmälle.
+
+Ilmoitusmäärä on vino jakauma, joten oikea testi on Mann–Whitneyn U, ja
+raportoin efektikokona rank-biserial-korrelaation.
+
+```{r esikuolema}
+IKKUNA_V <- 3
+esik <- pitka |>
+  inner_join(per_yritys |> select(business_id, lakk_pvm, polku),
+             by = "business_id") |>
+  filter(pvm < lakk_pvm,
+         pvm >= lakk_pvm - lubridate::days(round(IKKUNA_V * 365.25))) |>
+  group_by(business_id, polku) |>
+  summarise(n_hal = n_distinct(nid[koodi == "HAL"]), .groups = "drop")
+
+# Yritykset ilman yhtään ikkunan tapahtumaa puuttuvat esik:stä -> täydennetään nollilla
+esik <- per_yritys |>
+  select(business_id, polku) |>
+  left_join(esik |> select(business_id, n_hal), by = "business_id") |>
+  mutate(n_hal = coalesce(n_hal, 0L))
+
+hal_kon  <- esik |> filter(polku == "Konkurssipolku") |> pull(n_hal)
+hal_hilj <- esik |> filter(polku == "Hiljainen lakkaaminen") |> pull(n_hal)
+stopifnot(length(hal_kon) > 100, length(hal_hilj) > 100)
+
+mw <- wilcox.test(hal_kon, hal_hilj)
+rb <- rank_biserial(hal_kon, hal_hilj)
+
+vertailu <- esik |>
+  group_by(polku) |>
+  summarise(`Mediaani` = median(n_hal),
+            `Osuus, jolla ≥ 1 muutos` = scales::percent(mean(n_hal > 0), accuracy = 1),
+            .groups = "drop")
+knitr::kable(vertailu,
+             caption = sprintf("Hallitusmuutokset 3 v ennen loppua. Mann–Whitney p = %s, rank-biserial = %.3f",
+                               format.pval(mw$p.value, digits = 2), rb))
+```
+
+## Mitä tämä tarkoittaa päättäjälle?
+
+Yrityskuolleisuus ei ole yksi luku vaan kaksi eri jakaumaa, joilla on eri syyt,
+eri ajoitus ja eri seuraukset velkojalle. Luottoriskin näkökulmasta olennainen ei
+ole "lakkaako yritys" vaan "lakkaako se velkojaa vahingoittavalla tavalla" — ja
+se osuus on murto-osa kokonaiskuolleisuudesta, vaihtelee toimialoittain ja
+näkyy käytöksessä jo ennen loppua.
+
+Sama data, joka tuottaa uutisotsikon "konkurssit kasvussa", tuottaa oikein
+jaoteltuna riskimittarin, jonka varaan voi rakentaa päätöksiä. Ero ei ole
+datassa vaan sen käsittelyssä.
+
+---
+
+*Tämä analyysi on osa avoimen datan sarjaani, jossa käsittelen suomalaista
+yritys- ja yhteisötietoa jakaumina, en pistelukuina. Vuokrattava Head of Data
+-palveluni ja yhteydenotto:
+[kristianvepsalainen.com](https://www.kristianvepsalainen.com).*

@@ -1,0 +1,165 @@
+---
+title: "Puhuuko oppositio enemmän?"
+subtitle: "Eduskunta jakaumana, osa 4: ryhmäero oikein testattuna"
+description: >
+  Oletus on, että oppositio puhuu enemmän. Testaamme sen — ja näytämme samalla,
+  miksi tavallinen keskiarvovertailu antaisi väärän vastauksen.
+date: 2026-07-22
+author: "Kristian Vepsäläinen"
+draft: TRUE
+categories: [eduskunta, avoin data, bayes, negatiivinen binomi]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+## Uutiskoukku: "oppositio huutaa, hallitus vaikenee"
+
+Poliittinen kansanviisaus sanoo, että oppositio puhuu ja hallitus hallitsee. Onko
+näin? Kysymys on helppo esittää mutta yllättävän helppo *testata väärin*.
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales)
+library(brms)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank(),
+        legend.position = "top"))
+
+DATA <- here("data", "eduskunta")
+paneeli <- qs2::qs_read(file.path(DATA, "paneeli.qs"))
+```
+
+## Kaksi ansaa, jotka pilaisivat vertailun
+
+::: {.callout-important title="Miksi naiivi vertailu epäonnistuu"}
+**1. Ministerit.** Hallituspuolueissa istuvat ministerit puhuvat salissa paljon —
+he vastaavat kyselytunneilla. Jos heidät niputetaan hallituspuolueiden riviedustajiin,
+"hallitus" muuttuu kaksihuippuiseksi jakaumaksi, ja keskiarvovertailu vertaa omenoita
+kahteen eri appelsiiniin. **Erotamme ministerit omaksi ryhmäkseen.**
+
+**2. Lukumäärädata.** Puheenvuorojen määrä on vino, ylihajaantunut ja nollapainotteinen.
+t-testi olettaa normaalijakauman — se antaisi luottamusvälit, joihin ei voi luottaa.
+Käytämme **negatiivista binomimallia**, joka on suunniteltu juuri tällaiselle datalle.
+:::
+
+## Hallitus/oppositio-luokittelu
+
+Eduskunnan rajapinta kertoo eduskuntaryhmän, mutta ei sitä, oliko ryhmä kyseisenä
+vuonna hallituksessa. Tämä tieto on julkinen mutta täytyy koodata itse.
+
+```{r hallituspohja}
+#| cache: false
+# !! VARMISTA/TÄYDENNÄ: hallituspuolueet vuosittain (julkinen tieto).
+# Esimerkkirakenne; täydennä kattamaan puhedatan vuodet.
+hallitus <- tribble(
+  ~vuosi, ~hallituspuolueet,
+  2015, c("Keskusta","Perussuomalaiset","Kokoomus"),
+  2016, c("Keskusta","Perussuomalaiset","Kokoomus"),
+  2017, c("Keskusta","Sininen tulevaisuus","Kokoomus"),
+  2018, c("Keskusta","Sininen tulevaisuus","Kokoomus"),
+  2019, c("Sosialidemokraattinen","Keskusta","Vihreä","Vasemmistoliitto","Ruotsalainen"),
+  2020, c("Sosialidemokraattinen","Keskusta","Vihreä","Vasemmistoliitto","Ruotsalainen"),
+  2021, c("Sosialidemokraattinen","Keskusta","Vihreä","Vasemmistoliitto","Ruotsalainen"),
+  2022, c("Sosialidemokraattinen","Keskusta","Vihreä","Vasemmistoliitto","Ruotsalainen"),
+  2023, c("Kokoomus","Perussuomalaiset","Ruotsalainen","Kristillisdemokraattinen"),
+  2024, c("Kokoomus","Perussuomalaiset","Ruotsalainen","Kristillisdemokraattinen"),
+  2025, c("Kokoomus","Perussuomalaiset","Ruotsalainen","Kristillisdemokraattinen"))
+
+mp <- qs2::qs_read(file.path(DATA, "mp.qs"))
+ministerit <- mp |> filter(ministeri == 1) |> pull(henkilo_nro)
+
+d <- paneeli |> filter(!is.na(ryhma)) |>
+  left_join(hallitus, by = "vuosi") |>
+  mutate(
+    on_hallitus = map2_lgl(ryhma, hallituspuolueet,
+      \(r, h) if (is.null(h)) NA else any(str_detect(r, fixed(h, ignore_case = TRUE)))),
+    asema = case_when(
+      henkilo_nro %in% ministerit & on_hallitus ~ "Ministeri",
+      on_hallitus  ~ "Hallitus (rivi)",
+      !on_hallitus ~ "Oppositio",
+      TRUE ~ NA_character_)) |>
+  filter(!is.na(asema)) |> mutate(asema = factor(asema,
+    levels = c("Oppositio","Hallitus (rivi)","Ministeri")))
+
+stopifnot("Asemaluokittelu epäonnistui" = n_distinct(d$asema) == 3)
+d |> count(asema)
+```
+
+## Jakauma ensin — ja katso ministereitä
+
+```{r jakaumat}
+ggplot(d, aes(x = n_puheita, y = asema, fill = asema)) +
+  stat_slab(normalize = "groups", alpha = .85) +
+  scale_fill_manual(values = unname(pal[c(1,5,2)])) +
+  labs(title = "Puheenvuorojen jakauma aseman mukaan",
+       subtitle = "Ministerit erotettuna — muuten 'hallitus' olisi kaksihuippuinen",
+       x = "Puheenvuoroja vuodessa", y = NULL) + guides(fill = "none")
+```
+
+## Bayeslainen negatiivinen binomimalli
+
+Mallinnamme puheenvuorojen määrän aseman funktiona. Satunnaisvaikutus edustajalle
+huomioi sen, että sama henkilö esiintyy useana vuonna.
+
+```{r malli}
+#| cache: false
+fit_path <- file.path(DATA, "osa4_negbin.qs")
+if (!file.exists(fit_path)) {
+  m <- brm(n_puheita ~ asema + (1 | henkilo_nro) + (1 | vuosi),
+           family = negbinomial(), data = d,
+           chains = 4, iter = 2000, cores = 4, refresh = 0)
+  qs2::qs_save(m, fit_path)
+}
+m <- qs2::qs_read(fit_path)
+summary(m)
+```
+
+```{r vertailu}
+# Odotettu puheenvuorojen määrä asemittain, 95 % uskottavuusvälein
+nd <- tibble(asema = factor(levels(d$asema), levels = levels(d$asema)))
+pred <- posterior_epred(m, newdata = nd, re_formula = NA) |>
+  as_tibble() |> set_names(levels(d$asema)) |>
+  pivot_longer(everything(), names_to = "asema", values_to = "odotettu")
+
+ggplot(pred, aes(x = odotettu, y = fct_rev(factor(asema, levels(d$asema))))) +
+  stat_halfeye(fill = pal[["turkoosi"]], .width = c(.66, .95)) +
+  labs(title = "Odotettu puheenvuorojen määrä — jakaumana, ei pisteenä",
+       subtitle = "Posteriorijakaumat 66 % ja 95 % uskottavuusvälein",
+       x = "Puheenvuoroja vuodessa", y = NULL)
+
+# Suora todennäköisyysväittämä: puhuuko oppositio enemmän kuin hallituksen rivi?
+post <- posterior_epred(m, newdata = nd, re_formula = NA)
+p_opp <- mean(post[,1] > post[,2])
+glue::glue("P(oppositio puhuu enemmän kuin hallituksen riviedustaja) = {percent(p_opp, .1)}")
+```
+
+::: {.callout-note title="Miksi tämä on parempi kuin p-arvo"}
+Bayeslainen malli antaa suoraan sen, mitä päättäjä haluaa tietää: **todennäköisyyden,
+että väite pitää paikkansa**. P-arvo vastaa käänteiseen kysymykseen ("kuinka
+epätodennäköistä tämä data olisi, jos eroa ei olisi") — se on hyödyllinen mutta
+vaikeampi tulkita oikein.
+:::
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Ryhmävertailu vaatii oikean mallin.** Vino lukumäärädata ja piiloutuva alaryhmä
+  (ministerit) kääntäisivät naiivin keskiarvovertailun harhaan.
+- **Vastaus tulee todennäköisyytenä**, ei binäärisenä "merkitsevä/ei-merkitsevä".
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Ryhmävertailut oikealla jakaumaoletuksella ja piiloutuvat alaryhmät esiin —
+**kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data (CC BY 4.0). Hallituskokoonpanot koodattu käsin.*

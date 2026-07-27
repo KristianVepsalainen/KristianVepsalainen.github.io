@@ -6,7 +6,6 @@ description: >
   miksi tavallinen keskiarvovertailu antaisi väärän vastauksen.
 date: 2026-07-22
 author: "Kristian Vepsäläinen"
-draft: TRUE
 categories: [eduskunta, avoin data, bayes, negatiivinen binomi]
 format:
   html:

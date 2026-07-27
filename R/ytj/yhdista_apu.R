@@ -12,10 +12,13 @@ cramers_v <- function(chi) {
 }
 
 # Rank-biserial-korrelaatio Mann–Whitneyn U-testistä (efektikoko).
+# HUOM: n1 * n2 on pakotettava liukuluvuksi — isoilla ryhmillä kokonaisluku-
+# kertolasku ylivuotaa (> 2,1e9) ja palauttaa NA:n. exact = FALSE, koska
+# suuri ja sidoksia sisältävä data ei kelpaa eksaktiin testiin.
 rank_biserial <- function(x, y) {
-  wt <- suppressWarnings(wilcox.test(x, y))
+  wt <- suppressWarnings(wilcox.test(x, y, exact = FALSE))
   U  <- as.numeric(wt$statistic)
-  1 - 2 * U / (length(x) * length(y))
+  1 - 2 * U / (as.numeric(length(x)) * as.numeric(length(y)))
 }
 
 # Kokoaa survfit-olion siistiksi tibbleksi ggplotia varten ilman lisäriippuvuuksia

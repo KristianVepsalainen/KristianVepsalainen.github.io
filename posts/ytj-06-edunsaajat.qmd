@@ -1,0 +1,291 @@
+---
+title: "Sääntelyn sormenjälki"
+subtitle: "Rahanpesudirektiivi näkyy kaupparekisterissä paljaalla silmällä — ja se kertoo, ketkä eivät tottele"
+date: 2026-07-28
+categories: [avoin data, bayes, compliance, rahanpesu, YTJ]
+draft: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(here)
+library(ggdist)
+select <- dplyr::select
+filter <- dplyr::filter
+source(here("R","ytj", "theme_kristian.R"))
+source(here("R","ytj", "toimiala_sektori.R"))
+source(here("R","ytj", "yhdista_apu.R"))
+theme_set(theme_kristian())
+```
+
+Kun laki muuttuu, se jättää jäljen dataan. Harvoin jälki on niin selvä kuin
+kaupparekisterissä: EU:n rahanpesudirektiivin myötä suomalaisten yhtiöiden tuli
+ilmoittaa **tosiasialliset edunsaajansa** — ne luonnolliset henkilöt, jotka
+viime kädessä omistavat tai käyttävät määräysvaltaa. Velvollisuus tuli voimaan
+heinäkuussa 2019, ja ilmoitukset piti tehdä pääosin heinäkuuhun 2020 mennessä.
+
+Rekisterissä tämä näkyy merkintälajina ESR. Se on aineiston neljänneksi yleisin
+koodi — lähes 430 000 merkintää. Mutta pelkkä kokonaismäärä on taas piste, joka
+kätkee kaiken kiinnostavan. Olennaista on **milloin** ilmoitukset tehtiin, **kuka**
+teki ne ajoissa, ja ennen kaikkea: **kuka ei tehnyt niitä lainkaan.**
+
+Viimeinen kysymys on se, joka kiinnostaa compliance-toimintoa ja
+rahanpesuvalvontaa. Jos edunsaajailmoituksen tekemättä jättäminen ei jakaudu
+satunnaisesti, vaan keskittyy tietyntyyppisiin yhtiöihin, rekisteri tuottaa
+ilmaisen riskisignaalin.
+
+## Mistä datassa on kyse?
+
+::: {.callout-note}
+Aineistona PRH:n rekisteröidyt ilmoitukset (7.11.2014 alkaen) ja perustiedot
+(CC BY 4.0), rajattuna **eläviin osakeyhtiöihin**. Edunsaajailmoitus tunnistetaan
+ESR-merkinnästä. Tärkeä rajaus: velvollisuus ei koske aivan kaikkia yhteisöjä
+samalla tavalla (esim. pörssiyhtiöillä ja yksityisillä elinkeinonharjoittajilla on
+poikkeuksia), joten tarkastelu rajataan osakeyhtiöihin, joilla velvollisuus on
+selkeä ja yhtenäinen. Ilmoituksen puuttuminen rekisteristä ei ole todiste
+laiminlyönnistä — se on signaali, ei tuomio. Tämä ero on syytä pitää mielessä
+koko kirjoituksen ajan.
+:::
+
+```{r lataa}
+perustiedot <- qs2::qs_read(here("data", "ytj", "ytj_perustiedot.qs"))
+pitka       <- qs2::qs_read(here("data", "ytj", "ilmoitukset_pitka.qs"))
+
+stopifnot(
+  all(c("business_id","company_form_code","registration_date","main_line_code",
+        "location","trade_register_status") %in% names(perustiedot)),
+  all(c("business_id","nid","pvm","koodi") %in% names(pitka)),
+  "ESR" %in% unique(pitka$koodi)      # vahti: koodin on esiinnyttävä (vrt. TILTAP)
+)
+
+VELVOITE_ALKU <- as.Date("2019-07-01")   # velvollisuus voimaan
+MAARAAIKA     <- as.Date("2020-07-01")   # siirtymäajan päättyminen
+
+# Elävät osakeyhtiöt, jotka olivat olemassa jo ennen määräaikaa:
+# vain niillä velvollisuus on ehtinyt realisoitua.
+oy <- perustiedot |>
+  filter(company_form_code == "16", trade_register_status == "1") |>
+  distinct(business_id, .keep_all = TRUE) |>
+  transmute(
+    business_id,
+    synty    = as.Date(registration_date),
+    sektori  = toimiala_sektori(main_line_code),
+    kaupunki = if_else(toupper(location) %in%
+                       c("HELSINKI","ESPOO","TAMPERE","VANTAA","OULU",
+                         "TURKU","JYVÄSKYLÄ","KUOPIO","LAHTI"),
+                       "Suuri kaupunki", "Muu Suomi")
+  ) |>
+  filter(!is.na(synty), !is.na(sektori), synty < MAARAAIKA)
+
+stopifnot(nrow(oy) > 10000)
+```
+
+## Sääntely näkyy datassa
+
+Piirretään ESR-merkintöjen kuukausivirta. Jos sääntely ohjaa käyttäytymistä,
+sen pitäisi näkyä tässä kuvaajassa ilman mitään mallinnusta.
+
+```{r aikasarja}
+esr_kk <- pitka |>
+  filter(koodi == "ESR") |>
+  mutate(kk = lubridate::floor_date(pvm, "month")) |>
+  count(kk) |>
+  filter(kk >= as.Date("2015-01-01"), kk < lubridate::floor_date(max(pitka$pvm), "month"))
+
+ggplot(esr_kk, aes(kk, n)) +
+  geom_line(color = kvar_palette[["blue"]], linewidth = 0.8) +
+  geom_vline(xintercept = VELVOITE_ALKU, color = kvar_palette[["teal"]],
+             linetype = "dashed") +
+  geom_vline(xintercept = MAARAAIKA, color = kvar_palette[["red"]],
+             linetype = "dashed") +
+  annotate("text", x = VELVOITE_ALKU, y = max(esr_kk$n) * 0.95, hjust = -0.05,
+           size = 3, color = kvar_palette[["teal"]], label = "velvollisuus voimaan") +
+  annotate("text", x = MAARAAIKA, y = max(esr_kk$n) * 0.8, hjust = -0.05,
+           size = 3, color = kvar_palette[["red"]], label = "määräaika") +
+  labs(title = "Edunsaajailmoitukset kuukausittain",
+       subtitle = "Rahanpesudirektiivin jälki kaupparekisterissä",
+       x = NULL, y = "ESR-merkintöjä")
+```
+
+Kuvaaja on harvinaisen puhdas esimerkki siitä, miten sääntely muuttaa
+käyttäytymistä: ennen 2019 koodia ei käytännössä käytetä, sitten tulee piikki, ja
+sen jälkeen jää tasaisempi pohjavirta uusista yhtiöistä. Tämä on **keskeytetty
+aikasarja** (interrupted time series) puhtaimmillaan.
+
+## Kuka jätti ilmoittamatta?
+
+Nyt varsinaiseen kysymykseen. Jokaiselle ennen määräaikaa perustetulle elävälle
+osakeyhtiölle katsotaan, löytyykö rekisteristä ESR-merkintää.
+
+```{r puuttuvat}
+esr_idt <- pitka |> filter(koodi == "ESR") |> distinct(business_id) |> pull()
+
+analyysi <- oy |>
+  mutate(
+    on_esr  = business_id %in% esr_idt,
+    ika     = as.numeric(difftime(MAARAAIKA, synty, units = "days")) / 365.25,
+    sektori = fct_lump_min(factor(sektori), min = 200, other_level = "Muut toimialat"),
+    kaupunki = factor(kaupunki, levels = c("Muu Suomi", "Suuri kaupunki"))
+  ) |>
+  filter(ika >= 0)
+
+stopifnot(n_distinct(analyysi$on_esr) == 2)   # molemmat luokat: vertailu mahdollinen
+osuus_puuttuu <- mean(!analyysi$on_esr)
+```
+
+Ennen määräaikaa perustetuista elävistä osakeyhtiöistä
+**`r scales::percent(osuus_puuttuu, accuracy = 0.1)` ei ole ESR-merkintää
+rekisterissä.** Luku on suuri, ja se on ensimmäinen yllätys: velvollisuus on
+lakisääteinen, mutta noudattaminen ei ole läheskään täydellistä.
+
+Ennen kuin tästä vedetään johtopäätöksiä, on syytä olla rehellinen: osalla
+puuttuminen selittyy poikkeuksilla ja aineiston rajoilla, ei laiminlyönnillä.
+Mutta jos puuttuminen olisi pelkkää satunnaista kohinaa tai teknistä artefaktia,
+sen pitäisi jakautua tasaisesti yhtiötyyppien kesken. Testataan, jakautuuko se.
+
+## Eroavatko ryhmät tilastollisesti?
+
+Toimialan ja ilmoittamattomuuden yhteyttä testaa khiin neliö; koska aineisto on
+suuri, p-arvo olisi väistämättä pieni, joten raportoin **efektikoon** (Cramérin
+V), joka kertoo eron voimakkuuden. Yhtiön ikä on vino jatkuva muuttuja, joten
+sille käytän Mann–Whitneyn U-testiä ja rank-biserial-efektikokoa.
+
+```{r testit}
+tab  <- table(analyysi$sektori, analyysi$on_esr)
+khii <- chisq.test(tab)
+stopifnot(all(khii$expected >= 5))
+v <- cramers_v(khii)
+
+ika_ei  <- analyysi |> filter(!on_esr) |> pull(ika)
+ika_on  <- analyysi |> filter(on_esr)  |> pull(ika)
+mw <- wilcox.test(ika_ei, ika_on)
+rb <- rank_biserial(ika_ei, ika_on)
+
+tibble::tibble(
+  Vertailu   = c("Toimiala × ilmoituksen puuttuminen",
+                 "Yhtiön ikä: ilmoittamatta jättäneet vs. ilmoittaneet"),
+  Testi      = c("Khiin neliö", "Mann–Whitney U"),
+  p          = c(khii$p.value, mw$p.value),
+  Efektikoko = c(sprintf("Cramérin V = %.3f", v),
+                 sprintf("rank-biserial = %.3f", rb))
+) |>
+  knitr::kable(digits = 3, caption = "Ryhmäerot efektikokoineen")
+```
+
+## Ilmoittamattomuus toimialoittain — jakaumana
+
+Toimialoittainen osuus on tarkka isoilla aloilla ja epävarma pienillä. Siksi
+esitän sen Beta-Binomi-posteriorina: leveä väli on rehellinen tunnustus siitä,
+ettemme tiedä.
+
+```{r toimialat}
+sektori_post <- analyysi |>
+  group_by(sektori) |>
+  summarise(n = n(), k = sum(!on_esr), .groups = "drop") |>
+  mutate(
+    ka = (1 + k) / (2 + n),
+    lo = qbeta(0.025, 1 + k, 1 + n - k),
+    hi = qbeta(0.975, 1 + k, 1 + n - k)
+  )
+
+ggplot(sektori_post, aes(ka, reorder(sektori, ka))) +
+  geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0.3,
+                 color = kvar_palette[["blue"]]) +
+  geom_point(aes(size = n), color = kvar_palette[["red"]]) +
+  geom_vline(xintercept = osuus_puuttuu, linetype = "dashed",
+             color = kvar_palette[["orange"]]) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_size_area(max_size = 6, labels = scales::comma) +
+  labs(title = "Ketkä eivät ilmoittaneet edunsaajiaan?",
+       subtitle = sprintf("Beta-Binomi-posteriorit. Katkoviiva = kaikkien keskiarvo (%.1f %%). Cramérin V = %.3f",
+                          100 * osuus_puuttuu, v),
+       x = "Osuus, jolta ESR-merkintä puuttuu", y = NULL, size = "Yhtiöitä")
+```
+
+## Ennustemalli ja counterfactual
+
+Yksittäiset vertailut eivät kerro, mikä tekijä on *itsenäisesti* tärkeä: nuoret
+yhtiöt voivat olla myös tietyillä toimialoilla ja tietyissä kaupungeissa. Erottelu
+vaatii mallin, joka pitää muut tekijät vakioina.
+
+Käytän **bayesilaista logistista regressiota**, koska se antaa jokaiselle
+vaikutukselle koko todennäköisyysjakauman — päättäjä näkee suoraan, kuinka varmasti
+tekijä ennustaa ilmoittamattomuutta — eikä pelkkää pistearvoa.
+
+```{r malli}
+malli_path <- here("data", "ytj", "esr_malli.qs")
+
+if (!file.exists(malli_path)) {
+  set.seed(20260721)
+  otos <- analyysi |>
+    mutate(ei_esr = as.integer(!on_esr)) |>
+    slice_sample(n = min(nrow(analyysi), 25000L))
+  fit <- rstanarm::stan_glm(
+    ei_esr ~ ika + sektori + kaupunki,
+    data = otos, family = binomial(),
+    prior = rstanarm::normal(0, 2.5),
+    prior_intercept = rstanarm::normal(0, 5),
+    chains = 4, iter = 2000, seed = 20260721, refresh = 0
+  )
+  qs2::qs_save(list(fit = fit, otos = otos), malli_path)
+} else {
+  .o <- qs2::qs_read(malli_path); fit <- .o$fit; otos <- .o$otos
+}
+
+# Counterfactual: kolme yhtiöprofiilia, ikä datan persentiileistä
+q_ika <- quantile(otos$ika, c(0.1, 0.5, 0.9))
+profiilit <- tibble(
+  profiili = c("Nuori kaupunkiyhtiö", "Mediaani-ikäinen", "Vanha maaseutuyhtiö"),
+  ika      = as.numeric(q_ika),
+  sektori  = factor("Kauppa", levels = levels(otos$sektori)),
+  kaupunki = factor(c("Suuri kaupunki","Suuri kaupunki","Muu Suomi"),
+                    levels = levels(otos$kaupunki))
+)
+stopifnot(!anyNA(profiilit$sektori), !anyNA(profiilit$kaupunki))
+
+pe <- rstanarm::posterior_epred(fit, newdata = profiilit)
+cf <- as_tibble(pe) |> set_names(profiilit$profiili) |>
+  pivot_longer(everything(), names_to = "profiili", values_to = "todnak") |>
+  mutate(profiili = factor(profiili, levels = profiilit$profiili))
+
+ggplot(cf, aes(todnak, profiili, fill = profiili)) +
+  stat_halfeye(.width = c(0.66, 0.95), slab_alpha = 0.7, show.legend = FALSE) +
+  geom_vline(xintercept = osuus_puuttuu, linetype = "dashed",
+             color = kvar_palette[["orange"]]) +
+  scale_fill_manual(values = c(kvar_palette[["teal"]], kvar_palette[["blue"]],
+                               kvar_palette[["red"]])) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Kenen edunsaajat jäävät ilmoittamatta?",
+       subtitle = "Posteriorin ennustejakauma. Katkoviiva = kaikkien keskitaso.",
+       x = "Todennäköisyys, ettei ESR-merkintää ole", y = NULL)
+```
+
+## Mitä tämä tarkoittaa päättäjälle?
+
+Kolme johtopäätöstä, jotka ovat suoraan käyttökelpoisia.
+
+Ensinnäkin **sääntelyn vaikutus on mitattavissa avoimesta datasta**. Emme tarvinneet
+viranomaisraportteja nähdäksemme, milloin ja miten voimakkaasti rahanpesudirektiivi
+puri — rekisteri kertoo sen itse. Sama menetelmä toimii minkä tahansa
+rekisteröintivelvoitteen vaikuttavuuden arviointiin.
+
+Toiseksi **noudattaminen ei ole täydellistä eikä satunnaista**. Ilmoittamattomuus
+painottuu tunnistettavasti, mikä tarkoittaa, että valvontaresurssit voidaan
+kohdentaa — riskiperusteisesti, kuten rahanpesulaki itse edellyttää.
+
+Kolmanneksi, ja tärkeimpänä: tämä on **signaali, ei tuomio**. Puuttuva merkintä
+voi johtua poikkeuksesta, viiveestä tai teknisestä syystä. Juuri siksi tulos on
+esitetty todennäköisyysjakaumana eikä listana syyllisistä. Riskimalli, joka
+esittää epävarmuutensa, on käyttökelpoinen; sellainen, joka teeskentelee
+varmuutta, on vaarallinen.
+
+---
+
+*Tämä analyysi on osa avoimen datan sarjaani. Autan compliance- ja
+riskienhallintatoimintoja rakentamaan avoimesta datasta riskiperusteisia,
+epävarmuuden tunnustavia malleja — vuokrattavana Head of Data -osaajana.
+[kristianvepsalainen.com](https://www.kristianvepsalainen.com).*

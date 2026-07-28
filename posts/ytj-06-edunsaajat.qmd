@@ -3,7 +3,6 @@ title: "Sääntelyn sormenjälki"
 subtitle: "Rahanpesudirektiivi näkyy kaupparekisterissä paljaalla silmällä — ja se kertoo, ketkä eivät tottele"
 date: 2026-07-28
 categories: [avoin data, bayes, compliance, rahanpesu, YTJ]
-draft: true
 execute:
   warning: false
   message: false

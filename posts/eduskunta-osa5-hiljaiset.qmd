@@ -5,7 +5,7 @@ description: >
   Osa kansanedustajista ei juuri käytä täysistuntopuheenvuoroja. Ketkä he ovat —
   ja ovatko he oikeasti passiivisia? Ennustemalli ja monilähdeaineisto antavat
   yllättävän vastauksen.
-date: 2026-07-23
+date: 2026-07-30
 author: "Kristian Vepsäläinen"
 categories: [eduskunta, avoin data, ennustemalli, logistinen regressio]
 format:

@@ -1,0 +1,181 @@
+---
+title: "Eduskunnan hiljaiset"
+subtitle: "Eduskunta jakaumana, osa 5: keitä ovat ne, jotka eivät puhu?"
+description: >
+  Osa kansanedustajista ei juuri käytä täysistuntopuheenvuoroja. Ketkä he ovat —
+  ja ovatko he oikeasti passiivisia? Ennustemalli ja monilähdeaineisto antavat
+  yllättävän vastauksen.
+date: 2026-07-23
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, ennustemalli, logistinen regressio]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+## Uutiskoukku: hiljainen kansanedustaja
+
+Osassa 3 näimme, että puheaika keskittyy voimakkaasti. Toinen puoli samasta
+jakaumasta on kiinnostavampi: **hiljainen häntä**. Ketkä vaikenevat — ja tarkoittaako
+vaikeneminen passiivisuutta?
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales); library(brms)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank()))
+DATA <- here("data", "eduskunta")
+paneeli <- qs2::qs_read(file.path(DATA, "paneeli.qs"))
+```
+
+## Kuka on "hiljainen"?
+
+Määrittely on tehtävä ennen analyysiä, ei sen jälkeen. Käytämme suhteellista rajaa:
+hiljaisia ovat ne edustajavuodet, jotka jäävät **alimpaan neljännekseen** kyseisenä
+vuonna. Näin määritelmä ei riipu siitä, oliko istuntovuosi vilkas vai hiljainen.
+
+```{r maarittely}
+d <- paneeli |> group_by(vuosi) |>
+  mutate(kvartiili = ntile(n_puheita, 4), hiljainen = as.integer(kvartiili == 1)) |>
+  ungroup() |> filter(!is.na(ika), !is.na(sukupuoli))
+stopifnot("Hiljaisia ei löydy" = mean(d$hiljainen) > 0.1)
+mean(d$hiljainen)
+```
+
+## Ennustemalli: mikä ennustaa vaikenemista?
+
+Käytämme **bayeslaista logistista regressiota**. Se antaa kunkin taustatekijän
+vaikutuksen todennäköisyytenä, uskottavuusvälein — ei pelkkänä tähtimerkkinä.
+
+```{r malli}
+#| cache: false
+fit_path <- file.path(DATA, "osa5_logit.qs")
+if (!file.exists(fit_path)) {
+  m <- brm(hiljainen ~ sukupuoli + ika + (1 | vuosi),
+           family = bernoulli(), data = d,
+           chains = 4, iter = 2000, cores = 4, refresh = 0)
+  qs2::qs_save(m, fit_path)
+}
+m <- qs2::qs_read(fit_path)
+summary(m)
+```
+
+```{r efektit}
+# Ennustettu vaikenemisen todennäköisyys iän ja sukupuolen mukaan
+nd <- expand_grid(sukupuoli = unique(d$sukupuoli), ika = seq(30, 75, 5))
+pe <- posterior_epred(m, newdata = nd, re_formula = NA)
+pred <- nd |> mutate(
+  keski = colMeans(pe),
+  lo = apply(pe, 2, quantile, .025), hi = apply(pe, 2, quantile, .975))
+
+ggplot(pred, aes(ika, keski, color = sukupuoli, fill = sukupuoli)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = .2, color = NA) +
+  geom_line(linewidth = 1) +
+  scale_y_continuous(labels = label_percent()) +
+  scale_color_manual(values = unname(pal[c(5,1)])) +
+  scale_fill_manual(values = unname(pal[c(5,1)])) +
+  labs(title = "Kuka vaikenee? Ennustettu todennäköisyys uskottavuusvälein",
+       x = "Ikä", y = "P(kuuluu hiljaisimpaan neljännekseen)", color = NULL, fill = NULL)
+```
+
+## Tärkein käänne: hiljaisuus ≠ passiivisuus
+
+Täysistuntopuhe on vain yksi vaikuttamisen kanava. Kansanedustaja voi tehdä
+**kirjallisia kysymyksiä** ja **aloitteita** puhumatta salissa sanaakaan. Ennen kuin
+kutsumme ketään passiiviseksi, katsotaan koko aktiivisuusprofiili.
+
+```{r monilahde}
+#| eval: false
+# !! LAAJENNUS: VaskiData sisältää kirjalliset kysymykset ja aloitteet.
+# Lisää data-prepiin haku ja liitä tähän henkilo_nro:lla.
+
+filepath <- file.path(DATA, "aktiivisuus.qs")
+if(!file.exists(filepath)){
+  # ---------- Kirjalliset kysymykset & aloitteet (VaskiData) ----------
+vaski_raw <- cache("vaski_raw", hae_taulu("VaskiData"))
+
+relevantit <- vaski_raw |>
+  mutate(tyyppi = str_extract(Eduskuntatunnus, "^[A-Za-zÄÖ]+")) |>
+  filter(tyyppi %in% c("KK", "TPA", "LA", "TAA"))
+stopifnot("Relevantteja asiakirjoja ei löytynyt" = nrow(relevantit) > 1000)
+
+poimi_tekija <- function(xml_str) {
+  doc <- tryCatch(read_xml(xml_str), error = function(e) return(NULL))
+  if (is.null(doc)) return(tibble(tekija = NA_character_, vpvuosi = NA_integer_))
+  ln <- function(x) paste0(".//*[local-name()='", x, "']")
+  ident <- xml_find_first(doc, ln("RakenneAsiakirja"))
+  h <- xml_find_first(ident, paste0(ln("IdentifiointiOsa"), "//*[local-name()='Henkilo']"))
+  tibble(
+    tekija  = xml_attr(h, "muuTunnus"),
+    vpvuosi = suppressWarnings(as.integer(xml_text(
+      xml_find_first(doc, paste0(ln("RakenneAsiakirja"), "//*[local-name()='ValtiopaivavuosiTeksti']")))))
+  )
+}
+
+aktiivisuus <- relevantit |>
+  mutate(tiedot = map(XmlData, poimi_tekija)) |>
+  unnest(tiedot) |>
+  filter(!is.na(tekija)) |>
+  transmute(henkilo_nro = tekija,
+            vuosi = coalesce(vpvuosi, as.integer(str_extract(Eduskuntatunnus, "\\d{4}"))),
+            tyyppi) |>
+  filter(!is.na(vuosi)) |>
+  count(henkilo_nro, vuosi, tyyppi) |>
+  pivot_wider(names_from = tyyppi, values_from = n, values_fill = 0) |>
+  rename(n_kysymykset = any_of("KK")) |>
+  mutate(n_aloitteet = rowSums(across(any_of(c("TPA","LA","TAA")))))
+
+# Linkitystarkistus: osuuko tekijätunnus MP-dataan?
+osuvuus <- mean(aktiivisuus$henkilo_nro %in% mp$henkilo_nro)
+stopifnot("Tekijätunnus ei linkity MP-dataan — muuTunnus ei olekaan henkilo_nro" = osuvuus > 0.8)
+message("Aktiivisuus linkittyy MP-dataan: ", scales::percent(osuvuus))
+
+qs2::qd_save(aktiivisuus, file.path(DATA, "aktiivisuus.qs"))
+}
+
+akt <- qs2::qd_read(filepath)   # henkilo_nro, vuosi, n_kysymykset, n_aloitteet
+
+prof <- d |> left_join(akt, by = c("henkilo_nro","vuosi")) |>
+  mutate(across(c(n_kysymykset, n_aloitteet), \(x) replace_na(x, 0)))
+
+# Testataan: ovatko salissa hiljaiset myös kirjallisesti hiljaisia?
+wt <- wilcox.test(n_kysymykset ~ hiljainen, data = prof)
+r_rb <- 1 - 2*unname(wt$statistic) /
+  (sum(prof$hiljainen==0) * sum(prof$hiljainen==1))
+
+ggplot(prof, aes(x = n_kysymykset, y = factor(hiljainen, labels = c("Puhuu","Hiljainen")))) +
+  stat_halfeye(fill = pal[["oranssi"]]) +
+  labs(title = "Vaikenevatko hiljaiset myös kirjallisesti?",
+       subtitle = "Jos jakaumat menevät päällekkäin, hiljaisuus ei ole passiivisuutta",
+       x = "Kirjallisia kysymyksiä vuodessa", y = NULL)
+```
+
+::: {.callout-note title="Testin valinta"}
+Vertaamme kahta ryhmää vinolla lukumäärämuuttujalla, joten käytämme jakaumavapaata
+Wilcoxonin rank-sum -testiä ja raportoimme efektikoon (rank-biserial), emme pelkkää
+p-arvoa. Efektikoko kertoo, onko ero *merkittävä*, ei vain *merkitsevä*.
+:::
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Vaikeneminen on ennustettavissa** taustatekijöistä — mutta vaikutukset kannattaa
+  lukea uskottavuusvälein, ei tähtinä.
+- **Yksi mittari ei riitä.** Jos arvioisimme edustajia pelkällä puheenvuorolaskurilla,
+  tekisimme juuri sen virheen, jota vastaan tämä sarja varoittaa: yksi pistearvo
+  yhdestä kanavasta.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Monilähteinen aktiivisuusprofiili yksittäisen KPI:n sijaan — **kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data (CC BY 4.0).*

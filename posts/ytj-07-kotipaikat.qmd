@@ -1,0 +1,273 @@
+---
+title: "Yritysten muuttoliike"
+subtitle: "Kaupparekisteri paljastaa, mitkä kunnat voittavat ja mitkä häviävät yrityksiä — ja kuinka epävarmoja luvut oikeasti ovat"
+date: 2026-08-03
+categories: [avoin data, bayes, aluekehitys, julkishallinto, YTJ]
+draft: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(here)
+library(ggdist)
+select <- dplyr::select
+filter <- dplyr::filter
+source(here("R","ytj", "theme_kristian.R"))
+source(here("R","ytj", "yhdista_apu.R"))
+theme_set(theme_kristian())
+```
+
+Kunnat kilpailevat yrityksistä. Elinkeinostrategioita kirjoitetaan, tontteja
+kaavoitetaan ja yrityspalveluita rakennetaan sillä oletuksella, että yrityksiä
+voi houkutella — ja että niitä voi menettää. Mutta kuinka paljon yrityksiä
+todella liikkuu kuntien välillä, ja mihin suuntaan?
+
+Kysymykseen on olemassa julkinen vastaus, jota harva katsoo. Kun yritys vaihtaa
+kotipaikkaansa, se tekee siitä ilmoituksen kaupparekisteriin. Merkintälaji on
+KOTI, ja niitä on aineistossa yli 250 000. Jokainen niistä on yksi yritys, joka
+on siirtynyt kunnasta toiseen.
+
+Tässä osassa rakennetaan yritysten muuttoliikkeen kartta — ja tehdään se
+tavalla, joka on rehellinen sen suhteen, mitä emme tiedä. Sillä juuri
+aluekehityksessä pienten kuntien luvut ovat niitä, joista tehdään suurimmat
+johtopäätökset ja joissa epävarmuus on suurin.
+
+## Mistä datassa on kyse?
+
+::: {.callout-note}
+Aineistona PRH:n rekisteröidyt ilmoitukset (7.11.2014 alkaen) ja perustiedot
+(CC BY 4.0). Kotipaikan vaihto tunnistetaan KOTI-merkinnästä. **Tärkeä rajoite:**
+rekisteri kertoo yrityksen nykyisen kotipaikan, ei sen koko historiaa. Voimme
+siis nähdä, kuinka moni yritys on *vaihtanut* kotipaikkaa ja missä ne ovat *nyt*,
+mutta emme rekonstruoida täydellistä muuttopolkua. Tämä rajoite sanotaan ääneen,
+koska se määrittää, mihin kysymyksiin data voi vastata — ja mihin ei.
+
+Lisäksi: kotipaikan vaihto on juridinen tapahtuma, ei välttämättä fyysinen muutto.
+Yritys voi siirtää kotipaikkansa ilman että yksikään työpaikka liikkuu.
+:::
+
+```{r lataa}
+perustiedot <- qs2::qs_read(here("data", "ytj", "ytj_perustiedot.qs"))
+pitka       <- qs2::qs_read(here("data", "ytj", "ilmoitukset_pitka.qs"))
+
+stopifnot(
+  all(c("business_id","company_form_code","registration_date","location",
+        "trade_register_status") %in% names(perustiedot)),
+  all(c("business_id","nid","pvm","koodi") %in% names(pitka)),
+  "KOTI" %in% unique(pitka$koodi)     # vahti: koodin on esiinnyttävä
+)
+
+oy <- perustiedot |>
+  filter(company_form_code == "16") |>
+  distinct(business_id, .keep_all = TRUE) |>
+  transmute(
+    business_id,
+    synty    = as.Date(registration_date),
+    kunta    = toupper(location),
+    elossa   = trade_register_status == "1"
+  ) |>
+  filter(!is.na(kunta), kunta != "")
+
+stopifnot(nrow(oy) > 10000)
+```
+
+## Kuinka moni yritys ylipäätään muuttaa?
+
+Ensimmäinen kysymys on mittakaava. Muuttaminen voi tuntua yleiseltä, koska
+yksittäiset siirrot ylittävät uutiskynnyksen — mutta onko se sitä?
+
+```{r muuttajat}
+koti_yritykset <- pitka |>
+  filter(koodi == "KOTI") |>
+  group_by(business_id) |>
+  summarise(n_muutto = n_distinct(nid),
+            eka_muutto = min(pvm), .groups = "drop")
+
+analyysi <- oy |>
+  left_join(koti_yritykset, by = "business_id") |>
+  mutate(n_muutto = coalesce(n_muutto, 0L),
+         muuttanut = n_muutto > 0)
+
+osuus_muutti <- mean(analyysi$muuttanut)
+osuus_moni   <- mean(analyysi$n_muutto >= 2)
+stopifnot(n_distinct(analyysi$muuttanut) == 2)
+```
+
+Osakeyhtiöistä **`r scales::percent(osuus_muutti, accuracy = 0.1)`** on vaihtanut
+kotipaikkaansa vähintään kerran, ja
+`r scales::percent(osuus_moni, accuracy = 0.1)` vähintään kahdesti. Muuttaminen ei
+siis ole marginaalinen ilmiö, mutta se ei myöskään koske enemmistöä. Se on
+vähemmistön käyttäytymistä — ja juuri siksi kiinnostavaa: kuka muuttaa?
+
+```{r muuttojakauma}
+jakauma <- analyysi |>
+  filter(muuttanut) |>
+  count(n_muutto) |>
+  mutate(n_muutto = pmin(n_muutto, 6))
+
+ggplot(jakauma |> group_by(n_muutto) |> summarise(n = sum(n)),
+       aes(factor(n_muutto), n)) +
+  geom_col(fill = kvar_palette[["blue"]]) +
+  scale_x_discrete(labels = c("1","2","3","4","5","6+")) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Kuinka monta kertaa muuttanut yritys muuttaa?",
+       subtitle = "Muuttaminen kasautuu: harva yritys muuttaa monta kertaa, mutta ne muuttavat toistuvasti",
+       x = "Kotipaikan vaihtoja", y = "Yrityksiä")
+```
+
+## Voittajat ja häviäjät — ja miksi nettoluku pettää
+
+Nyt olennaiseen. Lasketaan kullekin kunnalle, kuinka moni sinne *päätynyt* yritys
+on muuttanut (eli tullut jostain muualta) suhteessa kunnan yrityskantaan. Koska
+rekisteri kertoo nykyisen kotipaikan, tämä kuvaa **muuttaneiden yritysten
+keskittymistä**: mitkä kunnat ovat vetovoimaisia niiden yritysten silmissä, jotka
+ylipäätään liikkuvat.
+
+Tässä on ansa, johon aluekehityskeskustelu tyypillisesti astuu. Pienessä kunnassa
+muutama muuttanut yritys tuottaa dramaattisen prosenttiluvun, joka on puhdasta
+kohinaa. Siksi laskemme kullekin kunnalle **Beta-Binomi-posteriorin**: piste on
+paras arvaus, jana on se, mitä emme tiedä.
+
+```{r kunnat}
+MIN_YRITYKSIA <- 100     # alle tämän kunnan luku on lähinnä kohinaa
+
+kunta_post <- analyysi |>
+  filter(elossa) |>
+  group_by(kunta) |>
+  summarise(n = n(), k = sum(muuttanut), .groups = "drop") |>
+  filter(n >= MIN_YRITYKSIA) |>
+  mutate(
+    ka = (1 + k) / (2 + n),
+    lo = qbeta(0.025, 1 + k, 1 + n - k),
+    hi = qbeta(0.975, 1 + k, 1 + n - k)
+  )
+
+stopifnot(nrow(kunta_post) > 10)
+
+karki <- bind_rows(
+  kunta_post |> slice_max(ka, n = 10) |> mutate(ryhma = "Korkein osuus"),
+  kunta_post |> slice_min(ka, n = 10) |> mutate(ryhma = "Matalin osuus")
+)
+
+ggplot(karki, aes(ka, reorder(kunta, ka), color = ryhma)) +
+  geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0.3) +
+  geom_point(aes(size = n)) +
+  geom_vline(xintercept = mean(analyysi$muuttanut[analyysi$elossa]),
+             linetype = "dashed", color = kvar_palette[["orange"]]) +
+  scale_color_manual(values = c(kvar_palette[["teal"]], kvar_palette[["red"]])) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_size_area(max_size = 5, labels = scales::comma) +
+  labs(title = "Missä kunnissa yritykset ovat muuttajia?",
+       subtitle = sprintf("Kunnat, joissa vähintään %d elävää osakeyhtiötä. Jana = 95 %% väli.",
+                          MIN_YRITYKSIA),
+       x = "Osuus yrityksistä, jotka ovat vaihtaneet kotipaikkaa",
+       y = NULL, color = NULL, size = "Yrityksiä")
+```
+
+::: {.callout-important}
+## Miksi tässä ei ole kuntien "top 10 -listaa" ilman epävarmuutta
+Jos olisin piirtänyt pelkät pisteet, saisit siistin listan voittajista ja
+häviäjistä — ja se olisi harhaanjohtava. Katso janoja: pienemmillä kunnilla ne
+ovat leveitä, ja monen kunnan välit menevät päällekkäin. Se tarkoittaa, että
+niiden **järjestys ei ole luotettava**. Kunta, joka näyttää kymmenenneltä, voi
+todellisuudessa olla kolmas tai kahdeskymmenes.
+
+Tämä on koko sloganini ydin: maailma on jakauma. Kuntalistat, jotka esittävät
+pistelukuja järjestyksessä, myyvät varmuutta, jota datassa ei ole.
+:::
+
+## Ennustaako muuttaminen jotain? Bayesilainen malli
+
+Onko muuttaminen sattumaa vai ennustettavissa? Rakennan **bayesilaisen logistisen
+regression**, joka ennustaa muuttamisen todennäköisyyden yrityksen iän ja
+kotikunnan koon perusteella. Malli valittiin, koska se antaa vaikutuksille koko
+jakauman — päättäjä näkee, kuinka varmoja voimme olla — eikä pistelukua.
+
+```{r malli}
+malli_path <- here("data", "ytj", "kotipaikka_malli.qs")
+
+if (!file.exists(malli_path)) {
+  set.seed(20260728)
+  kunta_koko <- analyysi |> count(kunta, name = "kunnan_yritykset")
+
+  mdata <- analyysi |>
+    filter(elossa) |>
+    left_join(kunta_koko, by = "kunta") |>
+    mutate(
+      ika = as.numeric(difftime(max(pitka$pvm), synty, units = "days")) / 365.25,
+      log_kunta = log10(kunnan_yritykset),
+      muuttanut_i = as.integer(muuttanut)
+    ) |>
+    filter(ika >= 0, is.finite(log_kunta))
+  mdata <- mdata |> slice_sample(n = min(nrow(mdata), 25000L))
+
+  fit <- rstanarm::stan_glm(
+    muuttanut_i ~ ika + log_kunta,
+    data = mdata, family = binomial(),
+    prior = rstanarm::normal(0, 2.5),
+    prior_intercept = rstanarm::normal(0, 5),
+    chains = 4, iter = 2000, seed = 20260728, refresh = 0
+  )
+  qs2::qs_save(list(fit = fit, mdata = mdata), malli_path)
+} else {
+  .o <- qs2::qs_read(malli_path); fit <- .o$fit; mdata <- .o$mdata
+}
+```
+
+### Counterfactual: neljä yritystä, neljä todennäköisyyttä
+
+Konkretisoin mallin vertaamalla neljää rakennettua yritystä. Kysymys on
+counterfactual: *jos yritys olisi tämän ikäinen ja tämän kokoisessa kunnassa,
+kuinka todennäköisesti se olisi vaihtanut kotipaikkaa?*
+
+```{r counterfactual}
+q_ika   <- quantile(mdata$ika, c(0.25, 0.75))
+q_kunta <- quantile(mdata$log_kunta, c(0.1, 0.9))
+
+profiilit <- tibble(
+  profiili = c("Nuori, pieni kunta", "Nuori, suuri kaupunki",
+               "Vanha, pieni kunta", "Vanha, suuri kaupunki"),
+  ika       = rep(as.numeric(q_ika), each = 2),
+  log_kunta = rep(as.numeric(q_kunta), times = 2)
+)
+
+pe <- rstanarm::posterior_epred(fit, newdata = profiilit)
+cf <- as_tibble(pe) |> set_names(profiilit$profiili) |>
+  pivot_longer(everything(), names_to = "profiili", values_to = "todnak") |>
+  mutate(profiili = factor(profiili, levels = profiilit$profiili))
+
+ggplot(cf, aes(todnak, profiili, fill = profiili)) +
+  stat_halfeye(.width = c(0.66, 0.95), slab_alpha = 0.7, show.legend = FALSE) +
+  scale_fill_manual(values = c(kvar_palette[["teal"]], kvar_palette[["blue"]],
+                               kvar_palette[["orange"]], kvar_palette[["red"]])) +
+  scale_x_continuous(labels = scales::percent) +
+  labs(title = "Kuka vaihtaa kotipaikkaa?",
+       subtitle = "Posteriorin ennustejakauma iän ja kunnan koon mukaan",
+       x = "Todennäköisyys, että yritys on vaihtanut kotipaikkaa", y = NULL)
+```
+
+## Mitä tämä tarkoittaa päättäjälle?
+
+Yritysten muuttoliike on todellinen mutta vähemmistön ilmiö, ja se kasautuu:
+sama yritys muuttaa usein uudestaan. Kunnan elinkeinopolitiikan kannalta tämä
+tarkoittaa, että houkuteltava joukko on pienempi kuin yleensä oletetaan — mutta
+se joukko on tunnistettavissa.
+
+Tärkein viesti on kuitenkin menetelmällinen. Aluekehityksessä tehdään jatkuvasti
+päätöksiä pienten kuntien pienistä luvuista, ja ne luvut esitetään lähes aina
+pistearvoina järjestyslistoilla. Tämän analyysin epävarmuusvälit näyttävät, että
+suuri osa noista järjestyksistä on kohinaa. Kunta ei ole "Suomen 7. paras" — se on
+kunta, jonka todellinen sijoitus on jossain hyvin leveällä välillä.
+
+Kun päätöksiä tehdään miljoonilla, kannattaa tietää kumpaa katsoo: pistettä vai
+jakaumaa.
+
+---
+
+*Tämä analyysi on osa avoimen datan sarjaani. Autan kuntia, hyvinvointialueita ja
+julkishallintoa tekemään avoimesta datasta päätöksiä, jotka kestävät epävarmuuden.
+[kristianvepsalainen.com](https://www.kristianvepsalainen.com).*

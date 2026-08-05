@@ -3,7 +3,6 @@ title: "Yritysten muuttoliike"
 subtitle: "Kaupparekisteri paljastaa, mitkä kunnat voittavat ja mitkä häviävät yrityksiä — ja kuinka epävarmoja luvut oikeasti ovat"
 date: 2026-08-03
 categories: [avoin data, bayes, aluekehitys, julkishallinto, YTJ]
-draft: true
 execute:
   warning: false
   message: false

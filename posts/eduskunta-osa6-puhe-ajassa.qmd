@@ -1,0 +1,167 @@
+---
+title: "Muuttuuko eduskunnan puhe ajassa?"
+subtitle: "Eduskunta jakaumana, osa 6: murroskohdat ja ennuste"
+description: >
+  Onko eduskunnassa alettu puhua enemmän? Etsimme muutoskohdat datasta itsestään
+  ja ennustamme, mitä seuraavalla kaudella tapahtuu — epävarmuus näkyvissä.
+date: 2026-08-05
+draft: TRUE
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, aikasarja, changepoint, ennuste]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+## Uutiskoukku: puhutaanko nyt enemmän kuin ennen?
+
+"Politiikka on muuttunut puheliaammaksi" on tavallinen väite. Sen voi tarkistaa.
+Emme kuitenkaan etsi muutosta silmämääräisesti — **annamme datan kertoa, missä
+murroskohdat ovat**.
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales)
+library(bcp); library(brms)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank()))
+DATA <- here("data", "eduskunta")
+puheet  <- qs2::qs_read(file.path(DATA, "puheet.qs"))
+paneeli <- qs2::qs_read(file.path(DATA, "paneeli.qs"))
+```
+
+## Aikasarja: puheenvuorot kuukausittain
+
+```{r aikasarja}
+kk <- puheet |> mutate(kk = floor_date(pvm, "month")) |>
+  count(kk, name = "puheita") |> arrange(kk) |> filter(puheita > 0)
+
+ggplot(kk, aes(kk, puheita)) +
+  geom_line(color = pal[["sininen"]], linewidth = .7) +
+  geom_smooth(method = "loess", se = FALSE, color = pal[["punainen"]], linewidth = .8) +
+  labs(title = "Täysistuntopuheenvuorot kuukausittain", x = NULL, y = "Puheenvuoroja")
+```
+
+Istuntokausien rytmi (kesätauko) näkyy heti — se on **rakennetta, ei signaalia**, ja
+siksi analysoimme jatkossa istuntovuositasolla.
+
+## Missä muutoskohdat ovat? Bayeslainen changepoint
+
+`bcp` etsii kohdat, joissa aikasarjan taso muuttuu, ja antaa jokaiselle ajankohdalle
+**todennäköisyyden** olla murroskohta — ei yhtä "oikeaa" vastausta.
+
+```{r changepoint}
+vuosi_sarja <- puheet |> count(vuosi, name = "puheita") |> arrange(vuosi) |>
+  filter(vuosi < max(vuosi))   # keskeneräinen vuosi pois
+stopifnot("Liian lyhyt sarja changepointiin" = nrow(vuosi_sarja) >= 6)
+
+bcp_fit <- bcp(as.numeric(vuosi_sarja$puheita))
+cp <- vuosi_sarja |> mutate(p_muutos = bcp_fit$posterior.prob,
+                            arvio = bcp_fit$posterior.mean)
+
+ggplot(cp, aes(vuosi)) +
+  geom_col(aes(y = p_muutos * max(puheita)), fill = pal[["oranssi"]], alpha = .4) +
+  geom_line(aes(y = puheita), color = pal[["sininen"]], linewidth = 1) +
+  geom_line(aes(y = arvio), color = pal[["punainen"]], linetype = "dashed") +
+  scale_y_continuous(name = "Puheenvuoroja",
+    sec.axis = sec_axis(~ . / max(cp$puheita), name = "P(murroskohta)", labels = label_percent())) +
+  labs(title = "Missä puheen määrä muuttui? Murroskohtien todennäköisyys",
+       subtitle = "Oranssi: todennäköisyys murroskohdalle · punainen: mallin tasoarvio",
+       x = NULL)
+```
+
+::: {.callout-important title="Tulkinta vaatii kontekstin"}
+Murroskohta ei selitä itseään. Havaitut muutokset kannattaa tulkita tunnettuja
+tapahtumia vasten: **työjärjestyksen muutokset**, **COVID-19:n etäistunnot ja
+rajoitetut puhujalistat** sekä **vaalikausien vaihtuminen**. Malli kertoo *missä*
+muutos on, ei *miksi* — syyn nimeäminen on tulkintaa, ja se on sanottava ääneen.
+:::
+
+## Kauden sisäinen rytmi: puhutaanko ennen vaaleja enemmän?
+
+```{r kausirytmi}
+# Vuosien etäisyys seuraaviin vaaleihin (2015, 2019, 2023, 2027)
+vaalit <- c(2015, 2019, 2023, 2027)
+rytmi <- paneeli |> group_by(vuosi) |> summarise(puheita = sum(n_puheita), .groups="drop") |>
+  mutate(seur_vaalit = map_dbl(vuosi, \(v) min(vaalit[vaalit >= v])),
+         vuotta_vaaleihin = seur_vaalit - vuosi) |>
+  filter(vuotta_vaaleihin <= 3)
+
+ggplot(rytmi, aes(factor(vuotta_vaaleihin), puheita)) +
+  geom_boxplot(fill = pal[["turkoosi"]], alpha = .5) +
+  geom_jitter(width = .12, color = pal[["laivasto"]]) +
+  scale_x_discrete(limits = rev) +
+  labs(title = "Kiihtyykö puhe vaalien lähestyessä?",
+       x = "Vuotta seuraaviin vaaleihin", y = "Puheenvuoroja yhteensä")
+
+# Testi: eroaako vaalivuotta edeltävä vuosi muista? Jakaumavapaa, pieni n.
+kw <- kruskal.test(puheita ~ factor(vuotta_vaaleihin), data = rytmi)
+tibble(khi2 = round(unname(kw$statistic),2), df = unname(kw$parameter),
+       p = signif(kw$p.value,3),
+       huom = "Pieni n — tulkitse varovasti, väli on leveä")
+```
+
+## Ennuste: mitä tapahtuu 2026–2027?
+
+Ennustaminen on kykyjen paras testi. Mallinnamme vuosittaisen puheenvuorojen määrän
+**bayeslaisella negatiivisella binomimallilla** ja ennustamme seuraavat vuodet —
+uskottavuusvälein, jotka ovat tarkoituksella leveät, koska havaintoja on vähän.
+
+```{r ennuste}
+#| cache: false
+fit_path <- file.path(DATA, "osa6_trendi.qs")
+d <- vuosi_sarja |> mutate(t = vuosi - min(vuosi))
+if (!file.exists(fit_path)) {
+  m <- brm(puheita ~ t, family = negbinomial(), data = d,
+           chains = 4, iter = 2000, cores = 4, refresh = 0)
+  qs2::qs_save(m, fit_path)
+}
+m <- qs2::qs_read(fit_path)
+
+tuleva <- tibble(vuosi = (max(d$vuosi)+1):2027) |> mutate(t = vuosi - min(d$vuosi))
+pp <- posterior_predict(m, newdata = tuleva)
+ennuste <- tuleva |> mutate(
+  keski = colMeans(pp),
+  lo = apply(pp, 2, quantile, .025), hi = apply(pp, 2, quantile, .975))
+
+ggplot() +
+  geom_line(data = d, aes(vuosi, puheita), color = pal[["sininen"]], linewidth = 1) +
+  geom_point(data = d, aes(vuosi, puheita), color = pal[["laivasto"]]) +
+  geom_ribbon(data = ennuste, aes(vuosi, ymin = lo, ymax = hi),
+              fill = pal[["turkoosi"]], alpha = .25) +
+  geom_line(data = ennuste, aes(vuosi, keski), color = pal[["turkoosi"]],
+            linewidth = 1, linetype = "dashed") +
+  labs(title = "Ennuste: puheenvuorot vaalikauden loppuun",
+       subtitle = "Turkoosi: 95 % ennusteväli — leveä, koska havaintoja on vähän",
+       x = NULL, y = "Puheenvuoroja")
+```
+
+::: {.callout-note title="Rehellinen varaus"}
+Ennusteväli on leveä. Se **ei** ole mallin heikkous vaan sen rehellisyys: kymmenen
+vuosihavainnon perusteella ei voi luvata kapeaa väliä. Kapea väli tässä olisi lupaus,
+jota data ei kata.
+:::
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Murroskohdat löytyvät datasta**, mutta niiden *syy* on tulkintaa — nämä on
+  pidettävä erillään.
+- **Ennuste ilman epävarmuutta on markkinointia.** Leveä väli kertoo totuuden
+  aineiston rajoista.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Murroskohtien tunnistus ja ennusteet, joiden epävarmuus on näkyvissä —
+**kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data (CC BY 4.0).*

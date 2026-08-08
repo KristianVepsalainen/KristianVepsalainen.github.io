@@ -38,9 +38,9 @@ koostumuksen liikettä?
 ## Menetelmä: rakenteiset aihetunnisteet, ei NLP
 
 Emme luokittele puheita tekstimallilla. Sen sijaan hyödynnämme aineiston **omia
-aihetunnisteita** (`AiheTeksti`, osa 10) ja tiivistämme ne muutamaan
+aihetunnisteita**  ja tiivistämme ne muutamaan
 politiikkakategoriaan läpinäkyvällä sääntökartalla. Tämä on toistettavaa ja
-rehellistä — sama periaate kuin osan 10 aihevirrassa.
+rehellistä. 
 
 ```{r setup}
 #| cache: false
@@ -69,14 +69,6 @@ luokittele_aihe <- function(a) {
 }
 ```
 
-::: {.callout-note title="Kaksi tasoa — mikä toimii jo nyt"}
-Tämä osa vastaa kysymykseen **aloitteiden ja kysymysten aihekoostumuksella**, joka
-on jo jäsennetty (osat 9–10) ja siksi ajettavissa heti. Se on vahva vastaus itsessään,
-koska aloitteet heijastavat edustajien agendaa. **Täysistuntopuheiden** aihekoostumus
-(varsinaisen osan 6 sarjan) vaatii puheiden liittämisen käsiteltävään asiakirjaan
-(`SaliDBKohtaAsiakirja`) — se on merkitty alle verifiointikohdaksi ja aktivoidaan,
-kun liitosavaimet on varmistettu.
-:::
 
 ## Aihekoostumus vaalikausittain
 

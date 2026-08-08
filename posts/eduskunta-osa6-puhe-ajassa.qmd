@@ -5,7 +5,6 @@ description: >
   Onko eduskunnassa alettu puhua enemmän? Etsimme muutoskohdat datasta itsestään
   ja ennustamme, mitä seuraavalla kaudella tapahtuu — epävarmuus näkyvissä.
 date: 2026-08-05
-draft: TRUE
 author: "Kristian Vepsäläinen"
 categories: [eduskunta, avoin data, aikasarja, changepoint, ennuste]
 format:

@@ -22,7 +22,7 @@ execute: { warning: false, message: false, echo: true }
 > tutkia, muuttuuko myös **aiheiden koostumus** — ja selittävätkö koostumuksen
 > muutokset havaittuja kehityssuuntia. Kiitos ehdotuksesta; tässä vastaus.
 >
-> **Samalla vastaan kahteen jatkokysymykseen puheaktiivisuudesta:** selittääkö sitä
+> **Samalla vastaan yhteen jatkokysymykseen puheaktiivisuudesta:** selittääkö sitä
 > edustajan kokemus (ensimmäistä kauttaan istuva "keltanokka" vs. useamman kauden
 "konkari")
 

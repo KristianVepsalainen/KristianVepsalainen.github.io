@@ -1,0 +1,301 @@
+---
+title: "Selittääkö aihe puheen? Aihekoostumus puhemäärän takana"
+subtitle: "Eduskunta jakaumana, osa 6b: lukijan ehdotuksesta"
+description: >
+  Osa 6 mittasi puheenvuorojen määrän muutosta ajassa. Lukija ehdotti tärkeän
+  jatkokysymyksen: selittyvätkö muutokset aiheiden koostumuksen muutoksella eikä
+  vain kokonaismäärällä? Vastaamme rakenteisilla aihetunnisteilla — ilman NLP:tä.
+date: 2026-08-08
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, jakaumat, aihekoostumus, shift-share]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+> **Tämä on osan 6 lisäosa.** Sain blogin kommenteissa erinomaisen ehdotuksen: sen
+> sijaan että katsoisimme vain puheenvuorojen **kokonaismäärän** muutosta, kannattaa
+> tutkia, muuttuuko myös **aiheiden koostumus** — ja selittävätkö koostumuksen
+> muutokset havaittuja kehityssuuntia. Kiitos ehdotuksesta; tässä vastaus.
+>
+> **Samalla vastaan kahteen jatkokysymykseen puheaktiivisuudesta:** selittääkö sitä
+> edustajan kokemus (ensimmäistä kauttaan istuva "keltanokka" vs. useamman kauden
+> "konkari"), ja se, onko edustaja jatkamassa seuraavalle vaalikaudelle.
+
+## Kysymys: määrä vai koostumus?
+
+Osassa 6 näimme, että eduskunnan puheenvuorojen määrä vaihtelee ja siinä on
+murroskohtia. Mutta kokonaismäärä on **yksi luku** — ja tämän sarjan koko idea on,
+ettei yksi luku riitä. Kahden vuoden identtinen puhemäärä voi kätkeä täysin
+erilaisen aihejakauman. Kysymys kuuluu siis: kun puheen määrä muuttuu, muuttuuko
+myös **mistä** puhutaan — ja kuinka paljon muutoksesta on tason, kuinka paljon
+koostumuksen liikettä?
+
+## Menetelmä: rakenteiset aihetunnisteet, ei NLP
+
+Emme luokittele puheita tekstimallilla. Sen sijaan hyödynnämme aineiston **omia
+aihetunnisteita** (`AiheTeksti`, osa 10) ja tiivistämme ne muutamaan
+politiikkakategoriaan läpinäkyvällä sääntökartalla. Tämä on toistettavaa ja
+rehellistä — sama periaate kuin osan 10 aihevirrassa.
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d", violetti="#8d6e9c")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank(),
+        legend.position = "top"))
+DATA <- here("data", "eduskunta")
+init <- qs2::qd_read(file.path(DATA, "vaski_init.qs"))
+
+# Läpinäkyvä politiikkakategoria-kartta (kommentissa ehdotetut luokat + ympäristö)
+luokittele_aihe <- function(a) {
+  a <- str_to_lower(a)
+  case_when(
+    str_detect(a, "maahanmuu|turvapaik|pakolais|kotoutu|ulkomaalais")       ~ "Maahanmuutto",
+    str_detect(a, "talous|vero|budjet|työllisy|elinkeino|yritys|rahoitus")  ~ "Talous",
+    str_detect(a, "tervey|sairaan|sote|hoiva|lääke|potilas|sosiaali")       ~ "Terveys ja sosiaali",
+    str_detect(a, "koulut|opetus|opiskel|varhaiskasv|yliopisto|oppilai")    ~ "Koulutus",
+    str_detect(a, "ulkopolit|puolust|turvalli|nato|ukrain|rajaturv")        ~ "Ulko- ja turvallisuus",
+    str_detect(a, "ilmasto|ympärist|energia|luonto|päästö")                 ~ "Ympäristö ja energia",
+    TRUE ~ "Muu")
+}
+```
+
+::: {.callout-note title="Kaksi tasoa — mikä toimii jo nyt"}
+Tämä osa vastaa kysymykseen **aloitteiden ja kysymysten aihekoostumuksella**, joka
+on jo jäsennetty (osat 9–10) ja siksi ajettavissa heti. Se on vahva vastaus itsessään,
+koska aloitteet heijastavat edustajien agendaa. **Täysistuntopuheiden** aihekoostumus
+(varsinaisen osan 6 sarjan) vaatii puheiden liittämisen käsiteltävään asiakirjaan
+(`SaliDBKohtaAsiakirja`) — se on merkitty alle verifiointikohdaksi ja aktivoidaan,
+kun liitosavaimet on varmistettu.
+:::
+
+## Aihekoostumus vaalikausittain
+
+```{r koostumus}
+kaudet_raja <- function(v) case_when(v %in% 2015:2018 ~ "2015–2018",
+                                     v %in% 2019:2022 ~ "2019–2022",
+                                     v %in% 2023:2025 ~ "2023–2025", TRUE ~ NA_character_)
+
+aiheet <- init |> select(vpvuosi, aiheet) |> unnest(aiheet) |>
+  filter(!is.na(aiheet), aiheet != "") |>
+  mutate(kategoria = luokittele_aihe(aiheet), kausi = kaudet_raja(vpvuosi)) |>
+  filter(!is.na(kausi), kategoria != "Muu")
+stopifnot("Aihetunnisteita ei löytynyt" = nrow(aiheet) > 500)
+
+osuudet <- aiheet |> count(kausi, kategoria) |>
+  group_by(kausi) |> mutate(N = sum(n), osuus = n / N,
+    lo = qbeta(.025, 1+n, 1+N-n), hi = qbeta(.975, 1+n, 1+N-n)) |> ungroup()
+
+ggplot(osuudet, aes(x = osuus, y = fct_reorder(kategoria, osuus), color = kausi)) +
+  geom_pointinterval(aes(xmin = lo, xmax = hi), position = position_dodge(.5)) +
+  scale_x_continuous(labels = label_percent()) +
+  scale_color_manual(values = unname(pal[c(4,2,1)])) +
+  labs(title = "Aihekoostumus vaalikausittain — jakaumana, ei pisteenä",
+       subtitle = "Osuus aihemaininnoista, 95 % uskottavuusväli (Dirichlet-Beta)",
+       x = "Osuus", y = NULL, color = NULL)
+```
+
+Uskottavuusvälit ovat olennaiset: pieni osuuden ero kausien välillä ei ole muutos,
+jos välit menevät päällekkäin. Jakauma kertoo senkin, mitä pistearvo ei.
+
+## Onko koostumus muuttunut? Tilastollinen merkitsevyys
+
+Kommentissa kysyttiin nimenomaan, ovatko erot **tilastollisesti merkitseviä**.
+Testaamme aihekategorian ja vaalikauden riippuvuutta khii-neliöllä ja
+efektikokona Cramérin V:llä.
+
+```{r testi}
+taulu <- table(aiheet$kategoria, aiheet$kausi)
+khi <- chisq.test(taulu)
+cramers_v <- sqrt(unname(khi$statistic) / (sum(taulu) * (min(dim(taulu)) - 1)))
+tibble(khi2 = round(unname(khi$statistic), 1), df = unname(khi$parameter),
+       p = signif(khi$p.value, 3), cramers_V = round(cramers_v, 3))
+```
+
+::: {.callout-important title="Merkitsevä ≠ merkittävä — iso otos"}
+Aineisto on suuri, joten lähes mikä tahansa ero tulee "tilastollisesti
+merkitseväksi" (pieni p). Siksi katse on **efektikoossa**: Cramérin V kertoo, kuinka
+suuri riippuvuus todella on. Pieni V tarkoittaa, että vaikka koostumus muuttui
+"merkitsevästi", muutos on käytännössä vaatimaton. Tämä erottelu on juuri se, mitä
+päättäjän on ymmärrettävä tilastollisesta merkitsevyydestä.
+:::
+
+## Selittääkö koostumus vai taso? Shift-share-hajotelma
+
+Tässä täsmällinen vastaus kysymykseen. Kokonaismuutos aihemainintojen määrässä
+ensimmäisen ja viimeisen kauden välillä voidaan **hajottaa** kahteen osaan:
+
+- **Tasokomponentti:** paljonko määrä olisi muuttunut, jos koostumus olisi pysynyt
+  ennallaan (vain kokonaisvolyymi kasvoi/laski).
+- **Koostumuskomponentti:** paljonko muutoksesta johtuu siitä, että aiheiden
+  **osuudet** siirtyivät.
+
+```{r shift-share}
+a <- osuudet |> filter(kausi == "2015–2018") |> select(kategoria, s_a = osuus, N_a = N)
+b <- osuudet |> filter(kausi == "2023–2025") |> select(kategoria, s_b = osuus, N_b = N)
+ss <- full_join(a, b, by = "kategoria") |>
+  mutate(across(c(s_a, s_b), \(x) replace_na(x, 0)),
+         N_a = max(N_a, na.rm = TRUE), N_b = max(N_b, na.rm = TRUE),
+         taso        = s_a * (N_b - N_a),          # koostumus kiinni A:ssa
+         koostumus   = (s_b - s_a) * N_b)          # osuuden siirtymä
+
+yhteenveto <- ss |> summarise(
+  taso_komponentti = sum(taso), koostumus_komponentti = sum(koostumus),
+  kokonaismuutos = sum(taso) + sum(koostumus))
+yhteenveto |> mutate(koostumuksen_osuus = percent(
+  abs(koostumus_komponentti) / (abs(taso_komponentti) + abs(koostumus_komponentti)), .1))
+```
+
+```{r shift-share-kuva}
+ss |> select(kategoria, taso, koostumus) |>
+  pivot_longer(-kategoria, names_to = "komponentti", values_to = "muutos") |>
+  ggplot(aes(x = muutos, y = fct_reorder(kategoria, muutos), fill = komponentti)) +
+  geom_col(position = "dodge") +
+  geom_vline(xintercept = 0, color = "grey50") +
+  scale_fill_manual(values = unname(pal[c(2,1)]),
+                    labels = c("Koostumus (osuuden siirtymä)", "Taso (kokonaisvolyymi)")) +
+  labs(title = "Mistä muutos syntyy: taso vai koostumus?",
+       subtitle = "Kokonaismuutoksen hajotelma kategorioittain, 2015–2018 → 2023–2025",
+       x = "Vaikutus aihemainintojen määrään", y = NULL, fill = NULL)
+```
+
+Jos koostumuskomponentti on suuri suhteessa tasoon, ehdottajan hypoteesi saa tukea:
+muutos ei ole vain "enemmän kaikkea", vaan painopisteen siirtymä. Jos taso hallitsee,
+kyse on ennen kaikkea kokonaisvolyymista. Hajotelma antaa vastauksen numerona, ei
+mielikuvana.
+
+## Kuka puhuu enemmän — konkari vai keltanokka?
+
+Siirrytään koostumuksesta **aktiivisuuteen**. Lisään kaksi selittävää tekijää:
+edustajan **kokemus** (keltanokka vs. konkari) ja se, onko hän **jatkamassa
+seuraavalle vaalikaudelle**. Molemmat mallinnetaan bayeslaisella negatiivisella
+binomimallilla, joka sopii vinolle lukumäärädatalle (kuten osassa 4).
+
+```{r setup2}
+#| cache: false
+library(brms)
+paneeli  <- qs2::qs_read(file.path(DATA, "paneeli.qs"))
+mp_years <- qs2::qs_read(file.path(DATA, "mp_years.qs"))
+
+vaalit <- c(2015, 2019, 2023, 2027)
+kausi_alku <- function(v) {
+  i <- findInterval(v, vaalit)           # 0, jos v < 2015
+  out <- rep(NA_integer_, length(v))     # sama pituus kuin v
+  out[i > 0] <- vaalit[i[i > 0]]         # täytä vain kelvolliset
+  out
+}
+# Kokemus: palvelusvuodet ENNEN kutakin vuotta (0 = ensimmäinen vuosi)
+kokemus <- mp_years |> distinct(henkilo_nro, vuosi) |>
+  arrange(henkilo_nro, vuosi) |> group_by(henkilo_nro) |>
+  mutate(kokemus_vuosia = row_number() - 1) |> ungroup()
+
+# Jatkoiko seuraavalle vaalikaudelle (uudelleenehdokkuuden korvike), kausitasolla
+kaudet_palveltu <- mp_years |>
+  mutate(kausi = kausi_alku(vuosi)) |>
+  filter(!is.na(kausi)) |>
+  distinct(henkilo_nro, kausi) |> arrange(henkilo_nro, kausi) |>
+  group_by(henkilo_nro) |>
+  mutate(jatkoi_seur = as.integer(lead(kausi) == kausi + 4)) |> ungroup()
+
+d <- paneeli |> mutate(kausi = kausi_alku(vuosi)) |>
+  left_join(kokemus, by = c("henkilo_nro", "vuosi")) |>
+  left_join(kaudet_palveltu |> select(henkilo_nro, kausi, jatkoi_seur),
+            by = c("henkilo_nro", "kausi")) |>
+  mutate(seniori = factor(if_else(kokemus_vuosia >= 4, "Konkari", "Keltanokka"),
+                          levels = c("Keltanokka", "Konkari"))) |>
+  filter(!is.na(ika), !is.na(sukupuoli))
+stopifnot("Seniori-luokittelu epäonnistui" = n_distinct(d$seniori) == 2)
+```
+
+::: {.callout-note title="Kaksi määrittelyvalintaa auki"}
+**Konkari** = vähintään neljä palvelusvuotta takana (yksi täysi vaalikausi),
+**keltanokka** = ensimmäistä kauttaan. **Uudelleenehdokkuus** on tässä korvattu
+tiedolla "jatkoiko edustaja seuraavalle kaudelle" — se on tiedossa vain
+päättyneille kausille (2015, 2019), koska nykyisen kauden jatko ratkeaa vasta 2027
+vaaleissa. Korvikkeen rajat käsitellään alempana rehellisesti.
+:::
+
+```{r malli2}
+#| cache: false
+d_mall <- d |> filter(kausi %in% c(2015, 2019), !is.na(jatkoi_seur)) |>
+  mutate(jatko = factor(if_else(jatkoi_seur == 1, "Jatkoi", "Ei jatkanut"),
+                        levels = c("Jatkoi", "Ei jatkanut")))
+
+fit_path <- file.path(DATA, "osa6b_aktiivisuus.qs")
+if (!file.exists(fit_path)) {
+  m <- brm(n_puheita ~ seniori + jatko + ika + sukupuoli + (1 | henkilo_nro) + (1 | vuosi),
+           family = negbinomial(), data = d_mall,
+           chains = 4, iter = 2000, cores = 4, refresh = 0)
+  qs2::qs_save(m, fit_path)   # brms-malli -> qs_save (ei qd)
+}
+m <- qs2::qs_read(fit_path)
+summary(m)
+```
+
+```{r efektit2}
+# Odotettu puheenvuorojen määrä ryhmittäin, 95 % uskottavuusvälein
+nd <- expand_grid(seniori = levels(d_mall$seniori), jatko = levels(d_mall$jatko),
+                  ika = mean(d_mall$ika), sukupuoli = "Mies")
+pe <- posterior_epred(m, newdata = nd, re_formula = NA)
+pred <- nd |> mutate(keski = colMeans(pe),
+                     lo = apply(pe, 2, quantile, .025),
+                     hi = apply(pe, 2, quantile, .975))
+
+ggplot(pred, aes(x = keski, y = interaction(seniori, jatko, sep = " · "))) +
+  geom_pointinterval(aes(xmin = lo, xmax = hi), color = pal[["laivasto"]]) +
+  labs(title = "Odotettu puheenvuorojen määrä — kokemus ja uudelleenehdokkuus",
+       subtitle = "Negatiivinen binomimalli, 95 % uskottavuusväli",
+       x = "Puheenvuoroja vuodessa", y = NULL)
+
+# Suorat todennäköisyysväittämät kontrastina (ei kertoimien nimistä)
+sen <- posterior_epred(m, re_formula = NA,
+  newdata = tibble(jatko = "Jatkoi", ika = mean(d_mall$ika), sukupuoli = "Mies",
+                   seniori = levels(d_mall$seniori)))
+ld <- posterior_epred(m, re_formula = NA,
+  newdata = tibble(seniori = "Konkari", ika = mean(d_mall$ika), sukupuoli = "Mies",
+                   jatko = levels(d_mall$jatko)))
+tibble(
+  vaite = c("Konkari puhuu enemmän kuin keltanokka",
+            "Seuraavalle kaudelle jatkamaton puhuu vähemmän (lame duck)"),
+  todennakoisyys = c(scales::percent(mean(sen[,2] > sen[,1]), .1),
+                     scales::percent(mean(ld[,2] < ld[,1]), .1)))
+```
+
+::: {.callout-important title="Lame duck -tulkinta — ja korvikkeen raja"}
+"Ei jatkanut seuraavalle kaudelle" **sekoittaa** kaksi eri asiaa: edustajat, jotka
+eivät asettuneet ehdolle (eläkkeelle jäävät), ja edustajat, jotka hävisivät vaalit.
+Vain edellinen on aito "lame duck". Lisäksi puheaktiivisuus voi itse vaikuttaa
+uudelleenvalintaan (osa 7), joten yhteyttä ei pidä lukea puhtaana syy-seurauksena.
+Todellinen ehdokkuustieto erottaisi nämä — ks. seuraava kohta.
+:::
+
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Kokonaismäärä kätkee koostumuksen.** Sama puhe- tai aloitemäärä voi tarkoittaa
+  eri agendaa; vasta koostumus paljastaa painopisteen.
+- **Shift-share erottaa tason koostumuksesta** — se vastaa täsmällisesti, onko
+  kyse "enemmän kaikkea" vai painopisteen siirtymästä.
+- **Iso otos: katso efektikokoa.** Merkitsevyys on lähes taattu; suuruus ei ole.
+- **Kokemus ja aktiivisuus kulkevat yhdessä**, mutta suunnan ja suuruuden kertoo
+  malli uskottavuusvälein — ei ennakkokäsitys konkareista tai keltanokista.
+- **Lame duck -ilmiö on mitattavissa mutta varovasti:** korvike sekoittaa eläkkeelle
+  jäävät ja hävinneet, ja aito ehdokasdata tarvitaan erottamaan ne.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Määrän ja koostumuksen erottaminen — myynnissä, riskeissä tai palautevirroissa —
+shift-share-hajotelmalla ja efektikoolla. **kristianvepsalainen.com**
+:::
+
+*Kiitos lukijalle ehdotuksesta. Datalähde: Eduskunnan avoin data (CC BY 4.0).*

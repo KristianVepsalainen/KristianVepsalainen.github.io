@@ -3,7 +3,6 @@ title: "Kuinka kauan yrityskauppa kestää?"
 subtitle: "Sulautumissuunnitelmasta täytäntöönpanoon — läpimenoaika on jakauma, ja se on ennustettavissa"
 date: 2026-08-11
 categories: [avoin data, bayes, eloonjääminen, yritysjärjestelyt, YTJ]
-draft: true
 execute:
   warning: false
   message: false

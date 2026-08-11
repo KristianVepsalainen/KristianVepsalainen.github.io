@@ -1,0 +1,308 @@
+---
+title: "Kuinka kauan yrityskauppa kestää?"
+subtitle: "Sulautumissuunnitelmasta täytäntöönpanoon — läpimenoaika on jakauma, ja se on ennustettavissa"
+date: 2026-08-11
+categories: [avoin data, bayes, eloonjääminen, yritysjärjestelyt, YTJ]
+draft: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(here)
+library(ggdist)
+library(survival)
+select <- dplyr::select
+filter <- dplyr::filter
+source(here("R","ytj", "theme_kristian.R"))
+source(here("R","ytj", "toimiala_sektori.R"))
+source(here("R","ytj", "yhdista_apu.R"))
+theme_set(theme_kristian())
+```
+
+Yrityskauppa on prosessi, ei tapahtuma. Sulautumisessa se alkaa siitä, että
+yhtiöt allekirjoittavat sulautumissuunnitelman ja ilmoittavat sen
+kaupparekisteriin. Sitten alkaa odotus: velkojille annetaan kuulutus, määräajat
+kuluvat, rekisteriviranomainen käsittelee — ja lopulta sulautuminen pannaan
+täytäntöön. Tai ei panna: osa suunnitelmista raukeaa.
+
+Kysymys, johon jokainen järjestelyä suunnitteleva yritys, sen neuvonantaja ja
+rahoittaja haluaisi vastauksen, on yksinkertainen: **kuinka kauan tämä kestää?**
+
+Tavanomainen vastaus on pisteluku — "noin puoli vuotta". Se on hyödytön. Jos
+suunnittelet rahoitusta, integraatiota tai henkilöstöviestintää, sinun on tiedettävä
+koko jakauma: kuinka nopeasti nopeimmat menevät läpi, kuinka pitkä häntä on, ja
+mikä on todennäköisyys, ettei järjestely mene läpi ollenkaan.
+
+Kaupparekisteri sisältää tämän tiedon. Se on julkista, ja kukaan ei näytä sitä
+katsovan.
+
+## Mistä datassa on kyse?
+
+::: {.callout-note}
+Aineistona PRH:n rekisteröidyt ilmoitukset (7.11.2014 alkaen; CC BY 4.0).
+Sulautumisprosessi seurataan merkintälajeista: **SULSUU** (sulautumissuunnitelma)
+aloittaa prosessin, **SULLOP** (sulautumisen täytäntöönpano) päättää sen
+onnistuneesti. Yritykset, joilla on SULSUU mutta ei SULLOP:ia, ovat joko yhä
+kesken (sensuroituja) tai rauenneet — ja juuri tämä tekee analyysistä
+eloonjäämisanalyysin eikä pelkkää keskiarvon laskentaa.
+:::
+
+```{r lataa}
+pitka       <- qs2::qs_read(here("data", "ytj", "ilmoitukset_pitka.qs"))
+perustiedot <- qs2::qs_read(here("data", "ytj", "ytj_perustiedot.qs"))
+
+stopifnot(
+  all(c("business_id","nid","pvm","koodi") %in% names(pitka)),
+  all(c("SULSUU","SULLOP") %in% unique(pitka$koodi))   # vahti: koodit olemassa
+)
+
+cutoff <- max(pitka$pvm, na.rm = TRUE)   # aineiston viimeinen havaintopäivä
+```
+
+## Prosessin rakentaminen: alku, loppu ja sensurointi
+
+Jokaiselle yritykselle, joka on jättänyt sulautumissuunnitelman, etsitään
+ensimmäinen SULSUU ja sen jälkeinen ensimmäinen SULLOP. Jos SULLOP:ia ei ole,
+havainto on **sensuroitu**: prosessi on joko kesken tai rauennut, emmekä ole nähneet
+sen loppua. Sensuroidun havainnon poistaminen olisi klassinen virhe — se
+lyhentäisi arvioita systemaattisesti, koska nopeat tapaukset ehtivät valmistua ja
+hitaat eivät.
+
+```{r prosessi}
+sul_path <- here("data", "ytj", "sulautumiset.qs")
+
+if (!file.exists(sul_path)) {
+  alut <- pitka |>
+    filter(koodi == "SULSUU") |>
+    group_by(business_id) |>
+    summarise(alku = min(pvm), .groups = "drop")
+
+  loput <- pitka |>
+    filter(koodi == "SULLOP") |>
+    group_by(business_id) |>
+    summarise(loppu_kaikki = min(pvm), .groups = "drop")
+
+  sulautumiset <- alut |>
+    left_join(loput, by = "business_id") |>
+    mutate(
+      # täytäntöönpano lasketaan vain, jos se on suunnitelman JÄLKEEN
+      loppu     = if_else(!is.na(loppu_kaikki) & loppu_kaikki >= alku,
+                          loppu_kaikki, as.Date(NA)),
+      valmistui = !is.na(loppu),
+      loppu_obs = if_else(valmistui, loppu, cutoff),
+      kesto_kk  = as.numeric(difftime(loppu_obs, alku, units = "days")) / 30.44,
+      alkuvuosi = lubridate::year(alku)
+    ) |>
+    filter(kesto_kk >= 0)
+  qs2::qs_save(sulautumiset, sul_path)
+} else {
+  sulautumiset <- qs2::qs_read(sul_path)
+}
+
+stopifnot(
+  nrow(sulautumiset) > 500,
+  all(sulautumiset$kesto_kk >= 0),
+  n_distinct(sulautumiset$valmistui) == 2      # sekä valmistuneita että sensuroituja
+)
+
+n_sul   <- nrow(sulautumiset)
+n_valm  <- sum(sulautumiset$valmistui)
+osuus_v <- mean(sulautumiset$valmistui)
+```
+
+Aineistossa on `r format(n_sul, big.mark = " ")` sulautumissuunnitelmaa, joista
+`r format(n_valm, big.mark = " ")` (`r scales::percent(osuus_v, accuracy = 0.1)`)
+on edennyt rekisteröityyn täytäntöönpanoon. Loput ovat kesken tai rauenneet.
+
+## Läpimenoaika jakaumana
+
+Kaplan–Meier-estimaattori kertoo, kuinka suuri osuus sulautumisista on **yhä
+kesken** kunkin kuukauden kohdalla. Käyrä laskee sitä mukaa kuin järjestelyt menevät
+läpi. Se käsittelee sensuroinnin oikein: keskeneräiset havainnot pysyvät mukana
+siihen asti kun ne on havaittu, eivätkä vääristä arviota.
+
+```{r km}
+surv_obj <- Surv(time = sulautumiset$kesto_kk, event = sulautumiset$valmistui)
+fit_km   <- survfit(surv_obj ~ 1)
+
+km_df <- km_tidy(fit_km)
+
+# Mediaani-läpimenoaika (aika, jolloin 50 % on valmistunut)
+mediaani_kk <- summary(fit_km)$table[["median"]]
+q <- quantile(fit_km, probs = c(0.25, 0.75))
+q25 <- q$quantile[[1]]; q75 <- q$quantile[[2]]
+
+ggplot(km_df, aes(aika, 1 - surv)) +
+  geom_ribbon(aes(ymin = 1 - upper, ymax = 1 - lower),
+              fill = kvar_palette[["blue"]], alpha = 0.2) +
+  geom_step(color = kvar_palette[["blue"]], linewidth = 1) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = kvar_palette[["orange"]]) +
+  scale_y_continuous(labels = scales::percent) +
+  coord_cartesian(xlim = c(0, 36)) +
+  labs(title = "Kuinka kauan sulautuminen kestää?",
+       subtitle = sprintf("Kumulatiivinen osuus, joka on pantu täytäntöön. Mediaani %.1f kk (neljännekset %.1f–%.1f kk).",
+                          mediaani_kk, q25, q75),
+       x = "Kuukautta sulautumissuunnitelmasta", y = "Osuus täytäntöönpantu")
+```
+
+Tässä kuvaajassa on koko pointti. Mediaani on `r round(mediaani_kk, 1)` kuukautta —
+mutta neljännes järjestelyistä on valmis jo `r round(q25, 1)` kuukaudessa, ja
+neljännes vasta `r round(q75, 1)` kuukauden jälkeen. **Jos suunnittelet
+rahoituksesi mediaanin varaan, olet väärässä puolessa tapauksista.** Piste ei
+riitä; tarvitset jakauman.
+
+## Onko läpimeno nopeutunut vai hidastunut?
+
+Prosessin kesto voi muuttua ajassa: lainsäädäntö, rekisteriviranomaisen resurssit
+ja yritysten valmistautuminen vaikuttavat. Verrataan alkuvuoden mukaan kolmea
+kohorttia ja testataan ero **log-rank-testillä**, joka on oikea väline sensuroidulle
+aika-tapahtuma-datalle (t-testi tai keskiarvovertailu olisi tässä virhe).
+
+```{r kohortit}
+sul_koh <- sulautumiset |>
+  mutate(kausi = case_when(
+    alkuvuosi <= 2017 ~ "2015–2017",
+    alkuvuosi <= 2020 ~ "2018–2020",
+    alkuvuosi <= 2023 ~ "2021–2023",
+    TRUE              ~ "2024–"
+  )) |>
+  filter(kausi != "2024–")     # tuoreimmat liian sensuroituja vertailuun
+
+stopifnot(n_distinct(sul_koh$kausi) >= 2)
+
+so <- Surv(sul_koh$kesto_kk, sul_koh$valmistui)
+lr <- survdiff(so ~ kausi, data = sul_koh)
+p_lr <- 1 - pchisq(lr$chisq, df = length(lr$n) - 1)
+cox  <- coxph(so ~ kausi, data = sul_koh)
+
+km2 <- km_tidy(survfit(so ~ kausi, data = sul_koh)) |>
+  mutate(ryhma = str_remove(ryhma, "^kausi="))
+
+ggplot(km2, aes(aika, 1 - surv, color = ryhma)) +
+  geom_step(linewidth = 1) +
+  scale_color_manual(values = c(kvar_palette[["teal"]], kvar_palette[["blue"]],
+                                kvar_palette[["red"]])) +
+  scale_y_continuous(labels = scales::percent) +
+  coord_cartesian(xlim = c(0, 36)) +
+  labs(title = "Onko sulautumisten läpimenoaika muuttunut?",
+       subtitle = sprintf("Log-rank p = %s. Käyrän noustessa nopeammin prosessi on nopeampi.",
+                          format.pval(p_lr, digits = 2)),
+       x = "Kuukautta suunnitelmasta", y = "Osuus täytäntöönpantu", color = NULL)
+```
+
+```{r cox-taulu}
+broom::tidy(cox, exponentiate = TRUE, conf.int = TRUE) |>
+  transmute(
+    `Kausi (vrt. 2015–2017)` = str_remove(term, "^kausi"),
+    `Nopeussuhde` = round(estimate, 2),
+    `95 % väli`   = sprintf("%.2f – %.2f", conf.low, conf.high)
+  ) |>
+  knitr::kable(caption = "Coxin malli: yli 1 = järjestelyt menevät läpi nopeammin kuin vertailukaudella")
+```
+
+## Ennustemalli: milloin *tämä* sulautuminen valmistuu?
+
+Kaplan–Meier kuvaa mennyttä. Päättäjä tarvitsee ennusteen: *jos suunnitelma
+jätetään nyt, milloin se on todennäköisesti läpi?*
+
+Rakennan **bayesilaisen parametrisen eloonjäämismallin** (Weibull), joka tuottaa
+täyden ennustejakauman. Valitsen bayesilaisen lähestymistavan, koska se antaa
+ennusteelle epävarmuusvälin — eikä yhtä lukua, joka teeskentelisi varmuutta.
+Weibull-jakauma sopii läpimenoaikoihin, joissa "vaara" valmistua kasvaa ajan
+myötä määräaikojen umpeutuessa.
+
+```{r malli}
+malli_path <- here("data", "ytj", "sulautuminen_malli.qs")
+
+if (!file.exists(malli_path)) {
+  set.seed(20260804)
+  mdata <- sul_koh |>
+    filter(kesto_kk > 0)               # Weibull vaatii positiivisen ajan
+  mdata <- mdata |> slice_sample(n = min(nrow(mdata), 20000L))
+
+  # brms:n sensurointi: valmistuneet = havaittu tapahtuma ("none"), keskeneräiset
+  # = oikealta sensuroitu ("right"). Weibull-perheeseen mallinnetaan aika suoraan.
+  mdata <- mdata |>
+    mutate(sensurointi = if_else(valmistui, "none", "right"))
+
+  fit <- brms::brm(
+    kesto_kk | cens(sensurointi) ~ kausi,
+    data   = mdata,
+    family = brms::weibull(),
+    prior  = c(brms::prior(normal(0, 5), class = "Intercept"),
+               brms::prior(normal(0, 2), class = "b")),
+    chains = 4, iter = 2000, seed = 20260804, refresh = 0
+  )
+  qs2::qs_save(list(fit = fit, mdata = mdata), malli_path)
+} else {
+  .o <- qs2::qs_read(malli_path); fit <- .o$fit; mdata <- .o$mdata
+}
+```
+
+::: {.callout-tip}
+## Miksi Weibull eikä pelkkä keskiarvo?
+Läpimenoaika ei ole normaalijakautunut: se on vino, alhaalta rajattu (ei voi olla
+negatiivinen) ja sisältää keskeneräisiä tapauksia. Keskiarvo ja keskihajonta
+antaisivat luvun, joka on väärä kaikilla kolmella tavalla. Weibull-malli
+kunnioittaa datan luonnetta — ja bayesilaisena se kertoo, kuinka varmasti.
+:::
+
+### Ennuste: milloin nyt jätetty suunnitelma valmistuu?
+
+Malli tuottaa täyden ennustejakauman läpimenoajalle. Tämä on se, mitä
+neuvonantaja tarvitsee: ei "noin puoli vuotta", vaan koko jakauma, jonka varaan voi
+suunnitella rahoituksen ja aikataulun.
+
+```{r ennuste-jakauma}
+viim_kausi <- tail(sort(unique(mdata$kausi)), 1)
+uusi <- tibble(kausi = viim_kausi)
+
+pp <- brms::posterior_predict(fit, newdata = uusi)   # ennustetut kestot (kk)
+ennuste <- tibble(kk = as.numeric(pp))
+
+med <- median(ennuste$kk)
+q80 <- quantile(ennuste$kk, c(0.1, 0.9))
+
+ggplot(ennuste |> filter(kk <= 36), aes(kk)) +
+  stat_slab(fill = kvar_palette[["blue"]], alpha = 0.6) +
+  geom_vline(xintercept = med, color = kvar_palette[["red"]], linewidth = 1) +
+  geom_vline(xintercept = q80, color = kvar_palette[["orange"]], linetype = "dashed") +
+  labs(title = "Ennuste: kuinka kauan uusi sulautuminen kestää?",
+       subtitle = sprintf("Ennustejakauma kaudelle %s. Mediaani %.1f kk (punainen), 80 %% väli %.1f–%.1f kk (oranssi).",
+                          viim_kausi, med, q80[[1]], q80[[2]]),
+       x = "Kuukautta suunnitelmasta täytäntöönpanoon", y = NULL) +
+  theme(axis.text.y = element_blank())
+```
+
+Kuvaajan leveys on koko viesti: yksi luku ei riitä. Nopeimmat menevät läpi
+muutamassa kuukaudessa, hitaimmat venyvät reilusti yli vuoden — ja malli antaa
+jokaiselle todennäköisyytensä.
+
+
+## Mitä tämä tarkoittaa päättäjälle?
+
+Kolme käytännön johtopäätöstä.
+
+**Läpimenoaika on jakauma, ja sen hajonta on suuri.** Mediaani ei riitä
+suunnitteluun. Jos rahoitusjärjestely tai integraatiosuunnitelma nojaa
+"tyypilliseen" kestoon, se on rakennettu keskiluvulle, joka kuvaa harvaa
+yksittäistapausta.
+
+**Osa suunnitelmista ei koskaan toteudu.** Se on riski, joka on kvantifioitavissa —
+ja jonka huomiotta jättäminen on tavanomaista.
+
+**Kaikki tämä on julkista dataa.** Yksikään neuvonantaja ei tarvitse sisäpiiritietoa
+kertoakseen asiakkaalleen, mikä on realistinen aikataulujakauma. Riittää, että
+katsoo rekisteriä oikein — ja käsittelee sensuroinnin oikein, mikä on juuri se
+kohta, jossa naiivi analyysi menee pieleen.
+
+---
+
+*Tämä analyysi on osa avoimen datan sarjaani. Autan asianajotoimistoja,
+rahoittajia ja yritysjärjestelyjen tekijöitä muuttamaan julkisen datan
+päätöskelpoisiksi ennusteiksi.
+[kristianvepsalainen.com](https://www.kristianvepsalainen.com).*

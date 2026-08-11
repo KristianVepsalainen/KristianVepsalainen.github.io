@@ -22,9 +22,9 @@ execute: { warning: false, message: false, echo: true }
 > tutkia, muuttuuko myös **aiheiden koostumus** — ja selittävätkö koostumuksen
 > muutokset havaittuja kehityssuuntia. Kiitos ehdotuksesta; tässä vastaus.
 >
-> **Samalla vastaan kahteen jatkokysymykseen puheaktiivisuudesta:** selittääkö sitä
+> **Samalla vastaan yhteen jatkokysymykseen puheaktiivisuudesta:** selittääkö sitä
 > edustajan kokemus (ensimmäistä kauttaan istuva "keltanokka" vs. useamman kauden
-> "konkari"), ja se, onko edustaja jatkamassa seuraavalle vaalikaudelle.
+"konkari")
 
 ## Kysymys: määrä vai koostumus?
 
@@ -38,9 +38,9 @@ koostumuksen liikettä?
 ## Menetelmä: rakenteiset aihetunnisteet, ei NLP
 
 Emme luokittele puheita tekstimallilla. Sen sijaan hyödynnämme aineiston **omia
-aihetunnisteita** (`AiheTeksti`, osa 10) ja tiivistämme ne muutamaan
+aihetunnisteita**  ja tiivistämme ne muutamaan
 politiikkakategoriaan läpinäkyvällä sääntökartalla. Tämä on toistettavaa ja
-rehellistä — sama periaate kuin osan 10 aihevirrassa.
+rehellistä. 
 
 ```{r setup}
 #| cache: false
@@ -69,14 +69,6 @@ luokittele_aihe <- function(a) {
 }
 ```
 
-::: {.callout-note title="Kaksi tasoa — mikä toimii jo nyt"}
-Tämä osa vastaa kysymykseen **aloitteiden ja kysymysten aihekoostumuksella**, joka
-on jo jäsennetty (osat 9–10) ja siksi ajettavissa heti. Se on vahva vastaus itsessään,
-koska aloitteet heijastavat edustajien agendaa. **Täysistuntopuheiden** aihekoostumus
-(varsinaisen osan 6 sarjan) vaatii puheiden liittämisen käsiteltävään asiakirjaan
-(`SaliDBKohtaAsiakirja`) — se on merkitty alle verifiointikohdaksi ja aktivoidaan,
-kun liitosavaimet on varmistettu.
-:::
 
 ## Aihekoostumus vaalikausittain
 
@@ -270,13 +262,7 @@ tibble(
                      scales::percent(mean(ld[,2] < ld[,1]), .1)))
 ```
 
-::: {.callout-important title="Lame duck -tulkinta — ja korvikkeen raja"}
-"Ei jatkanut seuraavalle kaudelle" **sekoittaa** kaksi eri asiaa: edustajat, jotka
-eivät asettuneet ehdolle (eläkkeelle jäävät), ja edustajat, jotka hävisivät vaalit.
-Vain edellinen on aito "lame duck". Lisäksi puheaktiivisuus voi itse vaikuttaa
-uudelleenvalintaan (osa 7), joten yhteyttä ei pidä lukea puhtaana syy-seurauksena.
-Todellinen ehdokkuustieto erottaisi nämä — ks. seuraava kohta.
-:::
+
 
 
 ## Mitä tämä tarkoittaa päättäjälle
@@ -288,8 +274,6 @@ Todellinen ehdokkuustieto erottaisi nämä — ks. seuraava kohta.
 - **Iso otos: katso efektikokoa.** Merkitsevyys on lähes taattu; suuruus ei ole.
 - **Kokemus ja aktiivisuus kulkevat yhdessä**, mutta suunnan ja suuruuden kertoo
   malli uskottavuusvälein — ei ennakkokäsitys konkareista tai keltanokista.
-- **Lame duck -ilmiö on mitattavissa mutta varovasti:** korvike sekoittaa eläkkeelle
-  jäävät ja hävinneet, ja aito ehdokasdata tarvitaan erottamaan ne.
 
 ---
 

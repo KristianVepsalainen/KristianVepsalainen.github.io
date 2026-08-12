@@ -1,7 +1,7 @@
 ---
 title: "Jalkapallon talous, osa 2: Mistä rahat tulevat ja mihin ne menevät?"
 author: "Kristian Vepsäläinen"
-date: 2025-04-30
+date: 2026-04-30
 format: html
 lang: fi
 

@@ -1,0 +1,186 @@
+---
+title: "Kannattaako kansanedustajan puhua?"
+subtitle: "Eduskunta jakaumana, osa 7: aktiivisuus ja uudelleenvalinta"
+description: >
+  Pitääkö puhua pysyäkseen vallassa? Rakennamme ennustemallin uudelleenvalinnalle —
+  ja käsittelemme avoimesti sen, miksi tämä ei ole syy-seuraussuhde.
+date: 2026-08-13
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, ennustemalli, survival, kausaalisuus]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+## Uutiskoukku: näkyvyys vai työ?
+
+Kansanedustaja, joka haluaa jatkokauden, voi käyttää aikansa kahdella tavalla:
+näkyä salissa tai tehdä työtä kulisseissa. Kumpi kannattaa? Kysymys on
+houkutteleva — ja juuri siksi vaarallinen. Rakennamme mallin, joka vastaa siihen
+mihin data pystyy, ja sanomme suoraan, mihin se ei pysty.
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales); library(brms)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank()))
+DATA <- here("data", "eduskunta")
+paneeli  <- qs2::qs_read(file.path(DATA, "paneeli.qs"))
+mp_years <- qs2::qs_read(file.path(DATA, "mp_years.qs"))
+mp       <- qs2::qs_read(file.path(DATA, "mp.qs"))
+```
+
+## Vastemuuttuja: jatkoiko edustaja seuraavalla kaudella?
+
+Vaalivuodet ovat 2015, 2019 ja 2023. Kullekin kaudelle katsomme, ketkä istuivat
+kauden aikana ja ketkä jatkoivat seuraavalla.
+
+```{r vaste}
+kaudet <- tibble(kausi = c(2015, 2019), seuraava = c(2019, 2023))
+
+rakenna <- function(alku, seur) {
+  istui <- mp_years |> filter(vuosi >= alku, vuosi < seur) |> distinct(henkilo_nro)
+  jatkoi <- mp_years |> filter(vuosi >= seur, vuosi < seur + 4) |> distinct(henkilo_nro) |>
+    mutate(jatkoi = 1L)
+  akt <- paneeli |> filter(vuosi >= alku, vuosi < seur) |>
+    group_by(henkilo_nro) |>
+    summarise(puheita = sum(n_puheita), vuosia = n(), .groups = "drop") |>
+    mutate(puheita_per_vuosi = puheita / pmax(vuosia, 1))
+  istui |> left_join(akt, by = "henkilo_nro") |>
+    left_join(jatkoi, by = "henkilo_nro") |>
+    mutate(jatkoi = replace_na(jatkoi, 0L), kausi = alku)
+}
+d <- map2_dfr(kaudet$kausi, kaudet$seuraava, rakenna) |>
+  left_join(mp |> select(henkilo_nro, sukupuoli, synt_vuosi, ministeri, toimielin_lkm),
+            by = "henkilo_nro") |>
+  mutate(ika = kausi - synt_vuosi) |>
+  drop_na(puheita_per_vuosi, sukupuoli, ika)
+
+stopifnot("Vastemuuttuja vakio" = n_distinct(d$jatkoi) == 2)
+d |> count(kausi, jatkoi)
+```
+
+## ENNEN MALLIA: miksi tämä ei ole syy-seuraussuhde
+
+::: {.callout-important title="Endogeenisuus — luettava ennen tulosta"}
+Houkutus on tulkita tulos ohjeeksi: "puhu enemmän, niin sinut valitaan uudelleen."
+Se olisi virhe, ja tässä on kolme syytä:
+
+1. **Käänteinen kausaliteetti.** Vaaleissa heikoilla olevat edustajat voivat puhua
+   *enemmän* juuri saadakseen näkyvyyttä. Silloin puhe ei aiheuta valintaa vaan
+   vaaliuhka aiheuttaa puhetta.
+2. **Sekoittava kolmas tekijä.** Ministerit, ryhmäjohtajat ja valiokuntien
+   puheenjohtajat sekä puhuvat paljon **että** tulevat valituiksi useammin. Asema
+   ajaa molempia. Kontrolloimme tätä, mutta emme voi kontrolloida kaikkea.
+3. **Valikoituminen.** Osa jättäytyy vapaaehtoisesti pois. He eivät "hävinneet" —
+   he eivät osallistuneet. Datassa he näyttävät samalta.
+
+Tämä malli on siis **ennustava, ei kausaalinen**. Se kertoo, ketkä jatkoivat, ei
+sitä, mitä yksittäisen edustajan kannattaisi tehdä. Kerron tämän etukäteen enkä
+alaviitteessä, koska juuri tässä useimmat analyysit menevät pieleen.
+:::
+
+## Ennustemalli
+
+```{r malli}
+#| cache: false
+fit_path <- file.path(DATA, "osa7_uudelleenvalinta.qs")
+d <- d |> mutate(puhe_log = log1p(puheita_per_vuosi),
+                 toimielin = replace_na(toimielin_lkm, 0))
+if (!file.exists(fit_path)) {
+  m <- brm(jatkoi ~ puhe_log + ika + sukupuoli + ministeri + toimielin + (1 | kausi),
+           family = bernoulli(), data = d,
+           chains = 4, iter = 2000, cores = 4, refresh = 0)
+  qs2::qs_save(m, fit_path)
+}
+m <- qs2::qs_read(fit_path)
+summary(m)
+```
+
+```{r efekti}
+# Ennustettu jatkamistodennäköisyys puheaktiivisuuden mukaan (muut keskiarvossa)
+nd <- tibble(
+  puheita_per_vuosi = seq(0, quantile(d$puheita_per_vuosi, .95), length.out = 40)) |>
+  mutate(puhe_log = log1p(puheita_per_vuosi),
+         ika = mean(d$ika), sukupuoli = "Mies",
+         ministeri = 0, toimielin = mean(d$toimielin))
+pe <- posterior_epred(m, newdata = nd, re_formula = NA)
+pred <- nd |> mutate(keski = colMeans(pe),
+                     lo = apply(pe, 2, quantile, .025),
+                     hi = apply(pe, 2, quantile, .975))
+
+ggplot(pred, aes(puheita_per_vuosi, keski)) +
+  geom_ribbon(aes(ymin = lo, ymax = hi), fill = pal[["turkoosi"]], alpha = .25) +
+  geom_line(color = pal[["turkoosi"]], linewidth = 1) +
+  scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
+  labs(title = "Puheaktiivisuus ja uudelleenvalinta — yhteys, ei syy",
+       subtitle = "Ennustettu todennäköisyys jatkaa, 95 % uskottavuusvälein",
+       x = "Puheenvuoroja vuodessa", y = "P(jatkoi seuraavalla kaudella)")
+
+# Suora todennäköisyysväittämä kertoimesta
+post <- as_draws_df(m)
+p_pos <- mean(post$b_puhe_log > 0)
+glue::glue("P(puheaktiivisuuden kerroin > 0) = {percent(p_pos, .1)}")
+```
+
+## Counterfactual: entä jos hiljainen olisi puhunut?
+
+Bayeslainen malli sallii suoran vertailun kahden skenaarion välillä **saman
+edustajaprofiilin sisällä**. Tämä on ennuste, ei lupaus — se kertoo, mitä *mallin
+mukaan* olisi odotettavissa, jos vain puheaktiivisuus poikkeaisi.
+
+```{r counterfactual}
+profiili <- tibble(ika = mean(d$ika), sukupuoli = "Mies", ministeri = 0,
+                   toimielin = mean(d$toimielin))
+skenaariot <- bind_rows(
+  profiili |> mutate(skenaario = "Hiljainen (10. persentiili)",
+                     puhe_log = log1p(quantile(d$puheita_per_vuosi, .10))),
+  profiili |> mutate(skenaario = "Puhelias (90. persentiili)",
+                     puhe_log = log1p(quantile(d$puheita_per_vuosi, .90))))
+pe2 <- posterior_epred(m, newdata = skenaariot, re_formula = NA)
+cf <- tibble(`Hiljainen` = pe2[,1], `Puhelias` = pe2[,2]) |>
+  mutate(ero = Puhelias - Hiljainen)
+
+ggplot(cf, aes(x = ero)) +
+  stat_halfeye(fill = pal[["oranssi"]], .width = c(.66,.95)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = pal[["punainen"]]) +
+  scale_x_continuous(labels = label_percent()) +
+  labs(title = "Counterfactual: puheliaan ja hiljaisen ero",
+       subtitle = "Ero jatkamistodennäköisyydessä, muut tekijät vakioituna",
+       x = "Ero todennäköisyydessä (prosenttiyksikköä)", y = NULL)
+
+glue::glue("P(puhelias jatkaa todennäköisemmin) = {percent(mean(cf$ero > 0), .1)}")
+```
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Ennuste ja syy ovat eri asioita.** Malli tunnistaa, ketkä jatkoivat. Se ei kerro,
+  mitä yksilön pitäisi tehdä. Ero on tärkein asia, jonka päättäjän tulee ymmärtää
+  data-analyysistä.
+- **Counterfactual on työkalu, ei kristallipallo.** Se näyttää, mitä *mallin sisällä*
+  tapahtuisi eri oletuksella — ja sen arvo riippuu siitä, kuinka rehellisesti mallin
+  rajat on kerrottu.
+- **Epävarmuus on tulos.** Jos väli leikkaa nollan, se on vastaus — ei epäonnistuminen.
+
+## Uutiskoukku takaisin
+
+Kannattaako puhua? Data kertoo, että puheliaat ja jatkaneet ovat päällekkäisiä
+joukkoja. Mutta se, kumpi aiheuttaa kumman, ei ratkea tällä aineistolla — ja
+analyytikon tärkein taito on sanoa se ääneen.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Ennustemallit, counterfactual-skenaariot ja rehellinen raja sen välillä, mitä data
+voi ja ei voi kertoa — **kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data (CC BY 4.0).*

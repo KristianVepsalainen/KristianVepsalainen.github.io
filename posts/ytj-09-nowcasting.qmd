@@ -1,0 +1,257 @@
+---
+title: "Reaaliaikainen talousmittari, joka on ollut koko ajan olemassa"
+subtitle: "Kaupparekisterin ilmoitusvirta kertoo yritysten liikkeistä kuukausia ennen virallisia tilastoja — ja se on ennustettavissa"
+date: 2026-08-18
+categories: [avoin data, bayes, ennustaminen, suhdanne, YTJ]
+draft: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+library(tidyverse)
+library(here)
+library(ggdist)
+select <- dplyr::select
+filter <- dplyr::filter
+source(here("R","ytj", "theme_kristian.R"))
+source(here("R","ytj", "yhdista_apu.R"))
+theme_set(theme_kristian())
+```
+
+Virallinen tilasto on aina myöhässä. Yritystilastot julkaistaan viiveellä,
+tilinpäätökset vielä pidemmällä, ja siihen mennessä kun luku on käytettävissä,
+päätös on jo tehty. Tämä on tuttu ongelma jokaiselle, joka yrittää ymmärtää
+taloutta reaaliajassa: mittari kertoo, missä olimme, ei missä olemme.
+
+Samaan aikaan kaupparekisteriin virtaa joka arkipäivä tuhansia ilmoituksia.
+Yrityksiä perustetaan, hallituksia vaihdetaan, konkursseja aloitetaan,
+sulautumissuunnitelmia jätetään. Tämä virta on julkista, päivittyy jatkuvasti —
+ja se on käytännössä käyttämätön talousindikaattorina.
+
+Tässä osassa rakennetaan siitä sellainen. Kysymys on kaksiosainen: **onko
+rekisterivirrassa rakennetta, jota voi mallintaa** — ja **voiko sitä ennustaa
+riittävän hyvin, jotta siitä olisi hyötyä?**
+
+Ennustaminen on tässä koko pointti. Kuvaajan piirtäminen menneestä on helppoa;
+osaamisen mitta on se, mitä uskaltaa sanoa tulevasta ja kuinka rehellisesti kertoo
+epävarmuutensa.
+
+## Mistä datassa on kyse?
+
+::: {.callout-note}
+Aineistona PRH:n rekisteröidyt ilmoitukset (7.11.2014 alkaen; CC BY 4.0).
+Tarkastelen kolmea virtaa: **PERUS** (yrityksen perustaminen), **KONALK**
+(konkurssin alkaminen) ja **HAL** (hallituksen muutos). Rajaan tarkastelun
+kokonaisiin kuukausiin, koska viimeisin kuukausi on aina vajaa — ja vajaan
+kuukauden ottaminen mukaan tuottaisi näennäisen romahduksen, joka on puhdas
+artefakti. Tämä on tavallisin virhe rekisteridatan aikasarjoissa.
+:::
+
+```{r lataa}
+pitka <- qs2::qs_read(here("data", "ytj", "ilmoitukset_pitka.qs"))
+stopifnot(
+  all(c("nid","pvm","koodi") %in% names(pitka)),
+  all(c("PERUS","KONALK","HAL") %in% unique(pitka$koodi))   # vahti
+)
+
+# Viimeinen KOKONAINEN kuukausi: vajaa kuukausi pudotetaan aina pois.
+viim_pvm <- max(pitka$pvm, na.rm = TRUE)
+viim_kk  <- lubridate::floor_date(viim_pvm, "month") - lubridate::days(1)
+viim_kk  <- lubridate::floor_date(viim_kk, "month")
+
+kk_data <- pitka |>
+  filter(koodi %in% c("PERUS","KONALK","HAL")) |>
+  mutate(kk = lubridate::floor_date(pvm, "month")) |>
+  filter(kk >= as.Date("2015-01-01"), kk <= viim_kk) |>
+  group_by(kk, koodi) |>
+  summarise(n = n_distinct(nid), .groups = "drop")
+
+stopifnot(nrow(kk_data) > 100, max(kk_data$kk) <= viim_kk)
+```
+
+## Kolme virtaa, kolme tarinaa
+
+```{r virrat}
+nimet <- c(PERUS = "Perustamiset", KONALK = "Konkurssit", HAL = "Hallitusmuutokset")
+
+ggplot(kk_data |> mutate(virta = nimet[koodi]),
+       aes(kk, n, color = virta)) +
+  geom_line(linewidth = 0.7) +
+  facet_wrap(~ virta, scales = "free_y", ncol = 1) +
+  scale_color_manual(values = unname(kvar_palette[c("teal","red","blue")])) +
+  guides(color = "none") +
+  labs(title = "Kaupparekisterin ilmoitusvirrat kuukausittain",
+       subtitle = "Kolme eri ilmiötä, kolme eri dynamiikkaa",
+       x = NULL, y = "Ilmoituksia kuukaudessa")
+```
+
+Silmämääräisesti näkyy kaksi rakennetta: **kausivaihtelu** (kuukaudet eivät ole
+samanlaisia — heinäkuu ja joulukuu poikkeavat) ja **trendi**. Ennen ennustamista
+on syytä testata, ovatko nämä todellisia vai kuviteltuja.
+
+## Onko kausivaihtelu todellista?
+
+Testaan, jakautuvatko perustamiset tasaisesti kuukausille. Nollahypoteesi on
+tasajakauma; testinä khiin neliö. Koska aineisto on suuri, p-arvo olisi pieni
+lähes väistämättä — siksi raportoin myös **efektikoon** (Cramérin V), joka kertoo
+poikkeaman voimakkuuden.
+
+```{r kausi-testi}
+perus_kk <- kk_data |>
+  filter(koodi == "PERUS") |>
+  mutate(kk_num = lubridate::month(kk)) |>
+  group_by(kk_num) |>
+  summarise(n = sum(n), .groups = "drop") |>
+  arrange(kk_num)
+
+stopifnot(nrow(perus_kk) == 12, all(perus_kk$n > 0))
+
+khii <- chisq.test(perus_kk$n, p = rep(1/12, 12))
+stopifnot(all(khii$expected >= 5))
+v <- sqrt(as.numeric(khii$statistic) / sum(perus_kk$n))   # Cramérin V, 1 x 12
+
+kk_nimet <- c("tammi","helmi","maalis","huhti","touko","kesä",
+              "heinä","elo","syys","loka","marras","joulu")
+odotettu <- mean(perus_kk$n)
+
+perus_kk |>
+  mutate(kuukausi = factor(kk_nimet[kk_num], levels = kk_nimet),
+         poikkeama = n / odotettu - 1) |>
+  ggplot(aes(kuukausi, poikkeama, fill = poikkeama > 0)) +
+  geom_col() +
+  geom_hline(yintercept = 0, color = "grey60") +
+  scale_fill_manual(values = c(`TRUE` = kvar_palette[["teal"]],
+                               `FALSE` = kvar_palette[["red"]])) +
+  scale_y_continuous(labels = scales::percent) +
+  guides(fill = "none") +
+  labs(title = "Yrityksiä ei perusteta tasaisesti ympäri vuoden",
+       subtitle = sprintf("Poikkeama kuukausikeskiarvosta. Khiin neliö p = %s, Cramérin V = %.3f",
+                          format.pval(khii$p.value, digits = 2), v),
+       x = NULL, y = "Poikkeama keskitasosta")
+```
+
+Kausivaihtelu on todellista ja voimakasta. Se tarkoittaa, että kuukausiluvun
+vertaaminen edelliseen kuukauteen — kuten uutisissa usein tehdään — on
+harhaanjohtavaa. Vertailukohta on **saman kuukauden** aiempi taso, tai malli, joka
+ottaa kausivaihtelun huomioon.
+
+## Ennustemalli
+
+Rakennan **bayesilaisen negatiivisen binomijakauman regression** perustamisten
+kuukausivirralle. Menetelmävalinnat perusteluineen:
+
+**Laskurimuuttuja, ei jatkuva.** Ilmoitusten määrä on kokonaisluku, joten
+normaalijakauma olisi väärä. Negatiivinen binomi valitaan Poissonin sijaan, koska
+data on **ylihajaantunutta** (hajonta on suurempi kuin Poisson sallisi) — Poisson
+tuottaisi liian kapeat, valheellisen varmat ennustevälit.
+
+**Kausivaihtelu mukaan kuukausitekijänä**, koska juuri todistimme sen olevan
+todellinen.
+
+**Trendi lineaarisena aikamuuttujana**, joka sallii tason muutoksen.
+
+**Bayesilaisuus**, koska ennuste ilman epävarmuusväliä on arvaus, joka teeskentelee
+tietoa.
+
+```{r malli}
+malli_path <- here("data", "ytj", "nowcast_malli.qs")
+
+perus_sarja <- kk_data |>
+  filter(koodi == "PERUS") |>
+  arrange(kk) |>
+  mutate(
+    aika = as.numeric(difftime(kk, min(kk), units = "days")) / 365.25,
+    kuukausi = factor(lubridate::month(kk))
+  )
+
+# Aito ennustekoe: opeta vain vanhemmalla datalla, ennusta viimeiset 12 kk.
+H <- 12
+opetus <- perus_sarja |> slice_head(n = nrow(perus_sarja) - H)
+testi  <- perus_sarja |> slice_tail(n = H)
+stopifnot(nrow(opetus) > 36, nrow(testi) == H)
+
+if (!file.exists(malli_path)) {
+  fit <- brms::brm(
+    n ~ aika + kuukausi,
+    data = opetus, family = brms::negbinomial(),
+    prior = c(brms::prior(normal(0, 5), class = "Intercept"),
+              brms::prior(normal(0, 2), class = "b")),
+    chains = 4, iter = 2000, seed = 20260811, refresh = 0
+  )
+  qs2::qs_save(fit, malli_path)
+} else {
+  fit <- qs2::qs_read(malli_path)
+}
+```
+
+### Kokeen tulos: osuiko malli?
+
+Tämä on rehellisyyden hetki. Malli ei ole nähnyt viimeisen 12 kuukauden dataa.
+Piirretään sen ennuste ja **verrataan siihen, mitä todella tapahtui.**
+
+```{r ennuste}
+pred <- brms::posterior_predict(fit, newdata = testi)
+ennuste <- testi |>
+  mutate(
+    ennuste_ka = colMeans(pred),
+    lo50 = apply(pred, 2, quantile, 0.25),
+    hi50 = apply(pred, 2, quantile, 0.75),
+    lo95 = apply(pred, 2, quantile, 0.025),
+    hi95 = apply(pred, 2, quantile, 0.975)
+  )
+
+# Kattavuus: kuinka moni toteutunut arvo osui 95 %:n väliin?
+kattavuus <- mean(ennuste$n >= ennuste$lo95 & ennuste$n <= ennuste$hi95)
+mape <- mean(abs(ennuste$n - ennuste$ennuste_ka) / ennuste$n)
+
+ggplot() +
+  geom_line(data = opetus, aes(kk, n), color = kvar_palette[["blue"]], linewidth = 0.6) +
+  geom_ribbon(data = ennuste, aes(kk, ymin = lo95, ymax = hi95),
+              fill = kvar_palette[["orange"]], alpha = 0.2) +
+  geom_ribbon(data = ennuste, aes(kk, ymin = lo50, ymax = hi50),
+              fill = kvar_palette[["orange"]], alpha = 0.35) +
+  geom_line(data = ennuste, aes(kk, ennuste_ka),
+            color = kvar_palette[["orange"]], linewidth = 0.9) +
+  geom_point(data = ennuste, aes(kk, n), color = kvar_palette[["red"]], size = 2) +
+  labs(title = "Ennuste vs. toteuma: osuiko malli?",
+       subtitle = sprintf("Oranssi = ennuste (50 %% ja 95 %% väli), punaiset pisteet = toteutunut. %s toteumista osui 95 %%:n väliin. Keskim. virhe %.1f %%.",
+                          scales::percent(kattavuus, accuracy = 1), 100 * mape),
+       x = NULL, y = "Perustamisia kuukaudessa")
+```
+
+::: {.callout-important}
+## Miksi tämä kuvaaja on tärkeämpi kuin mikään kertoimien taulukko
+Ennustemallin ainoa rehellinen mitta on se, miten se pärjää datalla, jota se ei ole
+nähnyt. Tässä malli opetettiin vanhemmalla datalla ja pantiin ennustamaan vuosi
+eteenpäin sokkona. Punaiset pisteet ovat totuus.
+
+Yhtä tärkeää kuin osuvuus on **kalibraatio**: osuiko oikea osuus toteumista
+väleihin? Jos 95 %:n väli sisältäisi vain puolet toteumista, malli olisi
+liian itsevarma — ja liian itsevarma malli on vaarallisempi kuin epätarkka, koska
+se saa päättäjän luottamaan väärään lukuun.
+:::
+
+## Mitä tämä tarkoittaa päättäjälle?
+
+Kaupparekisterin ilmoitusvirta on **reaaliaikainen, ilmainen ja ennustettava**
+talousindikaattori, joka päivittyy joka arkipäivä — kuukausia ennen kuin vastaava
+virallinen tilasto ilmestyy. Se ei korvaa virallista tilastoa, mutta se kertoo
+suunnan aikaisemmin.
+
+Kolme käytännön huomiota. **Vertaa aina samaan kuukauteen**, älä edelliseen —
+kausivaihtelu on niin voimakas, että kuukausimuutos on lähes merkityksetön luku.
+**Älä käytä vajaata kuukautta**; se näyttää aina romahdukselta. Ja **vaadi
+ennusteelta epävarmuusväli**: ennuste ilman väliä ei ole ennuste vaan mielipide.
+
+Tämä on avoimen datan lupaus konkreettisimmillaan. Indikaattori on ollut koko ajan
+olemassa. Se piti vain rakentaa.
+
+---
+
+*Tämä analyysi on osa avoimen datan sarjaani. Rakennan organisaatioille
+reaaliaikaisia, epävarmuutensa tuntevia mittareita julkisesta ja omasta datasta —
+vuokrattavana Head of Data -osaajana.
+[kristianvepsalainen.com](https://www.kristianvepsalainen.com).*

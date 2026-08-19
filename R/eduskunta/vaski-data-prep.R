@@ -9,7 +9,7 @@ select <- dplyr::select; filter <- dplyr::filter
 
 DATA <- here("data", "eduskunta")
 stopifnot("Aja ensin R/eduskunta-data-prep.R" = file.exists(file.path(DATA, "mp.qs")))
-mp <- qs2::qd_read(file.path(DATA, "mp.qs"))
+mp <- qs2::qs_read(file.path(DATA, "mp.qs"))
 
 hae_taulu <- function(taulu, per_page = 100, max_sivut = 20000) {
   base <- "https://avoindata.eduskunta.fi/api/v1/tables"

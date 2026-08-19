@@ -1,0 +1,169 @@
+---
+title: "Mitä eduskunta tuottaa? Katsaus 340 000 asiakirjaan"
+subtitle: "Eduskunta jakaumana, osa 8: valtiopäiväasiakirjat tutuksi"
+description: >
+  Eduskunnan avoin data sisältää kaikki valtiopäiväasiakirjat vuodesta 2015 —
+  yli 340 000 dokumenttia. Tässä osassa avaamme, mitä aineisto sisältää ja mitä
+  siitä voi oppia, ennen kuin sukellamme yksittäisiin ilmiöihin.
+date: 2026-08-20
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, jakaumat, EDA]
+draft: TRUE
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+> **Uusi jakso sarjassa.** Osissa 1–7 tutkimme, keitä kansanedustajat ovat ja miten
+> he puhuvat. Nyt käännämme katseen siihen, mitä eduskunta *tuottaa*: lakialoitteet,
+> kirjalliset kysymykset, valiokuntamietinnöt, hallituksen esitykset. Tämä osa on
+> kartta aineistoon; osat yhdeksästä eteenpäin sukeltavat yksittäisiin ilmiöihin.
+
+## Uutiskoukku: näkymätön työ
+
+Julkinen keskustelu näkee eduskunnasta täysistunnon — puheet ja äänestykset. Mutta
+suurin osa työstä on asiakirjoja: aloitteita, kysymyksiä, mietintöjä. Tämä aineisto
+tekee sen työn näkyväksi. Ja kuten aina, se ei ole yksi luku vaan jakauma:
+kymmeniä asiakirjatyyppejä, hyvin eri määrinä.
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(scales); library(patchwork)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), plot.subtitle = element_text(color="grey30"),
+        panel.grid.minor = element_blank()))
+DATA <- here("data", "eduskunta")
+docs <- qs2::qd_read(file.path(DATA, "vaski_docs.qs"))
+stopifnot("Aja ensin R/vaski-data-prep.R" = nrow(docs) > 100000)
+```
+
+## Mikä aineisto tämä on
+
+`VaskiData` on eduskunnan valtiopäiväasiakirjojen kokoelma XML-muodossa, vuodesta
+2015. Jokainen rivi on yksi asiakirja, ja `Eduskuntatunnus` (esim. `KK 47/2018 rd`)
+kertoo tyypin ja valtiopäivävuoden. Lisenssi on CC BY 4.0.
+
+```{r yleiskuva}
+tibble(
+  asiakirjoja = nrow(docs),
+  tyyppeja    = n_distinct(docs$tyyppi),
+  vuodet      = paste0(min(docs$vpvuosi, na.rm=TRUE), "–", max(docs$vpvuosi, na.rm=TRUE)))
+```
+
+## Jakauma ensin: asiakirjatyypit
+
+Tyyppejä on yli 200, mutta muutama hallitsee. Näytetään yleisimmät — huomaa, kuinka
+vino jakauma on.
+
+```{r tyypit}
+top <- docs |> count(tyyppi, sort = TRUE) |> slice_head(n = 20)
+ggplot(top, aes(x = n, y = fct_reorder(tyyppi, n))) +
+  geom_col(fill = pal[["laivasto"]]) +
+  scale_x_continuous(labels = label_number(big.mark = " ")) +
+  labs(title = "20 yleisintä asiakirjatyyppiä",
+       subtitle = "Muutama tyyppi kattaa valtaosan aineistosta",
+       x = "Asiakirjoja", y = NULL)
+```
+
+Selitys asiakirjatyypeille. Suuri osa yleisimmistä tunnuksista liittyy edustajien omaan toimintaan tai on saman asiakirjan ruotsinkielinen versio.
+
+* Hallitus ja lainsäädäntö: **HE** hallituksen esitys, **EV** eduskunnan vastaus (hallituksen esitykseen).
+* Edustajien aloitteet: **LA** lakialoite, **TPA** toimenpidealoite, **TAA** talousarvioaloite.
+* Kysymykset: **KK** kirjallinen kysymys, **KKV** vastaus kirjalliseen kysymykseen, **SKT** suullisen kyselytunnin kysymys.
+* EU-asiat: **U** valtioneuvoston kirjelmä EU:ssa valmisteltavasta asiasta, **E** valtioneuvoston selvitys EU-asiasta, **EUN** valtioneuvoston selvitys EU:n neuvoston tai Eurooppa-neuvoston kokouksesta.
+* Pöytäkirjat: **PTK** täysistunnon pöytäkirja.
+* Ruotsinkieliset vastineet: **RP = HE** (regeringens proposition), **RSv = EV** (riksdagens svar), **SS = KK** (skriftligt spörsmål), **SSS = KKV**, **BM = TAA** (budgetmotion), **PR = PTK** (plenarprotokoll), **MFT = SKT**.
+* Tekninen tunniste: **EDK** on eduskunnan asiakirjatunnus (esim. EDK-2024-AK-…), jonka alle yksittäiset asiakirjat ja liitteet tallennetaan — ei siis oma asiakirjatyyppi, mikä selittää sen suuren määrän.
+
+## Neljä ryhmää — mistä eduskunnan työ koostuu
+
+```{r ryhmat}
+# EDK on tekninen yleistunniste (EDK-YYYY-AK-…), ei asiakirjatyyppi -> pois grouped-tarkastelusta
+docs_luok <- docs |> filter(tyyppi != "EDK")
+
+luokittele <- function(t) dplyr::case_when(
+  # Edustajien aloitteet (ml. ruotsi: LM=lakialoite, AM=toimenpidealoite, BM=talousarvioaloite)
+  t %in% c("LA","TPA","TAA","LM","AM","BM")             ~ "Edustajien aloitteet",
+  # Kysymykset ja vastaukset (ml. ruotsi: SS=KK, SSS=KKV, MFT=SKT)
+  t %in% c("KK","KKV","SKT","SS","SSS","MFT")           ~ "Kysymykset",
+  # Hallituksen esitykset ja selonteot (RP = HE ruotsiksi)
+  t %in% c("HE","RP","VNS","VNT")                       ~ "Hallituksen esitykset ja selonteot",
+  # Eduskunnan vastaukset ja kirjelmät (RSv = EV ruotsiksi)
+  t %in% c("EV","RSv","EK")                             ~ "Eduskunnan vastaukset",
+  # EU- ja ulkoasiat
+  t %in% c("U","E","EUN","UTP")                         ~ "EU- ja ulkoasiat",
+  # Valiokuntatyö päätteestä: suomi …VM/…VL/…VP/…VE, ruotsi …UB/…UU/…UD
+  str_detect(t, "V[MLPE]$") | str_detect(t, "U[BUD]$")  ~ "Valiokuntatyö",
+  # Täysistunnot (PR = PTK ruotsiksi)
+  t %in% c("PTK","PR")                                  ~ "Istunnot",
+  TRUE ~ "Muut")
+
+ryhmat <- docs |> mutate(ryhma = luokittele(tyyppi)) |>
+  count(ryhma) |> mutate(osuus = n/sum(n))
+
+ggplot(ryhmat, aes(x = osuus, y = fct_reorder(ryhma, osuus))) +
+  geom_col(fill = pal[["turkoosi"]]) +
+  geom_text(aes(label = percent(osuus, .1)), hjust = -0.1, size = 3.5) +
+  scale_x_continuous(labels = label_percent(), expand = expansion(c(0,.15))) +
+  labs(title = "Eduskunnan asiakirjatuotanto neljässä ryhmässä",
+       x = NULL, y = NULL)
+```
+
+## Asiakirjavirta ajassa
+
+```{r ajassa}
+vuosittain <- docs |> filter(!is.na(vpvuosi), vpvuosi >= 2015, vpvuosi < 2026) |>
+  mutate(ryhma = luokittele(tyyppi)) |>
+  count(vpvuosi, ryhma)
+
+# Laajennettu paletti ryhmäkuvaajille (8 luokkaa). Perustuu pal-väreihin + 3 lisäsävyä.
+ryhma_varit <- c(unname(pal), "#8d6e9c", "#e9c46a", "#6d6875")
+
+ggplot(vuosittain, aes(vpvuosi, n, color = ryhma)) +
+  geom_line(linewidth = 1) + geom_point() +
+  scale_color_manual(values = ryhma_varit) +
+  scale_y_continuous(labels = label_number(big.mark = " ")) +
+  labs(title = "Asiakirjatuotanto vuosittain ryhmittäin",
+       subtitle = "Vaalikausien vaihtuminen ja kriisivuodet näkyvät",
+       x = NULL, y = "Asiakirjoja", color = NULL)
+```
+
+Piikit ja notkot eivät ole satunnaisia: vaalivuodet katkaisevat valtiopäivät, ja
+poikkeusolot (kuten COVID-vuodet) näkyvät sekä hallituksen esitysten että
+kysymysten määrissä. Näihin muutoskohtiin palaamme osassa, joka käsittelee
+lainsäädännön rytmiä.
+
+## Mitä tästä aineistosta saa irti — sarjan tiekartta
+
+Tämä aineisto kantaa viisi seuraavaa osaa:
+
+- **Osa 9:** Aloitteiden läpimeno — mikä ennustaa, meneekö lakialoite läpi?
+- **Osa 10:** Lainsäädännön aihevirta — mistä eduskunnassa tehdään aloitteita, ja
+  miten se muuttuu (rakenteisilla aihetunnisteilla, ei tekstimallinnuksella).
+- **Osa 11:** Yhteistyöverkostot — ketkä allekirjoittavat toistensa aloitteita?
+- **Osa 12:** Valiokuntien käsittelyajat — kuka on nopea, kuka ruuhkautuu?
+- **Osa 13:** Kirjalliset kysymykset — kuka kysyy, ja keneltä?
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Julkinen data ei ole valmis analyysi.** 340 000 XML-asiakirjaa on raaka-aine;
+  arvo syntyy siitä, että ne suodatetaan, jäsennetään ja yhdistetään oikein.
+- **Rakenne on jakauma.** Muutama tyyppi hallitsee, satoja on marginaalissa —
+  keskiarvo "asiakirjaa vuodessa" ei kertoisi mitään olennaista.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Suuren, jäsentymättömän datavarannon kääntäminen päätöksiä tukevaksi analytiikaksi
+on ydinosaamistani. **kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data, VaskiData (CC BY 4.0).*

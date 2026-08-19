@@ -3,7 +3,6 @@ title: "Reaaliaikainen talousmittari, joka on ollut koko ajan olemassa"
 subtitle: "Kaupparekisterin ilmoitusvirta kertoo yritysten liikkeistä kuukausia ennen virallisia tilastoja — ja se on ennustettavissa"
 date: 2026-08-18
 categories: [avoin data, bayes, ennustaminen, suhdanne, YTJ]
-draft: true
 execute:
   warning: false
   message: false

@@ -8,7 +8,6 @@ description: >
 date: 2026-08-20
 author: "Kristian Vepsäläinen"
 categories: [eduskunta, avoin data, jakaumat, EDA]
-draft: TRUE
 format:
   html:
     toc: true

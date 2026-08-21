@@ -124,8 +124,8 @@ vuosittain <- docs |> filter(!is.na(vpvuosi), vpvuosi >= 2015, vpvuosi < 2026) |
   mutate(ryhma = luokittele(tyyppi)) |>
   count(vpvuosi, ryhma)
 
-# Laajennettu paletti ryhmäkuvaajille (8 luokkaa). Perustuu pal-väreihin + 3 lisäsävyä.
-ryhma_varit <- c(unname(pal), "#8d6e9c", "#e9c46a", "#6d6875")
+# Laajennettu paletti ryhmäkuvaajille (8 luokkaa). Perustuu pal-väreihin + 4 lisäsävyä.
+ryhma_varit <- c(unname(pal), "#8d6e9c", "#e9c46a", "#6d6875", "#000")
 
 ggplot(vuosittain, aes(vpvuosi, n, color = ryhma)) +
   geom_line(linewidth = 1) + geom_point() +

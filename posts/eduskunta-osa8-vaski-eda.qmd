@@ -106,7 +106,7 @@ luokittele <- function(t) dplyr::case_when(
   t %in% c("K","B","VNS","VNT") ~ "Kertomukset ja selonteot",
   TRUE ~ "Muut")
 
-ryhmat <- docs |> mutate(ryhma = luokittele(tyyppi)) |>
+ryhmat <- docs_luok |> mutate(ryhma = luokittele(tyyppi)) |>
   count(ryhma) |> mutate(osuus = n/sum(n))
 
 ggplot(ryhmat, aes(x = osuus, y = fct_reorder(ryhma, osuus))) +

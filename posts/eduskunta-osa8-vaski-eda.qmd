@@ -104,6 +104,7 @@ luokittele <- function(t) dplyr::case_when(
   str_detect(t, "V[MLPE]$") | str_detect(t, "U[BUD]$")  ~ "Valiokuntatyö",
   # Täysistunnot (PR = PTK ruotsiksi)
   t %in% c("PTK","PR")                                  ~ "Istunnot",
+  t %in% c("K","B","VNS","VNT") ~ "Kertomukset ja selonteot",
   TRUE ~ "Muut")
 
 ryhmat <- docs |> mutate(ryhma = luokittele(tyyppi)) |>

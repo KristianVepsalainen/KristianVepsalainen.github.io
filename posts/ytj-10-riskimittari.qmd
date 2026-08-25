@@ -1,7 +1,7 @@
 ---
 title: "Rekisteririskimittari"
 subtitle: "Rakennetaan avoimesta datasta luottoriskimalli — ja testataan se rehellisesti tulevaisuudella"
-date: 2026-08-24
+date: 2026-08-25
 categories: [avoin data, bayes, luottoriski, validointi, YTJ]
 execute:
   warning: false
@@ -210,14 +210,19 @@ on luottopäätöksessä tärkeämpi kuin AUC. Väärin kalibroitu malli antaa o
 järjestyksen mutta väärän hinnan.
 
 ```{r validointi}
-p_testi <- colMeans(rstanarm::posterior_epred(fit, newdata = testi))
+# Piste-ennusteeseen ei tarvita kaikkia 4000 posteriorivetoa: muutama sata antaa
+# käytännössä saman keskiarvon murto-osassa ajasta ja muistista. Koko posteriorin
+# laskeminen kymmenilletuhansille riveille on turha pullonkaula.
+p_testi <- colMeans(rstanarm::posterior_epred(fit, newdata = testi, draws = 400))
 
 # AUC ilman lisäriippuvuuksia: Mann–Whitney U -yhteys
 auc_laske <- function(p, y) {
   r <- rank(p)
   n1 <- sum(y == 1); n0 <- sum(y == 0)
   stopifnot(n1 > 0, n0 > 0)
-  (sum(r[y == 1]) - n1 * (n1 + 1) / 2) / (n1 * n0)
+  # n1 * n0 pakotettava liukuluvuksi: isoilla ryhmillä kokonaislukukertolasku
+  # ylivuotaa (> 2,1e9) ja palauttaa NA:n (sama bugi kuin rank-biserialissa).
+  (sum(r[y == 1]) - n1 * (n1 + 1) / 2) / (as.numeric(n1) * as.numeric(n0))
 }
 auc <- auc_laske(p_testi, as.integer(testi$lakkasi))
 
@@ -240,20 +245,65 @@ kalib <- tibble(p = p_testi, y = as.integer(testi$lakkasi)) |>
     hi = qbeta(0.975, 1 + toteutunut * n, 1 + n - toteutunut * n)
   )
 
+# VERTAILUKOHTA: populaation perustaso. Jokainen riskiluku on tulkittava tätä
+# vasten — 11 % on korkea vain, jos keskiverto on 2,5 %.
+perusaste <- mean(as.integer(testi$lakkasi))
+
 ggplot(kalib, aes(ennustettu, toteutunut)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed",
               color = kvar_palette[["orange"]]) +
+  geom_hline(yintercept = perusaste, linetype = "dotted",
+             color = kvar_palette[["teal"]]) +
+  annotate("text", x = max(kalib$ennustettu) * 0.6, y = perusaste,
+           label = sprintf("Perustaso: %.1f %%", 100 * perusaste),
+           vjust = -0.6, size = 3, color = kvar_palette[["teal"]]) +
   geom_errorbar(aes(ymin = lo, ymax = hi), width = 0,
                 color = kvar_palette[["blue"]]) +
   geom_point(color = kvar_palette[["red"]], size = 2.5) +
   scale_x_continuous(labels = scales::percent) +
   scale_y_continuous(labels = scales::percent) +
   labs(title = "Onko malli kalibroitu? Testi tuntemattomalla tulevaisuudella",
-       subtitle = sprintf("Pisteiden pitäisi osua katkoviivalle. AUC = %.3f [%.3f, %.3f]",
-                          auc, auc_ci[[1]], auc_ci[[2]]),
+       subtitle = sprintf("Katkoviiva = täydellinen kalibraatio. Pisteviiva = keskiverto (%.1f %%). AUC = %.3f [%.3f, %.3f]",
+                          100 * perusaste, auc, auc_ci[[1]], auc_ci[[2]]),
        x = "Mallin ennustama lakkaamistodennäköisyys",
        y = "Todella toteutunut osuus")
 ```
+
+## Mihin riskiä verrataan?
+
+Yksittäinen riskiluku on merkityksetön ilman vertailukohtaa. "11 %:n
+lakkaamistodennäköisyys" kuulostaa korkealta tai matalalta riippuen täysin siitä,
+mikä on keskiverto — ja keskiverto tässä testijoukossa on
+`r scales::percent(mean(as.integer(testi$lakkasi)), accuracy = 0.1)`. Malli ei
+tuota absoluuttista tuomiota vaan **sijoittaa yrityksen suhteessa muihin**: sen
+tehtävä on levittää yritykset perustason ympärille niin, että riskisimmät erottuvat.
+
+Tästä seuraa vastaus tärkeään kysymykseen: **entä yritykset, joilla ei ole
+jalanjälkeä** — ne, jotka eivät ole tehneet yhtään rekisterimerkintää
+havaintoikkunassa? Ne eivät jää mallin ulkopuolelle. Malli antaa niille arvion,
+joka nojaa pelkkään ikään, toimialaan ja sijaintiin — ja se arvio asettuu lähelle
+perustasoa. Tämä on oikea käyttäytyminen: kun signaalia ei ole, malli ei keksi
+riskiä eikä poista sitä, vaan palauttaa "keskiverto, kunnes toisin todistetaan".
+Juuri siksi vertailu perustasoon on koko mallin tulkinnan ankkuri — ilman sitä
+riskiluku on numero ilman mittakaavaa.
+
+```{r vertailu-perustaso}
+# Kuinka moni yritys nousee selvästi perustason yläpuolelle (esim. 2x)?
+kohonnut <- mean(p_testi > 2 * perusaste)
+tibble::tibble(
+  Ryhmä = c("Koko testijoukko (perustaso)",
+            "Malli nostaa ≥ 2× perustason yläpuolelle"),
+  `Osuus yrityksistä` = c("100 %", scales::percent(kohonnut, accuracy = 0.1)),
+  `Toteutunut lakkaamisosuus` = c(
+    scales::percent(perusaste, accuracy = 0.1),
+    scales::percent(mean(as.integer(testi$lakkasi)[p_testi > 2 * perusaste]), accuracy = 0.1)
+  )
+) |>
+  knitr::kable(caption = "Riskiryhmän vertailu koko populaation perustasoon")
+```
+
+Taulukko on se, mitä riskipäällikkö kysyy: kun malli nostaa yrityksen selvästi
+perustason yläpuolelle, toteutuuko riski todella keskimääräistä useammin?
 
 ::: {.callout-important}
 ## Näin tulosta luetaan rehellisesti
@@ -263,6 +313,68 @@ yläpuolella, malli **aliarvioi** riskiä — vaarallisin virhe luotonannossa.
 
 AUC:n luottamusväli on laskettu bootstrapilla, koska yksittäinen AUC-luku ilman
 väliä on juuri se pistearvo, jota vastaan tämä koko sarja argumentoi.
+:::
+
+## Kalibrointikorjaus: todennäköisyydet suoraksi
+
+Kalibraatiokuvaaja paljasti, että malli **yliarvioi** riskiä korkeassa päässä:
+kun se lupaa 11 %, toteutuu noin 3–4 %. Erottelu on kunnossa (riskisimmät ovat
+oikeassa järjestyksessä), mutta todennäköisyystasot ovat vinossa. Luotonannossa
+tämä on ongelma: väärä taso johtaa väärään hinnoitteluun.
+
+Tämä on korjattavissa **jälkikalibroinnilla**. Käytän isotonista regressiota, joka
+oppii monotonisen kartan mallin raakatodennäköisyydestä toteutuneeseen osuuteen.
+Ratkaisevaa on, että kartta opitaan **opetusdatasta** — ei testistä. Testiin
+sovitettu kalibrointi vuotaisi tulevaisuudesta ja rikkoisi koko ajallisen kokeen.
+
+```{r kalibrointi}
+# 1. Mallin ennusteet OPETUSDATALLE (ei testille -> ei vuotoa)
+p_opetus <- colMeans(rstanarm::posterior_epred(fit, newdata = ops, draws = 400))
+y_opetus <- ops$y
+
+# 2. Isotoninen kalibrointikartta: raakatodennäköisyys -> korjattu
+o   <- order(p_opetus)
+iso <- isoreg(p_opetus[o], y_opetus[o])
+kalibroi <- approxfun(p_opetus[o], iso$yf, rule = 2, ties = "ordered")
+
+# 3. Sovella TESTIIN (jota kalibrointi ei ole nähnyt)
+p_testi_kal <- pmin(pmax(kalibroi(p_testi), 0), 1)
+
+# AUC ei muutu monotonisessa korjauksessa — järjestys säilyy
+auc_kal <- auc_laske(p_testi_kal, as.integer(testi$lakkasi))
+
+# Kalibraatio ennen ja jälkeen, samassa kuvassa
+kalib_vertailu <- bind_rows(
+  tibble(p = p_testi,     y = as.integer(testi$lakkasi), vaihe = "1. Ennen korjausta"),
+  tibble(p = p_testi_kal, y = as.integer(testi$lakkasi), vaihe = "2. Kalibroituna")
+) |>
+  group_by(vaihe) |>
+  mutate(korit = ntile(p, 10)) |>
+  group_by(vaihe, korit) |>
+  summarise(ennustettu = mean(p), toteutunut = mean(y), .groups = "drop")
+
+ggplot(kalib_vertailu, aes(ennustettu, toteutunut, color = vaihe)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+              color = kvar_palette[["orange"]]) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2.5) +
+  scale_color_manual(values = c(kvar_palette[["red"]], kvar_palette[["teal"]])) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Kalibrointikorjaus: ennen ja jälkeen",
+       subtitle = sprintf("Isotoninen kartta opittu opetusdatasta. Kalibroidut pisteet lähempänä katkoviivaa. AUC ennallaan (%.3f).",
+                          auc_kal),
+       x = "Ennustettu todennäköisyys", y = "Toteutunut osuus", color = NULL)
+```
+
+::: {.callout-tip}
+## Miksi erottelu ja kalibrointi ovat eri asioita
+Korjaus ei muuta yritysten **järjestystä** — AUC pysyy täsmälleen samana, koska
+isotoninen kartta on monotoninen. Se muuttaa vain **tasoja**: saman järjestyksen
+saavat todennäköisyydet, jotka pitävät paikkansa. Tämä on olennainen ero.
+Erottelukyky vastaa kysymykseen "kuka on riskisin?", kalibrointi kysymykseen
+"kuinka riskisin?". Luottopäätös tarvitsee molemmat — järjestyksen seulontaan ja
+tason hinnoitteluun.
 :::
 
 ## Riskin jakauma: kenelle mittari antaa hälytyksen?
@@ -295,6 +407,72 @@ Tämä kuvaaja on se, jonka riskipäällikkö haluaa nähdä. Se ei kysy "mikä 
 vaan "jos resurssini riittää tarkastamaan 10 % salkusta, kuinka suuren osan
 ongelmatapauksista löydän?"
 
+## Miksi juuri tämä yritys? Syykoodit
+
+Riskiluku yksin ei riitä päätökseen. Luotonantajan on kyettävä perustelemaan
+sekä valvojalle että asiakkaalle, **miksi** yritys arvioitiin riskialttiiksi —
+luottolainsäädäntö usein edellyttää tätä (ns. adverse action -perustelut).
+Musta laatikko, joka antaa luvun mutta ei syytä, ei kelpaa.
+
+Logistinen malli mahdollistaa tämän suoraan. Yrityksen riski log-odds-asteikolla
+on vakiotermi plus kunkin piirteen kerroin kerrottuna sen arvolla. Kun vähennämme
+kustakin piirteestä populaation keskiarvon, saamme **syykoodit**: kuinka paljon
+kukin piirre nostaa tai laskee *tämän* yrityksen riskiä keskivertoon nähden.
+
+```{r syykoodit}
+# Kertoimien posteriorin keskiarvot ja mallimatriisi
+beta <- colMeans(as.matrix(fit))
+mm   <- model.matrix(delete.response(terms(fit)), data = testi,
+                     xlev = fit$xlevels)
+
+# Kunkin piirteen keskimääräinen kontribuutio (vertailukohta = populaation keskiarvo)
+keskiarvo_mm <- colMeans(mm)
+kontribuutio <- function(rivi_mm) (rivi_mm - keskiarvo_mm) * beta
+
+# Valitaan yksi selkeästi riskialtis yritys esimerkiksi
+i <- which.max(p_testi)
+osuudet <- kontribuutio(mm[i, ])
+osuudet <- osuudet[names(osuudet) != "(Intercept)"]
+
+syyt <- tibble::tibble(piirre = names(osuudet), vaikutus = as.numeric(osuudet)) |>
+  filter(abs(vaikutus) > 1e-6) |>
+  mutate(piirre = piirre |>
+           str_replace("^sektori", "Toimiala: ") |>
+           str_replace("^kaupunki", "Sijainti: ") |>
+           str_replace("^ika", "Yhtiön ikä") |>
+           str_replace("^n_ilm", "Ilmoituksia (ikkuna)") |>
+           str_replace("^n_hallitus", "Hallitusmuutoksia") |>
+           str_replace("^n_nimi", "Nimenmuutoksia") |>
+           str_replace("^on_konalkTRUE", "Konkurssimerkintä ikkunassa") |>
+           str_replace("^on_esrTRUE", "Edunsaajat ilmoitettu")) |>
+  arrange(desc(abs(vaikutus))) |>
+  slice_head(n = 8)
+
+ggplot(syyt, aes(vaikutus, reorder(piirre, vaikutus), fill = vaikutus > 0)) +
+  geom_col() +
+  geom_vline(xintercept = 0, color = "grey60") +
+  scale_fill_manual(values = c(`TRUE` = kvar_palette[["red"]],
+                               `FALSE` = kvar_palette[["teal"]]),
+                    labels = c(`TRUE` = "Nostaa riskiä", `FALSE` = "Laskee riskiä")) +
+  labs(title = "Miksi tämä yritys nousi riskiryhmään?",
+       subtitle = sprintf("Piirteiden kontribuutio riskiin keskivertoon nähden. Mallin ennuste: %.1f %% (perustaso %.1f %%).",
+                          100 * p_testi[i], 100 * perusaste),
+       x = "Vaikutus riskiin (log-odds, + = nostaa)", y = NULL, fill = NULL)
+```
+
+::: {.callout-tip}
+## Miten syykoodeja luetaan — ja mitä ne eivät ole
+Punaiset palkit ovat syitä, jotka nostavat *tämän* yrityksen riskiä keskivertoon
+nähden; turkoosit laskevat sitä. Näin päätös voidaan perustella konkreettisesti:
+"riski on koholla, koska ikkunassa on konkurssimerkintä ja toistuvia
+hallitusmuutoksia, vaikka toimiala laskeekin riskiä."
+
+Yksi rehellinen varaus: syykoodit kertovat, mikä *mallissa* nostaa riskiä, eivät
+todellista syytä yrityksen tilaan. Ne ovat assosiaatioita, eivät diagnooseja.
+Mutta juuri läpinäkyvyys — sen näyttäminen, mihin luku perustuu — erottaa
+käyttökelpoisen riskimallin mustasta laatikosta.
+:::
+
 ## Mitä tämä tarkoittaa päättäjälle?
 
 Sarja päättyy sinne, mistä se alkoi: **avoin data ei ole leikkikalu.** Julkisesta
@@ -310,9 +488,11 @@ paremman tuloksen ja ollut merkityksetön.
 Malli on **kalibroitu**, ei vain erotteleva. Luottopäätöksessä todennäköisyyden on
 oltava totta, ei vain järjestyksen.
 
-Malli on **selitettävissä**. Jokainen kerroin voidaan perustella asiakkaalle ja
-valvojalle — mikä on useimmissa rahoitusalan käyttötapauksissa ehdoton vaatimus,
-ei mukava lisä.
+Malli on **selitettävissä ja suhteutettu**. Jokainen riskiluku tulkitaan
+populaation perustasoa vasten — 11 % on korkea vain, koska keskiverto on 2,5 % —
+ja jokainen yksittäinen arvio voidaan purkaa syykoodeiksi, jotka kertovat, mitkä
+piirteet sen nostivat. Sekä vertailukohta että perustelu ovat useimmissa
+rahoitusalan käyttötapauksissa ehdoton vaatimus, ei mukava lisä.
 
 Ja lopuksi se, mistä koko sarja on kertonut: jokainen tämän mittarin tuottama luku
 on jakauma, ei piste. Se on ainoa rehellinen tapa antaa numero, jonka varassa

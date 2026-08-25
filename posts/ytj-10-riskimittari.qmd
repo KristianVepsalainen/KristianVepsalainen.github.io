@@ -210,7 +210,7 @@ on luottopäätöksessä tärkeämpi kuin AUC. Väärin kalibroitu malli antaa o
 järjestyksen mutta väärän hinnan.
 
 ```{r validointi}
-p_testi <- colMeans(rstanarm::posterior_epred(fit, newdata = testi))
+p_testi <- colMeans(rstanarm::posterior_epred(fit, newdata = testi, draws = 400)) 
 
 # AUC ilman lisäriippuvuuksia: Mann–Whitney U -yhteys
 auc_laske <- function(p, y) {

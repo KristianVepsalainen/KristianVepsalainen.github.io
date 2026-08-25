@@ -1,9 +1,8 @@
 ---
 title: "Rekisteririskimittari"
 subtitle: "Rakennetaan avoimesta datasta luottoriskimalli — ja testataan se rehellisesti tulevaisuudella"
-date: 2026-08-18
+date: 2026-08-24
 categories: [avoin data, bayes, luottoriski, validointi, YTJ]
-draft: true
 execute:
   warning: false
   message: false
@@ -16,9 +15,9 @@ library(here)
 library(ggdist)
 select <- dplyr::select
 filter <- dplyr::filter
-source(here("R", "theme_kristian.R"))
-source(here("R", "toimiala_sektori.R"))
-source(here("R", "yhdista_apu.R"))
+source(here("R","ytj", "theme_kristian.R"))
+source(here("R","ytj", "toimiala_sektori.R"))
+source(here("R","ytj", "yhdista_apu.R"))
 theme_set(theme_kristian())
 ```
 

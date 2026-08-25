@@ -56,7 +56,7 @@ konkurssin päättyminen tms.).
 
 ```{r lataa-data}
 perustiedot <- qs2::qs_read(here("data", "ytj", "ytj_perustiedot.qs"))
-ilmoitukset <- qs2::qs_read(here("data", "krek_ilmoitukset.qs"))
+ilmoitukset <- qs2::qs_read(here("data", "ytj","krek_ilmoitukset.qs"))
 
 stopifnot(
   all(c("business_id","company_form_code","registration_date","main_line_code",

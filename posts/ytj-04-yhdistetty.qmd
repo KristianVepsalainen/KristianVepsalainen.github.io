@@ -3,6 +3,7 @@ title: "Yrityksen rekisterijalanjälki"
 subtitle: "Kun kolme avointa aineistoa yhdistetään, rekisteri alkaa ennustaa, mikä yritys lakkaa — ja mikä selviää"
 date: 2026-07-14
 categories: [avoin data, bayes, eloonjääminen, luottoriski, YTJ]
+draft: true
 execute:
   warning: false
   message: false
@@ -16,8 +17,8 @@ library(patchwork)
 library(ggdist)
 library(survival)
 source(here("R","ytj", "theme_kristian.R"))
-source(here("R","ytj", "toimiala_sektori.R"))
-source(here("R","ytj", "yhdista_apu.R"))
+source(here("R", "ytj","toimiala_sektori.R"))
+source(here("R", "ytj","yhdista_apu.R"))
 theme_set(theme_kristian())
 ```
 
@@ -55,7 +56,7 @@ konkurssin päättyminen tms.).
 
 ```{r lataa-data}
 perustiedot <- qs2::qs_read(here("data", "ytj", "ytj_perustiedot.qs"))
-ilmoitukset <- qs2::qs_read(here("data","ytj", "krek_ilmoitukset.qs"))
+ilmoitukset <- qs2::qs_read(here("data", "krek_ilmoitukset.qs"))
 
 stopifnot(
   all(c("business_id","company_form_code","registration_date","main_line_code",
@@ -97,7 +98,7 @@ piirteiksi. Jokaiselle osakeyhtiölle lasketaan sen jalanjälki: montako
 hallitusmuutosta, montako nimenmuutosta, luopuiko se tilintarkastajasta,
 ilmoittiko se edunsaajansa — ja milloin se mahdollisesti lakkasi.
 
-Menetelmällinen tarkkuus on tässä ratkaisevaa. Puramme ilmoitusten merkintälajit
+Menetelmällinen tarkkuus on tässä ratkaisevaa. Purkamme ilmoitusten merkintälajit
 auki kerran ja laskemme piirteet yritystasolla. Päättymispäivä poimitaan
 END-tyyppisistä ilmoituksista.
 
@@ -353,6 +354,16 @@ testit <- tibble::tibble(
 knitr::kable(testit, digits = 3, caption = "Ryhmäerojen testit efektikokoineen")
 ```
 
+Efektikoot kannattaa lukea tarkasti, koska ne kertovat sen, mitä p-arvo ei kerro.
+Cramérin V:n asteikolla noin 0,1 on heikko yhteys, 0,3 kohtalainen ja 0,5 vahva;
+rank-biserial tulkitaan samaan tapaan nollan ja ykkösen välillä. Jos näiden
+yksittäisten vertailujen efektikoot jäävät pieniksi — kuten rekisterisignaaleilla
+usein käy — se on rehellinen tulos: **mikään yksittäinen jalanjäljen piirre ei
+yksinään ennusta lakkaamista vahvasti.** Se ei tee analyysistä hyödytöntä. Heikot
+yksittäiset signaalit voivat yhdessä tuottaa käyttökelpoisen erottelun, ja juuri
+sitä seuraava malli testaa — mutta väitettä ei saa perustaa yhteen isolla otoksella
+"merkitseväksi" muuttuneeseen mutta vaikutukseltaan mitättömään yhteyteen.
+
 ## Ennustemalli: mikä jalanjälki ennakoi lakkaamista?
 
 Nyt ytimeen. Rakennan mallin, joka ennustaa yrityksen lakkaamisen todennäköisyyden
@@ -422,7 +433,7 @@ if (!file.exists(malli_path)) {
   otos <- kohortti |> slice_sample(n = min(nrow(kohortti), 25000L))
   fit <- rstanarm::stan_glm(
     lakkasi ~ n_hallitus + n_nimenmuutos + n_tilintark +
-              ika_havainnolla + ilm_edunsaajat + on_ixbrl +
+              ika_havainnolla + ilm_edunsaajat +
               sektori + kaupunki,
     data   = otos,
     family = binomial(),
@@ -443,6 +454,13 @@ Malli kuvaa **assosiaatiota**, ei todistettua syytä: nimenvaihdos ei kaada
 yritystä, mutta voi olla merkki taustalla olevasta epävakaudesta. Loppuvaiheen
 päättymistapahtumat on jätetty ennustajien ulkopuolelle kehäpäättelyn
 välttämiseksi.
+
+Yksi piirre on jätetty tietoisesti pois: **digitaalisen tilinpäätöksen lippu**.
+Se on koottu nykyhetken (2026) rajapintadatasta, mutta havaintohetki on 1.1.2021.
+Yrityksen digitaalisuuden tietäminen *tänään* olisi tulevaisuuden tietoa
+havaintohetkeen nähden — sen käyttäminen vuotaisi ennusteeseen tietoa, jota
+mallilla ei todellisuudessa olisi ollut. Ajallisesti pätevä malli saa käyttää vain
+sitä, mikä oli tiedossa havaintohetkellä.
 :::
 
 ## Counterfactual: kolme yritystä, kolme kohtaloa
@@ -450,8 +468,8 @@ välttämiseksi.
 Kertoimet ovat abstrakteja; konkretisoin ne vertaamalla kolmea rakennettua
 yritystä, jotka eroavat juuri niiltä piirteiltä, joita malli pitää tärkeinä.
 Kysymys on counterfactual: *jos yritys olisi tällainen, kuinka todennäköisesti se
-lakkaisi ikävuosien 3–8 välillä?* Malli vastaa jakaumana, ei yhtenä lukuna — ja
-juuri epävarmuuden näkyminen erottaa vakuuttavan ennusteen arvauksesta.
+lakkaisi viiden vuoden sisällä havaintohetkestä?* Malli vastaa jakaumana, ei yhtenä
+lukuna — ja juuri epävarmuuden näkyminen erottaa vakuuttavan ennusteen arvauksesta.
 
 ```{r counterfactual}
 # Profiilit rakennetaan DATASTA, ei keksityistä ääriarvoista: "levoton" on
@@ -462,7 +480,7 @@ q_nimi  <- quantile(otos$n_nimenmuutos, c(0.5, 0.95))
 med_ika <- median(otos$ika_havainnolla)
 
 profiilit <- tibble(
-  profiili = c("Vakaa: ei muutoksia, edunsaajat ilmoitettu, digitaalinen",
+  profiili = c("Vakaa: ei muutoksia, edunsaajat ilmoitettu",
                "Tyypillinen: mediaanijalanjälki",
                "Levoton: hallitus ja nimi vaihtuivat (95. persentiili)"),
   n_hallitus      = c(0, q_hal[[1]],  q_hal[[2]]),
@@ -470,7 +488,6 @@ profiilit <- tibble(
   n_tilintark     = c(1, 1, 0),
   ika_havainnolla = med_ika,
   ilm_edunsaajat  = c(TRUE, TRUE, FALSE),
-  on_ixbrl        = c(TRUE, FALSE, FALSE),
   sektori  = factor("Kauppa", levels = levels(otos$sektori)),
   kaupunki = factor(c("Suuri kaupunki","Muu Suomi","Muu Suomi"),
                     levels = levels(otos$kaupunki))
@@ -501,18 +518,37 @@ ggplot(cf, aes(todnak, profiili, fill = profiili)) +
        x = "Lakkaamisen todennäköisyys", y = NULL)
 ```
 
-Ero "vakaan" ja "levottoman" yrityksen välillä on suuri, ja — mikä olennaisempaa —
-malli kertoo, kuinka varma ero on: jakaumat tuskin koskettavat toisiaan. Tämä on
+Ero "vakaan" ja "levottoman" yrityksen välillä näkyy jakaumina, ja malli kertoo
+myös sen, kuinka varma ero on: jos jakaumat menevät osin päällekkäin, myös se on
+rehellinen tulos — se tarkoittaa, ettei jalanjälki yksin ratkaise kohtaloa. Tämä on
 se, mitä pelkkä pisteluku ei koskaan näytä.
+
+::: {.callout-important}
+## Kaksi rehellistä varausta tähän vertailuun
+Ensinnäkin profiilit eroavat toisistaan **usealla piirteellä yhtä aikaa**
+(hallitus, nimi, tilintarkastaja), joten kuvaaja näyttää näiden *yhdistelmän*
+vaikutuksen, ei yksittäisen tekijän itsenäistä osuutta. Yhden muuttujan
+eristäminen vaatisi piirrekohtaisen erittelyn.
+
+Toiseksi tämä malli osoittaa **assosiaation**, ei todennettua ennustekykyä. Se
+sovitettiin ja sitä tarkastellaan samalla aineistolla, eikä sitä ole testattu
+erillisellä, ajallisesti myöhemmällä joukolla. Vasta sellainen out-of-time-koe —
+opeta menneellä, ennusta tuntematonta tulevaa — kertoisi, kuinka hyvin jalanjälki
+oikeasti ennustaa lakkaamista. Tässä osassa väite on siis varovaisempi: nämä
+piirteet *ovat yhteydessä* lakkaamiseen, eivät että ne *ennustavat* sen todistetusti.
+:::
 
 ## Mitä tämä tarkoittaa päättäjälle?
 
-Rekisterijalanjälki on ennustava. Yhdistämällä kolme julkista aineistoa saadaan
-yritystason signaali, joka siirtää lakkaamisen todennäköisyysjakaumaa
-merkittävästi — ilman mitään sisäistä tai maksullista dataa. Luotonantajalle,
-compliance-toiminnolle tai vastapuoliriskiä arvioivalle tämä on käyttökelpoinen
-varhaisvaroitin: se ei kerro yksittäisen yrityksen kohtaloa varmasti, mutta se
-paikantaa, kenen jakauma on siirtynyt vaaran suuntaan.
+Rekisterijalanjälki on **yhteydessä** yrityksen lakkaamiseen. Yhdistämällä kolme
+julkista aineistoa saadaan yritystason signaali, joka siirtää lakkaamisen
+todennäköisyysjakaumaa — ilman mitään sisäistä tai maksullista dataa.
+Luotonantajalle, compliance-toiminnolle tai vastapuoliriskiä arvioivalle tämä on
+lupaava lähtökohta varhaisvaroittimelle: se ei kerro yksittäisen yrityksen kohtaloa
+varmasti, mutta se paikantaa, kenen jakauma on siirtynyt vaaran suuntaan. Se, kuinka
+luotettavasti signaali *ennustaa* tulevaa — erillisellä ajalla testattuna,
+kalibroituna ja perustasoon verrattuna — on oma kysymyksensä, jota tämä osa ei vielä
+ratkaise.
 
 Kaksi varausta rehellisyyden vuoksi. Malli kuvaa assosiaatiota, ei välttämättä
 syytä. Ja ennuste on väestötason jakauma, ei tuomio yksittäisestä yrityksestä —

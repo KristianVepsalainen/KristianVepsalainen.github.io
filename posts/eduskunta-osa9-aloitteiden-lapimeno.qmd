@@ -1,0 +1,133 @@
+---
+title: "Kannattaako lakialoitetta tehdä? Läpimenon ennustaminen"
+subtitle: "Eduskunta jakaumana, osa 9: aloitteen kohtalo"
+description: >
+  Valtaosa lakialoitteista ei etene laiksi. Mikä erottaa läpimenneet? Rakennamme
+  ennustemallin ja counterfactualin — ja käsittelemme suoraan, mitä data voi ja
+  ei voi kertoa syistä.
+date: 2026-08-27
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, ennustemalli, counterfactual]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+## Uutiskoukku: aloite joka ei koskaan tullut laiksi
+
+Kansanedustaja voi tehdä lakialoitteen kenen tahansa aiheesta. Valtaosa niistä ei
+etene mihinkään. Mikä erottaa harvat läpimenneet? Ja jos oppositioedustajan aloite
+olisikin ollut hallituspuolueen nimissä — olisiko lopputulos toinen?
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales); library(brms)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank()))
+DATA <- here("data", "eduskunta")
+init <- qs2::qd_read(file.path(DATA, "vaski_init.qs"))
+mp   <- qs2::qs_read(file.path(DATA, "mp.qs"))
+```
+
+## Vastemuuttuja: eteneekö aloite?
+
+::: {.callout-important title="Verifiointikohta — lopputulos"}
+Aloitteen lopputulos (hyväksytty/hylätty/rauennut) **ei ole aloitteessa itsessään**,
+vaan siihen liittyvässä valiokuntamietinnössä (VM) tai täysistunnon päätöksessä.
+Vaski-prepissä on merkitty diagnostiikka (kohta A), joka näyttää mietinnön
+rakenteen. Aja se ja liitä tulos, niin viimeistelen `lopputulos`-poiminnan.
+
+Kunnes lopputulos on kytketty, käytämme **havaittavaa välitulosta**: eteneekö
+aloite valiokuntakäsittelyyn ylipäätään (saako se mietinnön), mikä on jo
+merkityksellinen ero — valtaosa raukeaa ilman käsittelyä.
+:::
+
+```{r vaste}
+#| eval: false
+# Kytketään lopputulos, kun VM-rakenne on varmistettu (ks. prep, kohta A).
+tulokset <- qs2::qd_read(file.path(DATA, "aloite_tulokset.qs"))  # id, lapimeni (0/1)
+d <- init |> filter(tyyppi == "LA") |>
+  mutate(n_allek = map_int(allekirjoittajat, length)) |>
+  select(-vpvuosi) |>                                       # pois init:n vpvuosi -> ei .x/.y-konfliktia
+  left_join(tulokset |> select(id, eteni, vpvuosi), by = "id") |>
+  left_join(mp |> select(tekija = henkilo_nro, sukupuoli, ryhma_nyt), by = "tekija") |>
+  drop_na(eteni, n_allek, vpvuosi) |>
+  mutate(eteni = as.integer(eteni))
+
+stopifnot("vpvuosi puuttuu d:stä" = "vpvuosi" %in% names(d),
+          "Vaste vakio" = n_distinct(d$eteni) == 2)
+```
+
+## Ennustemalli
+
+Bayeslainen logistinen regressio: mikä ennustaa läpimenoa? Keskeisin selittäjä on
+todennäköisesti se, tuliko aloite hallitus- vai oppositioriviltä — mutta myös
+allekirjoittajien määrä ja aihe voivat vaikuttaa.
+
+```{r malli}
+#| eval: false
+fit_path <- file.path(DATA, "osa9_lapimeno.qs")
+if (!file.exists(fit_path)) {
+  m <- brm(eteni ~ n_allek + (1 | vpvuosi),
+           family = bernoulli(), data = d,
+           chains = 4, iter = 2000, cores = 4, refresh = 0)
+  qs2::qs_save(m, fit_path)
+}
+m <- qs2::qs_read(fit_path)
+summary(m)
+```
+
+## Counterfactual: sama aloite, eri jättäjä
+
+Tässä sarjan ydinajatus konkretisoituu: mallilla voi kysyä, mitä *olisi* tapahtunut
+saman aloitteen kohdalla, jos vain jättäjän asema poikkeaisi. Tämä on **ennuste
+skenaariolle**, ei väite todellisesta syystä.
+
+```{r counterfactual}
+#| eval: false
+profiili <- tibble(n_allek = median(d$n_allek))
+skenaariot <- bind_rows(
+  profiili |> mutate(asema = "Oppositio"),
+  profiili |> mutate(asema = "Hallitus"))
+pe <- posterior_epred(m, newdata = skenaariot, re_formula = NA)
+cf <- tibble(oppositio = pe[,1], hallitus = pe[,2]) |> mutate(ero = hallitus - oppositio)
+
+ggplot(cf, aes(ero)) +
+  stat_halfeye(fill = pal[["oranssi"]], .width = c(.66,.95)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = pal[["punainen"]]) +
+  scale_x_continuous(labels = label_percent()) +
+  labs(title = "Counterfactual: sama aloite hallitukselta vs. oppositiolta",
+       subtitle = "Ero läpimenotodennäköisyydessä, muut tekijät vakioituna",
+       x = "Ero prosenttiyksikköinä", y = NULL)
+```
+
+::: {.callout-important title="Ennuste, ei syy"}
+Counterfactual perustuu mallin oletuksiin, ei satunnaistettuun kokeeseen. Se kertoo,
+mitä *mallin mukaan* olisi odotettavissa aseman poiketessa — ei sitä, että asema on
+todistetusti syy. Aineistossa asema kietoutuu moneen muuhun tekijään (aihe, ajoitus,
+hallituksen agenda), joita emme voi täysin erottaa. Sanon tämän etukäteen, koska
+juuri tässä analyysi useimmin liukuu ennusteesta perusteettomaan syyväitteeseen.
+:::
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Läpimeno on ennustettavissa**, mutta ennuste ei ole ohje eikä syy.
+- **Counterfactual on työkalu skenaarioiden vertailuun** — sen arvo riippuu siitä,
+  kuinka rehellisesti sen rajat kerrotaan.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Läpimeno- ja hyväksyntämallit sekä counterfactual-skenaariot — rehellisin rajoin.
+**kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data, VaskiData (CC BY 4.0).*

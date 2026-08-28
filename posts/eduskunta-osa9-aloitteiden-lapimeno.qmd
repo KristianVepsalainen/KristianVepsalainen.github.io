@@ -6,7 +6,7 @@ description: >
   kysymyksen: lähes yksikään ei etene omana esityksenään. Tämä osa kertoo, mitä
   lakialoitteille oikeasti tapahtuu — ja miksi ne ovat useammin signaali kuin
   väylä lakiin.
-date: 2026-08-20
+date: 2026-08-27
 author: "Kristian Vepsäläinen"
 categories: [eduskunta, avoin data, jakaumat, lakialoitteet]
 format:
@@ -46,9 +46,9 @@ theme_set(theme_minimal(base_size = 13) +
 DATA <- here("data", "eduskunta")
 init        <- qs2::qd_read(file.path(DATA, "vaski_init.qs"))
 tulokset    <- qs2::qd_read(file.path(DATA, "aloite_tulokset.qs"))
-mp          <- qs2::qd_read(file.path(DATA, "mp.qs"))
-mp_years    <- qs2::qd_read(file.path(DATA, "mp_years.qs"))
-ryhma_years <- qs2::qd_read(file.path(DATA, "ryhma_years.qs"))
+mp          <- qs2::qs_read(file.path(DATA, "mp.qs"))
+mp_years    <- qs2::qs_read(file.path(DATA, "mp_years.qs"))
+ryhma_years <- qs2::qs_read(file.path(DATA, "ryhma_years.qs"))
 vaski_raw   <- qs2::qd_read(file.path(DATA, "vaski_raw.qs"))
 vaski_docs  <- qs2::qd_read(file.path(DATA, "vaski_docs.qs"))
 ```

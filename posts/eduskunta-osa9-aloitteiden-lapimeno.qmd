@@ -49,7 +49,7 @@ tulokset    <- qs2::qd_read(file.path(DATA, "aloite_tulokset.qs"))
 mp          <- qs2::qs_read(file.path(DATA, "mp.qs"))
 mp_years    <- qs2::qs_read(file.path(DATA, "mp_years.qs"))
 ryhma_years <- qs2::qs_read(file.path(DATA, "ryhma_years.qs"))
-vaski_raw   <- qs2::qd_read(file.path(DATA, "vaski_raw.qs"))
+#vaski_raw   <- qs2::qd_read(file.path(DATA, "vaski_raw.qs")) #Tarvitaan vain omalla koneella la_status-tuotantoon.
 vaski_docs  <- qs2::qd_read(file.path(DATA, "vaski_docs.qs"))
 ```
 

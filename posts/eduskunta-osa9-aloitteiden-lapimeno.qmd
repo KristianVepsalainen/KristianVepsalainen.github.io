@@ -1,13 +1,14 @@
 ---
-title: "Kannattaako lakialoitetta tehdä? Läpimenon ennustaminen"
+title: "Mitä lakialoitteille todella tapahtuu?"
 subtitle: "Eduskunta jakaumana, osa 9: aloitteen kohtalo"
 description: >
-  Valtaosa lakialoitteista ei etene mihinkään. Mikä erottaa ne, jotka etenevät?
-  Rakennamme ennustemallin ja counterfactualin — ja käsittelemme suoraan, mitä
-  data voi ja ei voi kertoa syistä.
-date: 2026-08-27
+  Lähdimme ennustamaan, mikä saa lakialoitteen läpi. Data pakotti vaihtamaan
+  kysymyksen: lähes yksikään ei etene omana esityksenään. Tämä osa kertoo, mitä
+  lakialoitteille oikeasti tapahtuu — ja miksi ne ovat useammin signaali kuin
+  väylä lakiin.
+date: 2026-08-20
 author: "Kristian Vepsäläinen"
-categories: [eduskunta, avoin data, ennustemalli, counterfactual, bayes]
+categories: [eduskunta, avoin data, jakaumat, lakialoitteet]
 format:
   html:
     toc: true
@@ -17,19 +18,23 @@ format:
 execute: { warning: false, message: false, echo: true }
 ---
 
-> **Sarjan idea.** Tähän asti olemme katsoneet, keitä kansanedustajat ovat ja mitä he
-> puhuvat. Nyt kysymme, mitä heidän aloitteistaan *seuraa*: valtaosa lakialoitteista
-> raukeaa hiljaa, harva etenee. Mikä erottaa etenevät — ja voiko sen ennustaa?
+> **Sarjan idea.** Tässä osassa tapahtui jotain, mikä on itse sarjan opetus:
+> aioimme rakentaa ennustemallin lakialoitteen läpimenolle, mutta data osoitti,
+> että läpimeno on niin harvinaista, ettei mallia kannata rakentaa. Kun uusi tieto
+> muuttaa kysymyksen, kysymys on vaihdettava — ei väännettävä dataa vastaamaan
+> vanhaan.
 
-## Uutiskoukku: aloite joka ei koskaan edennyt
+## Uutiskoukku: kysymys, joka piti vaihtaa
 
-Kansanedustaja voi tehdä lakialoitteen mistä tahansa aiheesta. Useimmat eivät johda
-mihinkään. Tämä kirjoitus mittaa, mikä erottaa harvat etenevät aloitteet muista —
-ja käsittelee rehellisesti, miksi tulos ei ole toimintaohje.
+Alkuperäinen kysymys oli houkutteleva: *mikä ennustaa, meneekö lakialoite läpi?*
+Mutta kun katsoimme dataa, läpimenneitä oli häviävän vähän — niin vähän, ettei
+"ennustaminen" ollut mielekästä. Se ei ollut datan puute vaan **löydös**: valtaosa
+lakialoitteista ei etene minnekään. Joten oikea kysymys on: *mitä niille sitten
+tapahtuu — ja miksi niitä tehdään?*
 
 ```{r setup}
 #| cache: false
-library(tidyverse); library(here); library(qs2); library(ggdist); library(scales); library(brms)
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales); library(patchwork)
 select <- dplyr::select; filter <- dplyr::filter
 set.seed(20270418)
 pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
@@ -41,38 +46,78 @@ theme_set(theme_minimal(base_size = 13) +
 DATA <- here("data", "eduskunta")
 init        <- qs2::qd_read(file.path(DATA, "vaski_init.qs"))
 tulokset    <- qs2::qd_read(file.path(DATA, "aloite_tulokset.qs"))
-mp          <- qs2::qs_read(file.path(DATA, "mp.qs"))
-ryhma_years <- qs2::qs_read(file.path(DATA, "ryhma_years.qs"))
+mp          <- qs2::qd_read(file.path(DATA, "mp.qs"))
+mp_years    <- qs2::qd_read(file.path(DATA, "mp_years.qs"))
+ryhma_years <- qs2::qd_read(file.path(DATA, "ryhma_years.qs"))
+vaski_raw   <- qs2::qd_read(file.path(DATA, "vaski_raw.qs"))
+vaski_docs  <- qs2::qd_read(file.path(DATA, "vaski_docs.qs"))
 ```
 
-## Vastemuuttuja: eteneekö aloite käsittelyyn?
+## Kolme kohtaloa: oma mietintö, maininta, raukeaminen
 
-Aloitteen lopullinen kohtalo (hyväksytty / hylätty / rauennut) ei ole aloitteessa
-itsessään, vaan se pitää johtaa käsittelyketjusta. Käytämme **havaittavaa ja
-rehellistä välitulosta**: eteneekö aloite lainkaan valiokuntakäsittelyyn, eli
-saako se mietinnön. Tämä kattaa **koko populaation** — myös ne, jotka raukeavat
-käsittelemättä.
+Lakialoitteella on käytännössä kolme mahdollista jälkeä. Se voi (1) saada **oman
+valiokuntamietinnön** (harvinaista), (2) tulla **mainituksi** jonkin mietinnön
+käsittelyssä — tyypillisesti hallituksen esityksen rinnalla — tai (3) **raueta**
+ilman jälkeä. Rakennamme nämä kolme luokkaa.
 
-::: {.callout-important title="Miksi tämä vaste antaa oikeamman kuvan"}
-Vaihtoehto olisi ollut mitata läpimenoa vain **äänestykseen edenneistä** aloitteista.
-Se olisi valikoitunut osajoukko (poikkeuksellisen kiistanalaiset), ja antaisi liian
-ruusuisen kuvan — jäävuoren huipun. Koska valtaosa lakialoitteista raukeaa hiljaa,
-oikea vaste pitää raukeamiset mukana. "Eteneekö käsittelyyn" tekee juuri sen.
-Tarkempi lopputulos (hyväksytty vs. hylätty) olisi poimittavissa mietintöjen
-päätösesityksistä; se on luonteva jatkotarkennus.
-:::
-
-## Selittäjät
-
-Mallin selittäjät nojaavat sekä aiempiin osiin että lukijan erinomaiseen
-kommenttiin: **ajalliset tekijät** (istuntokausi, vaalikauden vaihe ja vaalien
-läheisyys), **tekijän asema** (hallitus/oppositio jättöhetkellä) ja näiden
-**interaktio**, sekä tekijän **aiempi aloitehistoria**. Koska sama edustaja tekee
-useita aloitteita, havainnot eivät ole riippumattomia — siihen palaamme mallissa.
-
-```{r selittajat}
+```{r kohtalot}
 #| cache: false
-# Hallituspohja vuosittain (kuten osa 4). !! Tarkista ryhmänimet ryhma_years-dataa vasten.
+norm_tunnus <- function(x) str_remove_all(str_to_upper(x), "\\s") |> str_remove("VP$")
+
+status_path <- file.path(DATA, "la_status.qs")
+if (!file.exists(status_path)) {
+  # Poimi kaikki LA-viittaukset valiokuntamietintöjen KOKO tekstistä
+  poimi_la <- function(xml_str) {
+    txt <- tryCatch(xml2::xml_text(xml2::read_xml(xml_str)), error = function(e) "")
+    unique(norm_tunnus(str_extract_all(txt, "(?i)LA\\s?\\d+/\\d{4}")[[1]]))
+  }
+  mietinnot <- vaski_docs |> filter(str_detect(tyyppi, "VM$")) |>
+    left_join(vaski_raw |> select(Id, XmlData), by = c("id" = "Id"))
+  mainitut <- mietinnot$XmlData |> map(poimi_la) |> unlist() |> unique()
+  qs2::qd_save(tibble(la_norm = mainitut), status_path)
+}
+mainitut <- qs2::qd_read(status_path)$la_norm
+
+la <- init |> filter(tyyppi == "LA") |>
+  mutate(n_allek = map_int(allekirjoittajat, length),
+         tunnus_norm = norm_tunnus(tunnus)) |>
+  left_join(tulokset |> select(id, oma_mietinto = eteni), by = "id") |>
+  mutate(oma_mietinto = replace_na(as.logical(oma_mietinto), FALSE),
+         kohtalo = case_when(
+           oma_mietinto                    ~ "Sai oman mietinnön",
+           tunnus_norm %in% mainitut       ~ "Mainittu mietinnössä",
+           TRUE                            ~ "Rauennut / ei käsitelty") |>
+           factor(levels = c("Sai oman mietinnön","Mainittu mietinnössä","Rauennut / ei käsitelty")))
+stopifnot("LA-taulu tyhjä" = nrow(la) > 100)
+
+jakauma <- la |> count(kohtalo) |> mutate(osuus = n/sum(n))
+jakauma
+```
+
+## Jakauma ensin: valtaosa raukeaa
+
+```{r jakauma-kuva}
+ggplot(jakauma, aes(x = osuus, y = fct_rev(kohtalo), fill = kohtalo)) +
+  geom_col() +
+  geom_text(aes(label = percent(osuus, .1)), hjust = -0.1, size = 3.6) +
+  scale_x_continuous(labels = label_percent(), expand = expansion(c(0,.18))) +
+  scale_fill_manual(values = unname(pal[c(2,5,1)]), guide = "none") +
+  labs(title = "Lakialoitteen kolme kohtaloa",
+       subtitle = "Osuus kaikista lakialoitteista", x = NULL, y = NULL)
+```
+
+Tässä on koko postauksen kärki yhtenä kuvana. Jos joku sanoisi "lakialoitteiden
+läpimenoprosentti on X", se olisi pistearvo, joka piilottaa olennaisen: **valtaosa
+ei etene lainkaan**, ja "läpimeno" omana esityksenä on
+`r scales::percent(jakauma$osuus[jakauma$kohtalo == "Sai oman mietinnön"], 0.1)`
+luokkaa. Jakauma kertoo sen, minkä yksi luku kätkisi.
+
+## Kuka lakialoitteita tekee?
+
+Jos aloitteet eivät juuri etene, miksi niitä tehdään paljon? Katsotaan tekijöitä.
+Rakennamme aseman (hallitus/oppositio) jättövuoden mukaan.
+
+```{r asema}
 hallitus <- tribble(
   ~vuosi, ~hallituspuolueet,
   2015,c("Keskusta","Perussuomalaiset","Kokoomus"), 2016,c("Keskusta","Perussuomalaiset","Kokoomus"),
@@ -89,180 +134,109 @@ asema_taulu <- ryhma_years |> left_join(hallitus, by = "vuosi") |>
   mutate(on_hallitus = map2_lgl(ryhma, hallituspuolueet,
     \(r,h) if (is.null(h)) NA else any(str_detect(r, fixed(h, ignore_case = TRUE))))) |>
   filter(!is.na(on_hallitus)) |>
-  group_by(henkilo_nro = henkilo_nro, vpvuosi = vuosi) |>
-  summarise(on_hallitus = mean(on_hallitus) >= 0.5, .groups = "drop") |>   # vuoden vallitseva asema
-  transmute(tekija = henkilo_nro, vpvuosi,
-            asema = factor(if_else(on_hallitus, "Hallitus", "Oppositio"),
-                           levels = c("Oppositio","Hallitus")))
+  group_by(tekija = henkilo_nro, vpvuosi = vuosi) |>
+  summarise(on_hallitus = mean(on_hallitus) >= 0.5, .groups = "drop") |>
+  transmute(tekija, vpvuosi, asema = if_else(on_hallitus, "Hallitus", "Oppositio"))
 
-stopifnot("asema_taulu ei uniikki" =
-  nrow(asema_taulu) == nrow(distinct(asema_taulu, tekija, vpvuosi)))
+la_asema <- la |> left_join(asema_taulu, by = c("tekija","vpvuosi")) |> drop_na(asema)
 
-# Vuosia seuraaviin vaaleihin (vaalikauden vaihe + vaalien läheisyys yhtenä)
-vaalit <- c(2015L, 2019L, 2023L, 2027L)   # integer-vektori
-v_vaaleihin <- function(v) vapply(v, \(x) {
-  s <- vaalit[vaalit >= x]
-  if (length(s) == 0) NA_real_ else as.numeric(min(s) - x)
-}, numeric(1))                            # malline numeric(1), tulos as.numeric -> täsmää
-
-d <- init |> filter(tyyppi == "LA") |>
-  mutate(n_allek = map_int(allekirjoittajat, length)) |>
-  select(-any_of("vpvuosi")) |>
-  left_join(tulokset |> select(id, eteni, vpvuosi), by = "id") |>
-  left_join(asema_taulu, by = c("tekija","vpvuosi")) |>
-  drop_na(eteni, tekija, vpvuosi, created, asema, n_allek) |>
-  mutate(eteni = as.integer(eteni)) |>
-  arrange(tekija, created) |>
-  group_by(tekija) |>
-  mutate(aiemmat        = row_number() - 1L,
-         aiempi_edenneet= lag(cumsum(eteni), default = 0L),
-         aiempi_etenemisaste = if_else(aiemmat > 0, aiempi_edenneet / aiemmat, 0),
-         ensimmainen    = as.integer(aiemmat == 0)) |>
-  ungroup() |>
-  mutate(vuotta_vaaleihin = v_vaaleihin(vpvuosi),
-         kausi   = factor(if_else(lubridate::month(created) %in% 2:6,
-                                  "Kevätistunto", "Syysistunto")),
-         aiemmat_z = as.numeric(scale(log1p(aiemmat))))   # esiskaalattu — ei scale() kaavassa
-
-stopifnot("Vaste vakio" = n_distinct(d$eteni) == 2,
-          "asema puuttuu" = all(c("Hallitus","Oppositio") %in% d$asema),
-          "vuotta_vaaleihin puuttuu" = !all(is.na(d$vuotta_vaaleihin)))
-d |> count(asema, eteni)
+# Volyymi ajassa aseman mukaan
+vol <- la_asema |> count(vpvuosi, asema)
+ggplot(vol, aes(vpvuosi, n, color = asema)) +
+  geom_line(linewidth = 1) + geom_point() +
+  scale_color_manual(values = unname(pal[c(4,1)])) +
+  labs(title = "Lakialoitteet ovat pääosin opposition väline",
+       subtitle = "Lakialoitteiden määrä jättäjän aseman mukaan",
+       x = NULL, y = "Lakialoitteita", color = NULL)
 ```
 
-## ENNEN MALLIA: mitä tämä malli on ja ei ole
+## Onko lakialoite opposition työkalu? Tilastollinen testi
 
-::: {.callout-important title="Ennuste, ei syy — ja riippumattomuus"}
-**Endogeenisuus.** Näkyvät ja kokeneet edustajat sekä tekevät enemmän aloitteita
-että saavat niitä useammin käsittelyyn. Asema, aihe ja ajoitus kietoutuvat toisiinsa,
-joten malli on **ennustava, ei kausaalinen**: se kertoo, mitkä aloitteet etenivät,
-ei sitä, mitä yksittäisen edustajan kannattaisi tehdä.
+Testataan suoraan: tekevätkö oppositioedustajat enemmän lakialoitteita kuin
+hallitusedustajat? Rakennamme edustajavuositason aineiston (myös nollat mukana) ja
+vertaamme jakaumia. Lukumäärädata on vino, joten käytämme jakaumavapaata
+Wilcoxonin testiä ja efektikokona rank-biserialia.
 
-**Havainnot eivät ole riippumattomia.** Sama edustaja tekee useita aloitteita, joten
-niiden kohtalot korreloivat. Käytämme **edustajatason satunnaisvaikutusta**
-`(1 | tekija)`, joka osittaispoolaa saman tekijän aloitteet — yksi ahkera
-aloitteentekijä ei näin paisuta näennäistä varmuutta. Tämä on suora vastaus tähän
-tilastolliseen ongelmaan, ei kosmeettinen lisä.
+```{r testi}
+la_per_hlo <- la |> count(tekija, vpvuosi, name = "n_la")
+paneeli <- mp_years |> distinct(henkilo_nro, vuosi) |>
+  filter(vuosi >= min(la$vpvuosi, na.rm = TRUE)) |>
+  left_join(asema_taulu, by = c("henkilo_nro" = "tekija", "vuosi" = "vpvuosi")) |>
+  left_join(la_per_hlo, by = c("henkilo_nro" = "tekija", "vuosi" = "vpvuosi")) |>
+  mutate(n_la = replace_na(n_la, 0L)) |> drop_na(asema)
+
+wt <- wilcox.test(n_la ~ asema, data = paneeli)
+n_opp <- sum(paneeli$asema == "Oppositio"); n_hal <- sum(paneeli$asema == "Hallitus")
+rank_biserial <- 1 - 2 * unname(wt$statistic) / (n_opp * n_hal)
+paneeli |> group_by(asema) |>
+  summarise(mediaani = median(n_la), keskiarvo = round(mean(n_la),2), n_edustajavuosia = n()) |>
+  bind_cols(tibble(p = signif(wt$p.value,3), rank_biserial = round(rank_biserial,3)))
+```
+
+::: {.callout-note title="Testin valinta"}
+Vertaamme kahta ryhmää vinolla lukumäärämuuttujalla, jossa on paljon nollia, joten
+keskiarvo­vertailu (t-testi) olisi harhaanjohtava. Wilcoxon vertaa koko jakaumia, ja
+rank-biserial kertoo eron suuruuden. Nollat (edustajavuodet ilman yhtään aloitetta)
+ovat mukana — muuten mittaisimme väärää populaatiota.
 :::
 
-## Ennustemalli
+## Keskittymä: harva tekee monta
 
-```{r malli}
-#| cache: false
-fit_path <- file.path(DATA, "osa9_lapimeno.qs")
-if (!file.exists(fit_path)) {
-  priorit <- c(
-  prior(normal(0, 2.5), class = "b"),          # kertoimet järkevälle skaalalle
-  prior(normal(0, 5),   class = "Intercept"),
-  prior(exponential(1), class = "sd"))          # satunnaisvaikutusten hajonta kuriin
+```{r gini}
+gini <- function(x){ x <- sort(x); n <- length(x); if (sum(x)==0) return(NA)
+  sum((2*seq_len(n)-n-1)*x)/(n*sum(x)) }
+per_tekija <- la |> count(tekija, name = "n_la")
+lorenz <- per_tekija |> arrange(n_la) |>
+  mutate(o_tekijat = row_number()/n(), o_aloitteet = cumsum(n_la)/sum(n_la))
 
-m <- brm(
-  eteni ~ asema * vuotta_vaaleihin + kausi + n_allek +
-    aiemmat_z + aiempi_etenemisaste + ensimmainen +
-    (1 | tekija) + (1 | vpvuosi),
-  family = bernoulli(), data = d, prior = priorit,
-  chains = 4, iter = 4000, warmup = 2000, cores = 4,
-  control = list(adapt_delta = 0.95, max_treedepth = 12), refresh = 0)
-  qs2::qs_save(m, fit_path)   # brms-malli -> qs_save (ei qd)
-}
-m <- qs2::qs_read(fit_path)
-summary(m)
+ggplot(lorenz, aes(o_tekijat, o_aloitteet)) +
+  geom_abline(linetype = "dashed", color = "grey60") +
+  geom_area(fill = pal[["turkoosi"]], alpha = .3) +
+  geom_line(color = pal[["turkoosi"]], linewidth = 1) +
+  scale_x_continuous(labels = label_percent()) + scale_y_continuous(labels = label_percent()) +
+  labs(title = paste0("Lakialoitteiden teko on keskittynyttä (Gini ",
+                      round(gini(per_tekija$n_la),2), ")"),
+       subtitle = "Lorenz-käyrä: harva edustaja tekee suuren osan aloitteista",
+       x = "Osuus tekijöistä", y = "Osuus lakialoitteista")
 ```
 
-## Muuttuuko hallitus/oppositio-ero vaalien lähestyessä?
+## Mitä tämä tarkoittaa — lakialoite signaalina
 
-Tämä on lukijan kommentin ydin: onko tekijän aseman ja ajallisten tekijöiden välillä
-interaktiota? Katsotaan ennustettu etenemistodennäköisyys aseman ja vaalien
-läheisyyden mukaan.
+Kun yhdistää nämä: valtaosa lakialoitteista raukeaa, ne ovat pääosin opposition
+tekemiä, ja niiden teko on keskittynyt harvoille. Tästä piirtyy tulkinta, joka on
+sekä rehellinen että päättäjälle valaiseva: **lakialoite toimii useammin poliittisena
+signaalina kuin väylänä lainsäädäntöön.** Se on tapa nostaa aihe esiin, osoittaa
+kanta ja tuottaa julkinen dokumentti — ei realistinen reitti lakiin, koska
+lainsäädäntö kulkee lähes aina hallituksen esitysten kautta.
 
-```{r interaktio}
-nd <- expand_grid(asema = factor(c("Oppositio","Hallitus"), levels = c("Oppositio","Hallitus")),
-                  vuotta_vaaleihin = 0:3, n_allek = median(d$n_allek),
-                  kausi = "Kevätistunto", aiemmat_z = 0,
-                  aiempi_etenemisaste = mean(d$aiempi_etenemisaste), ensimmainen = 0L)
-pe <- posterior_epred(m, newdata = nd, re_formula = NA)
-pred <- nd |> mutate(keski = colMeans(pe),
-                     lo = apply(pe,2,quantile,.025), hi = apply(pe,2,quantile,.975))
-
-ggplot(pred, aes(vuotta_vaaleihin, keski, color = asema, fill = asema)) +
-  geom_ribbon(aes(ymin = lo, ymax = hi), alpha = .2, color = NA) +
-  geom_line(linewidth = 1) +
-  scale_x_reverse() + scale_y_continuous(labels = label_percent()) +
-  scale_color_manual(values = unname(pal[c(1,4)])) +
-  scale_fill_manual(values = unname(pal[c(1,4)])) +
-  labs(title = "Muuttuuko hallitus/oppositio-ero vaalien lähestyessä?",
-       subtitle = "Ennustettu etenemistodennäköisyys, 95 % uskottavuusvälein",
-       x = "Vuotta seuraaviin vaaleihin", y = "P(aloite etenee)", color = NULL, fill = NULL)
-```
-
-## Counterfactual: sama aloite hallitukselta vs. oppositiolta
-
-Bayeslainen malli sallii saman aloiteprofiilin vertailun kahden aseman välillä.
-Tämä on **ennuste skenaariolle**, ei väite todellisesta syystä.
-
-```{r counterfactual}
-prof <- tibble(vuotta_vaaleihin = 2, n_allek = median(d$n_allek), kausi = "Kevätistunto",
-               aiemmat_z = 0, aiempi_etenemisaste = mean(d$aiempi_etenemisaste), ensimmainen = 0L)
-sken <- bind_rows(mutate(prof, asema = factor("Oppositio", levels=c("Oppositio","Hallitus"))),
-                  mutate(prof, asema = factor("Hallitus",  levels=c("Oppositio","Hallitus"))))
-pe2 <- posterior_epred(m, newdata = sken, re_formula = NA)
-cf <- tibble(oppositio = pe2[,1], hallitus = pe2[,2]) |> mutate(ero = hallitus - oppositio)
-
-ggplot(cf, aes(ero)) +
-  stat_halfeye(fill = pal[["oranssi"]], .width = c(.66,.95)) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = pal[["punainen"]]) +
-  scale_x_continuous(labels = label_percent()) +
-  labs(title = "Counterfactual: sama aloite hallitukselta vs. oppositiolta",
-       subtitle = "Ero etenemistodennäköisyydessä, muut tekijät vakioituna (2 v. vaaleihin)",
-       x = "Ero prosenttiyksikköinä", y = NULL)
-
-glue::glue("P(hallituksen aloite etenee todennäköisemmin) = {scales::percent(mean(cf$ero > 0), .1)}")
-```
-
-## Ennustaako aiempi menestys tulevaa?
-
-Lukija kysyi myös, ennustaako tekijän aiempi aloitehistoria etenemistä. Malli
-sisältää sekä aiempien aloitteiden määrän että niiden aiemman etenemisasteen.
-
-```{r historia}
-post <- as_draws_df(m)
-tibble(
-  vaite = c("Aiempi etenemisaste ennustaa etenemistä (kerroin > 0)",
-            "Aloitteiden määrä ennustaa etenemistä (kerroin > 0)"),
-  todennakoisyys = c(scales::percent(mean(post$b_aiempi_etenemisaste > 0), .1),
-                     scales::percent(mean(post$b_aiemmat_z > 0), .1)))
-```
-
-::: {.callout-note title="Assosiaatio, ei mekanismi"}
-Vaikka aiempi etenemisaste ennustaisi tulevaa, se ei todista, että "menestys ruokkii
-menestystä". Taustalla voi olla pysyvä tekijä — asema, kokemus, aihevalinta — joka
-ajaa molempia. Edustajatason satunnaisvaikutus imee osan tästä, mutta ei tee
-yhteydestä kausaalista.
+::: {.callout-important title="Kuvaus, ei arvostelu"}
+Tämä ei tarkoita, että lakialoitteet olisivat turhia tai tekijänsä epärehellisiä.
+Signalointi on osa demokraattista prosessia: aihe voi myöhemmin päätyä hallituksen
+esitykseksi, ja aloite on osa sitä keskustelua. Kuvaamme järjestelmän toimintaa,
+emme arvota edustajien motiiveja.
 :::
 
-## Mitä tämä tarkoittaa päättäjälle
+## Minne ennustaminen kuuluu
 
-- **Läpimeno on ennustettavissa, ei ohjattavissa.** Malli tunnistaa etenevät
-  aloitteet; se ei kerro, mitä yksilön pitäisi tehdä.
-- **Ajoitus ja asema kietoutuvat.** Hallitus/oppositio-ero voi muuttua vaalikauden
-  vaiheen mukaan — interaktio näkyy datassa, ei arvauksena.
-- **Riippumattomuus on otettava vakavasti.** Kun sama tekijä tuottaa monta havaintoa,
-  niitä ei saa kohdella erillisinä; satunnaisvaikutus korjaa tämän.
-- **Harvat etenevät → leveät välit.** Jos etenevien joukko on pieni, epävarmuus on
-  suuri. Se on rehellinen tulos, ei puute.
+Jos haluaa ennustaa lainsäädännön läpimenoa, oikea kohde ei ole lakialoite vaan
+**hallituksen esitys (HE)**: ne etenevät, niistä äänestetään, ja niissä on todellista
+vaihtelua. Se on luonteva seuraava askel — ja siihen liittyy henkilötason
+äänestysdata, jota käsittelemme myöhemmin.
 
 ## Uutiskoukku takaisin
 
-Kannattaako lakialoitetta tehdä? Data kertoo, että valtaosa ei etene, ja etenevät
-erottuvat aseman, ajoituksen ja historian mukaan — mutta se, kumpi *aiheuttaa*
-kumman, ei ratkea tällä aineistolla. Analyytikon tärkein taito on sanoa se ääneen.
+Kannattaako lakialoitetta tehdä? Jos mittarina on laiksi tuleminen, vastaus on
+lähes aina ei. Mutta se ei ole koko tarina — aloite on signaali, ja signaloinnilla
+on oma arvonsa. Tärkeintä on, ettei "läpimenoprosentti" yhtenä lukuna piilota tätä
+todellisuutta.
 
 ---
 
 ::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
-Läpimeno- ja hyväksyntämallit, ajalliset interaktiot ja counterfactual-skenaariot —
-riippuvuusrakenteet oikein huomioiden. **kristianvepsalainen.com**
+Kun oletettu mittari osoittautuu vääräksi, oikean kysymyksen löytäminen on puolet
+työstä. Rakennan analytiikkaa, joka kertoo mitä data oikeasti tukee — ei mitä
+haluttaisiin sen sanovan. **kristianvepsalainen.com**
 :::
 
-*Kiitos lukijalle rakentavista kommenteista, jotka muokkasivat tämän osan mallia.
-Datalähde: Eduskunnan avoin data, VaskiData (CC BY 4.0). Hallituskokoonpanot koodattu käsin.*
+*Kiitos lukijalle kommenteista, jotka terävöittivät tätä osaa. Datalähde: Eduskunnan
+avoin data, VaskiData (CC BY 4.0). Hallituskokoonpanot koodattu käsin.*

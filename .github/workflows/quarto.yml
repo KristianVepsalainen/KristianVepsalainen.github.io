@@ -147,7 +147,8 @@ jobs:
             "stringdist",
             "giscoR",
             "tidybayes",
-            "osmextract"
+            "osmextract",
+            "dodgr"
           ))
 
         shell: Rscript {0}

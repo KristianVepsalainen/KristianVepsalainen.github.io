@@ -47,7 +47,10 @@ theme_kristian <- function(base_size = 14, base_family = "") {
       plot.caption       = ggplot2::element_text(color = "#6e7681", size = base_size * 0.7),
       legend.position    = "top",
       legend.key         = ggplot2::element_blank(),
-      plot.margin        = ggplot2::margin(15, 15, 15, 15)
+      plot.margin        = ggplot2::margin(15, 15, 15, 15),
+      
+      strip.text = element_text(colour = "grey85", size = 9, face = "plain"),
+      strip.background = element_rect(fill = "grey15", colour = NA)
     )
 }
 

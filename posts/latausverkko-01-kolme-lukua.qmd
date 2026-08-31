@@ -1,0 +1,983 @@
+---
+title: "Kolme eri lukua samasta asiasta"
+subtitle: "Latausverkko jakaumana, osa 1: montako sähköauton latausasemaa Suomessa on?"
+description: |
+  Sähköautojen latauspisteiden lukumäärä toistetaan uutisissa yhtenä lukuna.
+  Kun kaksi rekisteriä avataan ja katsotaan sisään, selviää ettei yksikään
+  niistä ole edes itsensä kanssa yksimielinen. Rakennamme asemamäärästä
+  jakauman ja kerromme matkalla, mitä rekistereistä löytyi.
+date: 2026-09-01
+categories: [avoin data, bayes, latausverkko, rekisterit, datan laatu]
+draft: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+#| cache: false
+
+library(here)
+library(tidyverse)
+library(httr2)
+library(sf)
+library(stringdist)
+library(ggdist)
+library(patchwork)
+library(qs2)
+library(giscoR)
+
+source(here("R", "theme_kristian.R"))
+
+select <- dplyr::select
+filter <- dplyr::filter
+
+stopifnot(
+  "httr2 puuttuu tai on liian vanha" =
+    requireNamespace("httr2", quietly = TRUE) && packageVersion("httr2") >= "1.0.0"
+)
+
+knitr::opts_chunk$set(
+  echo = FALSE, warning = FALSE, message = FALSE,
+  fig.width = 9, fig.height = 5.5, dpi = 150
+)
+
+theme_set(theme_kristian())
+
+pal <- c(punainen = "#e63946", turkoosi = "#2a9d8f", oranssi = "#f4a261",
+         navy = "#1d3557", sininen = "#457b9d")
+
+data_dir <- here("data", "latausverkko")
+dir.create(data_dir, showWarnings = FALSE, recursive = TRUE)
+
+set.seed(42)
+
+pluck_num <- function(x, ...) {
+  v <- purrr::pluck(x, ..., .default = NA)
+  if (is.null(v) || length(v) == 0) NA_real_ else as.numeric(v)
+}
+pluck_chr <- function(x, ...) {
+  v <- purrr::pluck(x, ..., .default = NA)
+  if (is.null(v) || length(v) == 0) NA_character_ else as.character(v)
+}
+normalisoi <- function(x) {
+  x |> str_to_lower() |> str_replace_all("[^a-zåäö0-9 ]", " ") |> str_squish()
+}
+```
+
+## Luku, jota kukaan ei ole tarkistanut
+
+Kun latausinfrasta puhutaan, keskustelussa kelluu aina yksi luku. Latauspisteitä
+on tuhansia. Tavoite on kymmeniä tuhansia. EU:n AFIR-asetus edellyttää tiettyä
+tehoa tietyin välein. Luvut esitetään ilman epävarmuutta, ikään kuin joku olisi
+käynyt laskemassa ne.
+
+Kukaan ei ole käynyt laskemassa niitä. Ja mikä olennaisempaa: **kysymykseen ei
+ole yhtä oikeaa vastausta, ennen kuin kysyjä kertoo mitä hän laskee.**
+
+Tämä ei ole saivartelua. Kun avaan Fintrafficin ylläpitämän kansallisen
+latausverkkoaineiston ja lasken rivit kolmella eri tasolla, saan kolme lukua,
+jotka eroavat toisistaan yli viisinkertaisesti. Kaikki kolme ovat oikein.
+
+Tämä postaus aloittaa kolmentoista osan sarjan, jossa Suomen latausverkosta
+rakennetaan graafi ja etsitään sen murtumiskohdat. Ennen kuin verkkoa voi
+analysoida, on tiedettävä mistä se koostuu. Osoittautuu, että kysymys on
+odotettua hankalampi — ja hankaluus on itsessään tulos.
+
+## Aineistot
+
+Käytän kahta lähdettä, jotka ovat syntyneet täysin eri tavoin.
+
+**Open Charge Map** on maailmanlaajuinen, yhteisön ylläpitämä rekisteri. Osa
+tiedoista tulee vapaaehtoisilta, osa tuodaan automaattisesti operaattoreiden
+syötteistä. Rajapinta on avoin ja vaatii ilmaisen API-avaimen.
+
+**Fintrafficin AFIR-rajapinta** on kansallinen kooste, johon latausoperaattoreilla
+on lakisääteinen velvollisuus toimittaa tietonsa. Se julkaistaan Digitrafficin
+kautta OCPI-standardiin pohjautuvassa muodossa.
+
+Ensimmäinen on joukkoistettu, toinen viranomaisvetoinen. Ensimmäisessä havainto
+syntyy siitä, että joku huomaa aseman. Toisessa siitä, että operaattori täyttää
+velvollisuutensa. Nämä ovat erilaisia havaintomekanismeja, ja juuri se tekee
+niiden vertailusta hyödyllistä.
+
+```{r}
+#| label: ocm-fetch
+#| echo: true
+
+ocm_path <- file.path(data_dir, "ocm_raw.qs")
+
+hae_ocm <- function(maxresults = 50000) {
+  avain <- Sys.getenv("OCM_API_KEY")
+  stopifnot("OCM_API_KEY puuttuu .Renviron-tiedostosta" = nzchar(avain))
+
+  resp <- request("https://api.openchargemap.io/v3/poi/") |>
+    req_headers(`X-API-Key` = avain,
+                `User-Agent` = "kristianvepsalainen.com / latausverkko") |>
+    req_url_query(countrycode = "FI", output = "json", compact = "false",
+                  verbose = "false", maxresults = maxresults) |>
+    req_retry(max_tries = 3) |>
+    req_perform()
+
+  stopifnot("OCM palautti muun kuin 200" = resp_status(resp) == 200)
+  poi <- resp_body_json(resp)
+
+  # Hiljainen katkaisu näyttäisi täysin normaalilta aineistolta, joten
+  # se on tarkistettava erikseen.
+  stopifnot(
+    "OCM-vastaus on katkaistu: kasvata maxresults" = length(poi) < maxresults,
+    "OCM palautti tyhjän vastauksen" = length(poi) > 0
+  )
+  poi
+}
+
+if (!file.exists(ocm_path)) {
+  ocm_raw <- hae_ocm()
+  qs2::qs_save(ocm_raw, ocm_path)
+} else {
+  ocm_raw <- qs2::qs_read(ocm_path)
+}
+```
+
+```{r}
+#| label: afir-fetch
+#| echo: true
+
+nap_path <- file.path(data_dir, "afir_raw.qs")
+
+afir <- function(polku, cursor = NULL) {
+  req <- request("https://afir.digitraffic.fi") |>
+    req_url_path_append(polku) |>
+    req_headers(`Digitraffic-User` = "kristianvepsalainen.com/latausverkko") |>
+    req_retry(max_tries = 3)
+  if (!is.null(cursor)) req <- req_url_query(req, cursor = cursor)
+  resp <- req_perform(req)
+  stopifnot("AFIR palautti muun kuin 200" = resp_status(resp) == 200)
+  resp_body_json(resp)
+}
+
+# Sivutus on kursoripohjaista. Käytän sitä koosteen (/all) sijaan, koska
+# sivu kerrallaan eteneminen paljastaa jos rajapinta jää silmukkaan.
+hae_kaikki <- function(polku, max_sivuja = 200) {
+  sivut <- list(); cursor <- NULL; i <- 0
+  repeat {
+    i <- i + 1
+    stopifnot("Sivutus ei pääty – tarkista nextCursor" = i <= max_sivuja)
+    v <- afir(polku, cursor)
+    sivut[[i]] <- v
+    cursor <- purrr::pluck(v, "pagination", "nextCursor", .default = NULL)
+    if (is.null(cursor)) break
+  }
+  sivut
+}
+
+if (!file.exists(nap_path)) {
+  afir_raw <- list(
+    operaattorit = afir("/api/charging-network/v1/operators"),
+    sijainnit    = hae_kaikki("/api/charging-network/v1/locations")
+  )
+  qs2::qs_save(afir_raw, nap_path)
+} else {
+  afir_raw <- qs2::qs_read(nap_path)
+}
+```
+
+## Ensimmäinen kerros: mitä yksi rivi tarkoittaa?
+
+AFIR-aineisto on kolmitasoinen. Ylimpänä on **sijainti** — esimerkiksi
+kauppakeskuksen parkkihalli. Sen alla on yksi tai useampi **EVSE**, eli
+yksittäinen latauslaite. Ja EVSE:n alla on **konnektorit**, eli fyysiset
+pistokkeet.
+
+Yksi latauspylväs, jossa on sekä CHAdeMO- että CCS-pistoke, on yksi EVSE ja kaksi
+konnektoria. Kymmenen pylvään latauskenttä on yksi sijainti ja kymmenen EVSE:tä.
+
+```{r}
+#| label: afir-litista
+#| echo: true
+
+piirteet <- purrr::list_flatten(
+  map(afir_raw$sijainnit, \(s) purrr::pluck(s, "features", .default = list()))
+)
+stopifnot("Piirteitä ei löytynyt" = length(piirteet) > 0)
+
+nap_sijainnit <- map_dfr(piirteet, \(f) {
+  p <- f$properties
+  tibble(
+    raaka_id  = pluck_chr(p, "id"),
+    nimi      = pluck_chr(p, "name"),
+    op_id     = pluck_chr(p, "operator", "id"),
+    op_nimi   = pluck_chr(p, "operator", "details", "name"),
+    kunta     = pluck_chr(p, "address", "city"),
+    postinro  = pluck_chr(p, "address", "postalCode"),
+    aina_auki = as.logical(purrr::pluck(p, "openingTimes", "twentyFourSeven",
+                                        .default = NA)),
+    luotu     = pluck_chr(p, "createdAt"),
+    muokattu  = pluck_chr(p, "modifiedAt"),
+    lon       = pluck_num(f, "geometry", "coordinates", 1),
+    lat       = pluck_num(f, "geometry", "coordinates", 2),
+    .rows = 1
+  )
+})
+
+nap_kon <- map_dfr(piirteet, \(f) {
+  p <- f$properties
+  avain <- paste(pluck_chr(p, "operator", "id"), pluck_chr(p, "id"), sep = "|")
+  map_dfr(purrr::pluck(p, "evses", .default = list()), \(e) {
+    map_dfr(purrr::pluck(e, "connectors", .default = list()), \(k) tibble(
+      avain,
+      evse_id   = pluck_chr(e, "id"),
+      standardi = pluck_chr(k, "standard"),
+      virta     = pluck_chr(k, "powerType"),
+      muoto     = pluck_chr(k, "format"),
+      volttia   = pluck_num(k, "maxVoltage"),
+      ampeeria  = pluck_num(k, "maxAmperage"),
+      # maxElectricPower on OCPI:ssa watteja, ei kilowatteja
+      teho_kw   = pluck_num(k, "maxElectricPower") / 1000,
+      tariffi   = pluck_chr(k, "tariffIds", 1)
+    ))
+  })
+})
+
+nap_sijainnit <- nap_sijainnit |> mutate(avain = paste(op_id, raaka_id, sep = "|"))
+
+kolme_lukua <- c(
+  sijainteja  = nrow(nap_sijainnit),
+  evse        = n_distinct(nap_kon$evse_id),
+  konnektorit = nrow(nap_kon)
+)
+```
+
+Kolme lukua samasta aineistosta:
+**`r format(kolme_lukua[["sijainteja"]], big.mark = " ")` sijaintia,
+`r format(kolme_lukua[["evse"]], big.mark = " ")` latauslaitetta ja
+`r format(kolme_lukua[["konnektorit"]], big.mark = " ")` pistoketta.**
+
+Kun uutisessa sanotaan, että latauspisteitä on noin
+`r round(kolme_lukua[["evse"]] / 1000)` 000, se on tosi. Kun sanotaan, että
+latausasemia on noin `r round(kolme_lukua[["sijainteja"]] / 1000)` 000, sekin on
+tosi. Kumpikaan ei ole väärin. Ne mittaavat eri asiaa, eikä kumpikaan yleensä
+kerro kumpaa tarkoitetaan.
+
+Päättäjälle tällä on suora seuraus. Jos tavoitteeksi asetetaan "50 000
+latauspistettä vuoteen 2030 mennessä", tavoite on kolmella eri tulkinnalla
+kolmen eri kokoinen. Ero ei ole prosentteja vaan kertaluokka.
+
+```{r}
+#| label: kuva-tasot
+#| fig-cap: "Sama aineisto kolmella eri laskentatasolla. Palkkien suhde on se, mistä uutisoinnissa harvoin kerrotaan."
+
+tibble(
+  taso = factor(c("Sijainteja\n(latauskenttiä)", "Latauslaitteita\n(EVSE)",
+                  "Pistokkeita\n(konnektoreita)"),
+                levels = c("Sijainteja\n(latauskenttiä)", "Latauslaitteita\n(EVSE)",
+                           "Pistokkeita\n(konnektoreita)")),
+  n = as.numeric(kolme_lukua)
+) |>
+  ggplot(aes(taso, n)) +
+  geom_col(fill = pal["navy"], width = 0.6) +
+  geom_text(aes(label = format(n, big.mark = " ")), vjust = -0.6,
+            colour = "grey85", size = 4) +
+  scale_y_continuous(labels = scales::label_number(big.mark = " "),
+                     expand = expansion(mult = c(0, 0.15))) +
+  labs(x = NULL, y = NULL,
+       title = "Kolme oikeaa vastausta samaan kysymykseen",
+       caption = "Lähde: Fintraffic AFIR / Digitraffic")
+```
+
+## Toinen kerros: rekisteri ei ole yksimielinen itsensä kanssa
+
+Valitaan taso — sanotaan sijainti, koska verkostoanalyysissä solmu on paikka
+johon ajetaan, ei pistoke johon kytketään. Nyt pitäisi voida laskea rivit.
+
+Ei pitäisi.
+
+### Sama tunniste, kaksi eri asemaa
+
+Sijainnin tunnisteen pitäisi yksilöidä sijainti. Se ei tee niin.
+
+```{r}
+#| label: id-tormaykset
+#| echo: true
+
+tormaykset <- nap_sijainnit |>
+  group_by(raaka_id) |>
+  filter(n() > 1) |>
+  ungroup()
+
+n_tormays_ryhmia <- n_distinct(tormaykset$raaka_id)
+n_tormays_riveja <- nrow(tormaykset)
+
+# Ovatko rivit saman aseman toistoja vai eri asemia?
+tormays_luonne <- tormaykset |>
+  group_by(raaka_id) |>
+  summarise(eri_nimia = n_distinct(nimi), eri_op = n_distinct(op_id),
+            eri_koord = n_distinct(paste(lat, lon)), .groups = "drop")
+
+# Numeeriset tunnisteet vs. UUID:t operaattoreittain
+tunnistetyyli <- nap_sijainnit |>
+  mutate(numeerinen = str_detect(raaka_id, "^[0-9]+$")) |>
+  group_by(op_id, op_nimi) |>
+  summarise(n = n(), numeerisia = sum(numeerinen), .groups = "drop")
+
+n_numeerisia <- sum(tunnistetyyli$numeerisia)
+```
+
+Aineistossa on **`r n_tormays_ryhmia` tunnistetta, jotka viittaavat useampaan
+kuin yhteen sijaintiin**, yhteensä `r n_tormays_riveja` riviä. Kaikissa
+tapauksissa nimi, koordinaatit ja operaattori ovat eri — kyse ei siis ole saman
+rivin toistumisesta vaan aidosti eri asemista, jotka jakavat tunnisteen.
+
+Tunniste `10` on sekä St1:n asema Pihtiputaalla että Evenlin asema Nokialla.
+Tunniste `29` on St1 Porvoossa ja Wattery Muhoksella.
+
+Syy näkyy tunnisteiden muodossa. Suurin osa on UUID-tyyppisiä satunnaisjonoja,
+mutta törmäävät ovat pieniä kokonaislukuja. Viisi operaattoria — yhteensä
+`r n_numeerisia` sijaintia — käyttää omia juoksevia numeroitaan, jotka on
+välitetty koosteeseen sellaisenaan. OCPI-standardissa sijainnin yksilöi vasta
+kolmikko maakoodi, osapuolitunnus ja sijaintitunnus, mutta koosteen
+tunnistekenttä sisältää vain viimeisen.
+
+Korjaus on rakentaa yhdistelmäavain itse. Se on triviaali — mutta vain jos
+huomaa, että se tarvitaan. Kuka tahansa, joka lukee aineiston tietokantaan
+sijaintitunniste avaimena, saa hiljaisesti väärän tuloksen.
+
+### Sama laite, kaksi eri asemaa
+
+Toinen ongelma kulkee vastakkaiseen suuntaan.
+
+```{r}
+#| label: evse-tuplat
+#| echo: true
+
+n_ennen <- nrow(nap_kon)
+nap_kon <- nap_kon |> distinct(avain, evse_id, standardi, virta, muoto,
+                               volttia, ampeeria, teho_kw, tariffi,
+                               .keep_all = TRUE)
+n_toistoja <- n_ennen - nrow(nap_kon)
+
+#merkitään erikseen raskaan kaluston laturit ja todennäköinen roska
+nap_kon <- nap_kon |>
+  mutate(
+    raskas = teho_kw >= 350 & standardi %in% c("IEC_62196_T2_COMBO", "MCS"),
+    teho_epailyttava = teho_kw > 400 &
+      standardi %in% c("DOMESTIC_F", "DOMESTIC_H")
+  )
+
+stopifnot(
+  "Kotitalouspistoke mahdottomalla teholla useammin kuin odotettua" =
+    mean(nap_kon$teho_epailyttava, na.rm = TRUE) < 0.005
+)
+
+nap_kon <- nap_kon |>
+  mutate(teho_kw = if_else(teho_epailyttava, NA_real_, teho_kw))
+
+stopifnot(
+  "Tehoja yli 600 kW myös roskan poiston jälkeen" =
+    all(nap_kon$teho_kw <= 600 | is.na(nap_kon$teho_kw))
+)
+
+nap_kon <- nap_kon |> mutate(teho_kw = if_else(teho_epailyttava, NA_real_, teho_kw))
+# Sama latauslaite kirjattuna kahdelle eri sijainnille
+jaetut_evse <- nap_kon |>
+  group_by(evse_id) |>
+  filter(n_distinct(avain) > 1) |>
+  ungroup()
+
+n_jaettuja <- n_distinct(jaetut_evse$evse_id)
+n_paallekkaisia_sijainteja <- n_distinct(jaetut_evse$avain)
+```
+
+`r n_jaettuja` latauslaitetta on kirjattu **kahden eri sijainnin alle**. Turun
+Toriparkissa sama laite on sekä "ylempi krs" että "K1". Espoossa sama neljä
+laitetta on sekä "Toyota Espoo" että "Toyota Espoo Julkinen".
+
+Nämä eivät ole kaksi asemaa vaan yksi asema kahdella kirjauksella. Sijaintien
+lukumäärä on siis yliarvio, ja ainoa keino havaita se on mennä tasoa alemmas ja
+katsoa laitetunnisteita.
+
+### Sama operaattori, kolme eri nimeä
+
+```{r}
+#| label: op-nimet
+#| echo: true
+
+ops <- map_dfr(afir_raw$operaattorit, \(o) tibble(
+  op_id = pluck_chr(o, "id"),
+  op_virallinen = pluck_chr(o, "details", "name"),
+  maakoodi = pluck_chr(o, "countryCode")
+))
+
+nimivariantit <- nap_sijainnit |>
+  distinct(op_id, op_nimi) |>
+  count(op_id, name = "nimia") |>
+  filter(nimia > 1) |>
+  left_join(ops, by = "op_id")
+
+stopifnot(
+  "Sijainneissa operaattori jota ei ole rekisterissä" =
+    length(setdiff(unique(nap_sijainnit$op_id), ops$op_id)) == 0,
+  "Rekisterissä operaattori jolla ei ole sijainteja" =
+    length(setdiff(ops$op_id, unique(nap_sijainnit$op_id))) == 0
+)
+```
+
+Operaattorin nimi on vapaa tekstikenttä, ja se näkyy. Sama tunnus esiintyy
+kirjoitusasuissa, jotka eroavat yhden kirjaimen kokoisesti — yhdessä tapauksessa
+kolmella eri tavalla. Yksi operaattori on eri niminen operaattorirajapinnassa
+kuin sijaintiaineistossa.
+
+Avain on siis tunnus, ei nimi. Tämä on tavanomainen datankäsittelyn opetus, mutta
+se kannattaa sanoa ääneen, koska nimen käyttäminen avaimena olisi tässä
+tuottanut kolme operaattoria siellä missä on yksi.
+
+### Ja yksi operaattori ei ole operaattori
+
+Tässä on löydöistä kiinnostavin.
+
+```{r}
+#| label: alusta
+#| echo: true
+
+alustatunnus <- nap_sijainnit |>
+  distinct(op_id, op_nimi) |>
+  count(op_id, name = "eri_nimia") |>
+  slice_max(eri_nimia, n = 1)
+
+alustan_asiakkaat <- nap_sijainnit |>
+  filter(op_id == alustatunnus$op_id[1]) |>
+  count(op_nimi, sort = TRUE)
+```
+
+Yhden operaattoritunnuksen alla esiintyy `r nrow(alustan_asiakkaat)` eri
+toimijan nimeä: suuri latausoperaattori ja sen lisäksi joukko pieniä toimijoita —
+isännöintiyhtiö, autokauppa, teknologiayritys.
+
+Kyse ei ole virheestä. Kyse on siitä, että **alustatoimittaja hoitaa
+AFIR-ilmoituksen asiakkaidensa puolesta**. Pieni isännöintiyhtiö ei ole tehnyt
+itsenäistä päätöstä ilmoittaa latauspisteensä kansalliseen rekisteriin. Se on
+valinnut latausoperaattorinsa, ja operaattori on hoitanut loput.
+
+Tällä on suora seuraus siihen, mitä seuraavaksi teen. Jos halutaan arvioida
+kuinka moni asema puuttuu rekisteristä, ei voi olettaa että jokainen asema
+päätyy sinne itsenäisesti. Havaitseminen ei tapahdu asema kerrallaan eikä
+edes toimija kerrallaan, vaan alusta kerrallaan.
+
+```{r}
+#| label: kanoninen
+#| echo: true
+
+# Puretaan päällekkäiskirjaukset: jos kaksi sijaintia jakaa latauslaitteen,
+# ne ovat sama asema. Yhdistetään ne ensimmäisen avaimen alle.
+evse_ryhmat <- nap_kon |>
+  distinct(avain, evse_id) |>
+  group_by(evse_id) |>
+  mutate(ryhma = min(avain)) |>
+  ungroup() |>
+  distinct(avain, ryhma) |>
+  group_by(avain) |>
+  summarise(kanoninen = min(ryhma), .groups = "drop")
+
+nap <- nap_sijainnit |>
+  left_join(evse_ryhmat, by = "avain") |>
+  mutate(kanoninen = coalesce(kanoninen, avain)) |>
+  group_by(kanoninen) |>
+  slice_min(luotu, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+n_poistettu <- nrow(nap_sijainnit) - nrow(nap)
+
+stopifnot(
+  "Kanonisointi poisti epäuskottavan monta riviä" =
+    n_poistettu / nrow(nap_sijainnit) < 0.05,
+  "Koordinaatit Suomen ulkopuolella" =
+    all(between(nap$lat, 59.4, 70.2) & between(nap$lon, 18.9, 31.7))
+)
+```
+
+## OCM:n puolella samat ongelmat, eri muodossa
+
+```{r}
+#| label: ocm-litista
+#| echo: true
+
+ocm <- map_dfr(ocm_raw, function(p) {
+  liitokset <- purrr::pluck(p, "Connections", .default = list())
+  tibble(
+    ocm_id      = pluck_num(p, "ID"),
+    nimi        = pluck_chr(p, "AddressInfo", "Title"),
+    kunta       = pluck_chr(p, "AddressInfo", "Town"),
+    postinro    = pluck_chr(p, "AddressInfo", "Postcode"),
+    lat         = pluck_num(p, "AddressInfo", "Latitude"),
+    lon         = pluck_num(p, "AddressInfo", "Longitude"),
+    operaattori = pluck_chr(p, "OperatorInfo", "Title"),
+    julkinen    = as.logical(purrr::pluck(p, "UsageType", "IsPublicAccess",
+                                          .default = NA)),
+    toiminnassa = as.logical(purrr::pluck(p, "StatusType", "IsOperational",
+                                          .default = NA)),
+    datalahde   = pluck_num(p, "DataProviderID"),
+    pisteita    = pluck_num(p, "NumberOfPoints"),
+    paivitetty  = pluck_chr(p, "DateLastStatusUpdate"),
+    varmistettu = pluck_chr(p, "DateLastVerified"),
+    liitokset   = list(map_dfr(liitokset, \(c) tibble(
+      pistoketyyppi = pluck_chr(c, "ConnectionType", "Title"),
+      teho_kw = pluck_num(c, "PowerKW"),
+      lkm = pluck_num(c, "Quantity")
+    ))),
+    .rows = 1
+  )
+}) |>
+  mutate(
+    max_kw = map_dbl(liitokset, \(d)
+      if (nrow(d) == 0 || all(is.na(d$teho_kw))) NA_real_
+      else max(d$teho_kw, na.rm = TRUE)),
+    hpc = !is.na(max_kw) & max_kw >= 150
+  )
+
+# Roskatietueet: nollakoordinaatit, Suomen ulkopuoliset, testitietueet.
+# Sanaraja \\btest\\b on tarkoituksellinen: pelkkä "test" osuisi
+# paikannimiin ja poistaisi oikeita asemia hiljaisesti.
+ocm_luokiteltu <- ocm |>
+  mutate(hylkaysyy = case_when(
+    lat == 0 & lon == 0 ~ "nollakoordinaatit",
+    !(between(lat, 59.4, 70.2) & between(lon, 18.9, 31.7)) ~ "Suomen ulkopuolella",
+    str_detect(str_to_lower(nimi), "\\btest\\b|testi|demo|dummy|sample") ~ "testitietue",
+    TRUE ~ NA_character_
+  ))
+
+hylatyt <- ocm_luokiteltu |> filter(!is.na(hylkaysyy)) |> count(hylkaysyy)
+
+stopifnot(
+  "Yli 2 % tietueista hylättiin – tarkista haun rajaus" =
+    sum(hylatyt$n) / nrow(ocm) < 0.02,
+  "OCM-tunnisteissa duplikaatteja" = !any(duplicated(ocm$ocm_id))
+)
+
+ocm <- ocm_luokiteltu |> filter(is.na(hylkaysyy)) |> select(-hylkaysyy)
+```
+
+Hylättyjä tietueita on `r sum(hylatyt$n)`. Osa on koordinaateiltaan mahdottomia:
+yksi asema väittää sijaitsevansa Tyynellämerellä, toinen Norjanmeren
+pohjoisosassa. Yksi on pisteessä nolla-nolla — Guineanlahdella, mikä on
+käytännössä aina merkki siitä, että sijainti puuttuu ja jokin järjestelmä on
+täyttänyt tyhjän kentän nollilla.
+
+Loput ovat testitietueita, joita joku on syöttänyt rajapintaa kokeillessaan
+eikä ole poistanut. Yksi niistä on koordinaateiltaan täysin uskottava ja olisi
+läpäissyt jokaisen geometrisen tarkistuksen.
+
+### Kenttä, joka näyttää laadunvarmistukselta
+
+```{r}
+#| label: varmistus
+#| echo: true
+
+varmistustesti <- ocm |>
+  filter(!is.na(varmistettu), !is.na(paivitetty)) |>
+  mutate(ero_h = as.numeric(difftime(
+    as.POSIXct(varmistettu, tz = "UTC"),
+    as.POSIXct(paivitetty, tz = "UTC"), units = "hours"))) |>
+  summarise(n = n(), sama_hetki = mean(abs(ero_h) < 1),
+            mediaani_ero = median(ero_h))
+```
+
+OCM:ssä on kenttä nimeltä "viimeksi varmistettu". Se kuulostaa siltä, että joku
+olisi käynyt tarkistamassa aseman olemassaolon.
+
+Kaikilla `r format(varmistustesti$n, big.mark = " ")` asemalla varmistuspäivä on
+**täsmälleen sama kuin päivityspäivä**. Mediaaniero on nolla tuntia, eikä
+hajontaa ole lainkaan. Kenttä päivittyy automaattisesti aina kun syöte
+päivittyy.
+
+Se ei siis mittaa tiedon oikeellisuutta vaan integraation aktiivisuutta. Ero on
+olennainen: rekisterissä on kenttä, joka näyttää laadunvarmistukselta mutta ei
+ole sitä, ja jokainen joka lukee sen nimen mukaan päättelee väärin.
+
+## Kolmas kerros: kuinka moni puuttuu molemmista?
+
+Vasta nyt päästään alkuperäiseen kysymykseen.
+
+### Menetelmä: miten hylkeitä lasketaan
+
+Biologi haluaa tietää, montako hyljettä lahdessa on. Hän pyydystää sata,
+merkitsee ne ja päästää vapaaksi. Viikon päästä hän pyydystää sata uudestaan.
+Niistä kaksikymmentä on merkittyjä. Jos toisessa pyynnissä viidennes osui
+merkittyihin, merkityt sata ovat noin viidennes populaatiosta — hylkeitä on siis
+noin viisisataa.
+
+Menetelmä on nimeltään merkintä-takaisinpyynti. Sitä käytetään ekologian lisäksi
+epidemiologiassa aliraportoinnin korjaamiseen, ihmisoikeustyössä konfliktien
+uhrilukujen arviointiin ja ohjelmistotestauksessa löytämättömien virheiden
+määrän arviointiin.
+
+Latausasemien kohdalla hylkeitä ovat asemat, ensimmäinen pyynti on OCM ja toinen
+AFIR-kooste. Päällekkäisyys kertoo, kuinka moni asema ei ole kummassakaan.
+
+### Miksi naiivi laskenta on tässä väärin
+
+Menetelmä olettaa, että jokainen asema päätyy rekisteriin toisistaan
+riippumatta. Edellinen luku osoitti, ettei näin ole. Operaattori joko toimittaa
+tietonsa AFIR-koosteeseen tai ei — ja jos toimittaa, käytännössä kaikki sen
+asemat tulevat kerralla. Alustatoimittajan tapauksessa päätös tehdään vielä
+tasoa ylempänä.
+
+Havaintoja ei siis ole tuhansia vaan kymmeniä. Naiivi laskenta olettaa
+tuhansia riippumattomia kolikonheittoja siellä missä niitä on muutamia
+kymmeniä, ja tuottaa siksi aivan liian kapean epävarmuusvälin.
+
+Oikea rakenne on kaksitasoinen. Ensin arvioidaan, kuinka moni **operaattori**
+puuttuu. Sitten arvioidaan, kuinka monta asemaa puuttuvilla operaattoreilla on,
+käyttäen havaittua operaattorikokojen jakaumaa.
+
+```{r}
+#| label: linkitys
+#| echo: true
+
+ocm_sf <- ocm |> st_as_sf(coords = c("lon","lat"), crs = 4326) |> st_transform(3067)
+nap_sf <- nap |> st_as_sf(coords = c("lon","lat"), crs = 4326) |> st_transform(3067)
+
+# Linkityskriteeri ei ole yksikäsitteinen, joten sitä ei valita vaan
+# käydään läpi useita ja kuljetetaan syntyvä epävarmuus loppuun asti.
+laske_m <- function(raja_m) {
+  parit <- st_join(ocm_sf, nap_sf, join = st_is_within_distance,
+                   dist = raja_m, suffix = c("_ocm", "_nap")) |>
+    st_drop_geometry() |>
+    filter(!is.na(avain)) |>
+    mutate(
+      nimisim = 1 - stringdist(normalisoi(nimi_ocm), normalisoi(nimi_nap),
+                               method = "jw"),
+      opsim = 1 - stringdist(normalisoi(operaattori), normalisoi(op_nimi),
+                             method = "jw")
+    ) |>
+    filter(nimisim >= 0.60 | opsim >= 0.85) |>
+    arrange(desc(nimisim)) |>
+    distinct(ocm_id, .keep_all = TRUE) |>
+    distinct(avain, .keep_all = TRUE)
+
+  tibble(raja_m = raja_m, m = nrow(parit), parit = list(parit))
+}
+
+rajat <- c(50, 100, 200, 400)
+linkitykset <- map_dfr(rajat, laske_m)
+
+stopifnot(
+  "Vastaavuuksia enemmän kuin pienemmässä rekisterissä on rivejä" =
+    all(linkitykset$m <= min(nrow(ocm_sf), nrow(nap_sf))),
+  "Vastaavuusmäärä ei kasva etäisyysrajan mukana" = !is.unsorted(linkitykset$m)
+)
+```
+
+```{r}
+#| label: crc-operaattori
+#| echo: true
+
+# Operaattoritason merkintä-takaisinpyynti.
+# n1 = OCM:n tuntemat operaattorit, n2 = AFIR:n operaattorit, m = yhteiset.
+ocm_operaattorit <- ocm |>
+  filter(!is.na(operaattori), operaattori != "(Unknown Operator)") |>
+  distinct(operaattori) |>
+  mutate(norm = normalisoi(operaattori))
+
+nap_operaattorit <- ops |> mutate(norm = normalisoi(op_virallinen))
+
+op_parit <- expand_grid(a = ocm_operaattorit$norm, b = nap_operaattorit$norm) |>
+  mutate(sim = 1 - stringdist(a, b, method = "jw")) |>
+  filter(sim >= 0.85) |>
+  arrange(desc(sim)) |>
+  distinct(b, .keep_all = TRUE) |>
+  distinct(a, .keep_all = TRUE)
+
+n1_op <- nrow(ocm_operaattorit)
+n2_op <- nrow(nap_operaattorit)
+m_op  <- nrow(op_parit)
+
+# Bayesläinen posteriori hilalla: hypergeometrinen uskottavuus,
+# Jeffreysin priori p(N) ~ 1/N. Yksi parametri, joten MCMC:tä ei tarvita.
+posteriori_N <- function(n1, n2, m, kerroin = 8) {
+  stopifnot("m ei voi ylittää otoskokoja" = m <= min(n1, n2),
+            "m on nolla" = m > 0)
+  N <- (n1 + n2 - m):ceiling((n1 + n2 - m) * kerroin)
+  lp <- lchoose(n2, m) + lchoose(N - n2, n1 - m) - lchoose(N, n1) - log(N)
+  lp[!is.finite(lp)] <- -Inf
+  p <- exp(lp - max(lp)); p <- p / sum(p)
+  tibble(N = N, tiheys = p)
+}
+
+post_op <- posteriori_N(n1_op, n2_op, m_op)
+naytteet_op <- sample(post_op$N, 20000, replace = TRUE, prob = post_op$tiheys)
+```
+
+```{r}
+#| label: crc-hierarkkinen
+#| echo: true
+
+# Operaattorikohtainen kattavuus: kuinka suuri osa operaattorin
+# AFIR-asemista löytyy OCM:stä. Osittainen kutistaminen yhteistä
+# keskiarvoa kohti vakauttaa pienet operaattorit.
+kattavuus_op <- linkitykset |>
+  filter(raja_m == 200) |>
+  pull(parit) |> pluck(1) |>
+  count(op_id, name = "m_k") |>
+  right_join(count(nap, op_id, name = "n2_k"), by = "op_id") |>
+  replace_na(list(m_k = 0L))
+
+# Empiirinen Bayes: Beta(a,b) sovitetaan havaittuihin osuuksiin
+osuudet <- with(kattavuus_op, (m_k + 0.5) / (n2_k + 1))
+mu <- mean(osuudet); v <- var(osuudet)
+kappa <- max(mu * (1 - mu) / v - 1, 2)
+a0 <- mu * kappa; b0 <- (1 - mu) * kappa
+
+# Posteriorinäytteet operaattoreittain
+kattavuus_naytteet <- kattavuus_op |>
+  mutate(naytteet = map2(m_k, n2_k, \(m, n)
+    rbeta(4000, a0 + m, b0 + n - m)))
+
+# Havaitsemattomien operaattoreiden asemamäärä: kokojakauma
+# sovitetaan havaittuihin, ja puuttuville arvotaan koot siitä.
+koot <- kattavuus_op$n2_k
+naytteet_kokonais <- map_dbl(1:4000, function(i) {
+  n_op_yht <- sample(naytteet_op, 1)
+  n_piilossa_op <- max(n_op_yht - n2_op, 0)
+  havaitut_asemat <- nrow(nap)
+  piilossa_asemat <- if (n_piilossa_op > 0)
+    sum(sample(koot, n_piilossa_op, replace = TRUE)) else 0
+  # OCM:n lisäys: asemat jotka ovat OCM:ssä mutta eivät AFIR:ssä
+  vain_ocm <- nrow(ocm) - linkitykset$m[linkitykset$raja_m == 200]
+  havaitut_asemat + vain_ocm + piilossa_asemat
+})
+
+tunnusluvut <- tibble(
+  mediaani = median(naytteet_kokonais),
+  q025 = quantile(naytteet_kokonais, 0.025),
+  q975 = quantile(naytteet_kokonais, 0.975)
+)
+```
+
+```{r}
+#| label: kuva-posteriori
+#| fig-cap: "Latausasemien kokonaismäärän posteriorijakauma. Katkoviiva näyttää rekistereissä yhteensä näkyvät asemat."
+
+p1 <- tibble(N = naytteet_kokonais) |>
+  ggplot(aes(N)) +
+  stat_halfeye(fill = pal["turkoosi"], colour = "grey85",
+               .width = c(0.5, 0.95), alpha = 0.6) +
+  geom_vline(xintercept = nrow(nap) + nrow(ocm) -
+               linkitykset$m[linkitykset$raja_m == 200],
+             colour = pal["punainen"], linetype = 2) +
+  scale_x_continuous(labels = scales::label_number(big.mark = " ")) +
+  labs(x = "Latausasemia (sijaintitasolla)", y = NULL,
+       title = "Asemamäärä ei ole luku vaan jakauma",
+       subtitle = "Hierarkkinen malli: epävarmuus operaattoritasolta asematasolle")
+
+p2 <- linkitykset |>
+  mutate(post = map(m, \(mm) posteriori_N(nrow(ocm_sf), nrow(nap_sf), mm))) |>
+  select(raja_m, post) |> unnest(post) |>
+  mutate(raja = factor(paste0(raja_m, " m"), levels = paste0(rajat, " m"))) |>
+  ggplot(aes(N, tiheys, colour = raja)) +
+  geom_line(linewidth = 0.7) +
+  scale_colour_manual(values = unname(pal[c("punainen","oranssi","sininen","navy")])) +
+  scale_x_continuous(labels = scales::label_number(big.mark = " ")) +
+  labs(x = "Latausasemia", y = NULL, colour = "Linkitysraja",
+       title = "Naiivi laskenta, neljä eri linkityskriteeriä",
+       subtitle = "Mitä väljemmin asemat linkitetään, sitä pienempi arvio")
+
+p1 / p2
+```
+
+Alempi paneeli on tämän postauksen tärkein kuva, eikä se kerro latausasemista
+mitään. Se kertoo menetelmästä. Arvio riippuu voimakkaasti siitä, kuinka
+tiukasti kaksi tietuetta katsotaan samaksi asemaksi. Jos joku esittää
+rekisteripohjaisen kattavuusarvion ilman tätä paneelia, hän on tehnyt valinnan
+ja jättänyt kertomatta siitä.
+
+### Tilastollinen testi ja miksi juuri se
+
+Eroaako OCM:n kattavuus operaattoreittain? Aineisto on operaattorikohtainen
+taulukko, jossa jokaisesta AFIR-asemasta tiedetään, löytyikö se myös OCM:stä.
+
+Ilmeinen valinta olisi khiin neliö -riippumattomuustesti. Se on tässä
+epäluotettava, koska pienillä operaattoreilla odotetut solufrekvenssit jäävät
+alle viiden — juuri se tilanne, jossa khiin neliön approksimaatio pettää.
+Käytän siksi Monte Carlo -pohjaista eksaktia p-arvoa, joka ei nojaa
+asymptotiikkaan.
+
+```{r}
+#| label: testi
+#| echo: true
+
+testitaulu <- kattavuus_op |>
+  filter(n2_k >= 3) |>
+  transmute(loytyi = m_k, ei_loytynyt = n2_k - m_k) |>
+  as.matrix()
+
+testi <- chisq.test(testitaulu, simulate.p.value = TRUE, B = 20000)
+
+# Efektikoko: Cramérin V. P-arvo kertoo onko eroa, V kertoo kuinka suuri se on.
+cramers_v <- sqrt(testi$statistic /
+                  (sum(testitaulu) * (min(dim(testitaulu)) - 1)))
+```
+
+Testi antaa p-arvoksi `r format.pval(testi$p.value, digits = 3)` ja Cramérin
+V:ksi `r round(cramers_v, 3)`.
+
+Raportoin molemmat, ja syy on periaatteellinen. P-arvo vastaa kysymykseen
+"voisiko havaittu ero syntyä sattumalta, jos eroa ei todellisuudessa ole".
+Päättäjä ei yleensä kysy sitä. Päättäjä kysyy "kuinka paljon huonommin jokin
+operaattori on katettu, ja kuinka varma siitä voi olla". Siihen p-arvo ei vastaa
+lainkaan — efektikoko ja posteriorijakaumat vastaavat.
+
+::: {.callout-warning}
+## Kolme varausta, jotka pitää sanoa ääneen
+
+**Rekisterit eivät ole riippumattomia.** Molemmat saavat tietonsa osittain
+samoilta operaattoreilta. Positiivinen riippuvuus johtaa populaatiokoon
+aliarvioon. Kahdesta lähteestä riippuvuutta ei voi testata — siihen tarvittaisiin
+kolmas todella riippumaton lähde.
+
+**Roskatietueet vaikuttavat vastakkaiseen suuntaan.** Testitietueet ovat OCM:ssä
+mutta eivät koskaan AFIR:ssä. Ne kasvattavat OCM:n havaintomäärää kasvattamatta
+päällekkäisyyttä, mikä yliarvioi todellista asemamäärää. Poistin löytämäni,
+mutta en voi tietää löysinkö kaikki.
+
+**Otantavirhettä ei ole.** Tässä ei ole otosta perusjoukosta. Epävarmuus syntyy
+havaitsemisprosessista ja linkityksestä, ei otannasta. Siksi perinteinen
+merkitsevyystestaus on tässä osin väärä työkalu ja painopiste on jakaumissa.
+:::
+
+### Herkkyysanalyysi
+
+Riippuvuutta ei voi testata, mutta sen vaikutuksen voi laskea. Riippuvuuden
+voimakkuutta kuvaava kerroin saa arvon yksi, kun lähteet ovat riippumattomia, ja
+ykköstä suurempia arvoja, kun molemmissa esiintyminen on yleisempää kuin sattuma
+antaisi olettaa.
+
+```{r}
+#| label: herkkyys
+#| fig-cap: "Kuinka paljon arvio muuttuu, jos rekisterit eivät ole riippumattomia."
+
+m200 <- linkitykset$m[linkitykset$raja_m == 200]
+
+tibble(psi = seq(0.7, 2.0, by = 0.01)) |>
+  mutate(N = nrow(ocm) * nrow(nap) / (m200 * psi)) |>
+  ggplot(aes(psi, N)) +
+  geom_line(colour = pal["oranssi"], linewidth = 0.9) +
+  geom_vline(xintercept = 1, colour = "grey60", linetype = 2) +
+  scale_y_continuous(labels = scales::label_number(big.mark = " ")) +
+  labs(x = "Riippuvuuden voimakkuus", y = "Arvioitu asemamäärä",
+       title = "Mitä riippuvuusoletus maksaa",
+       subtitle = "Pystyviiva: riippumattomuus. Oikealle mentäessä lähteet kopioivat toisiaan.")
+```
+
+Käyrä on analyysin rehellisin osa. Se sanoo: jos rekisterit ovat riippumattomia,
+arvio on tämä. Jos ne kopioivat toisiaan, arvio on merkittävästi suurempi. En voi
+tietää kumpi pitää paikkansa. Voin kertoa, kuinka paljon sillä on väliä.
+
+## Sarjan pohja-aineisto
+
+```{r}
+#| label: tallenna
+#| echo: true
+
+asemat <- nap |>
+  transmute(avain = kanoninen, nimi, op_id, op_nimi, kunta, postinro,
+            lat, lon, aina_auki, lahde = "AFIR") |>
+  bind_rows(
+    ocm |> transmute(avain = paste0("OCM|", ocm_id), nimi, op_nimi = operaattori,
+                     kunta, postinro, lat, lon, lahde = "OCM")
+  ) |>
+  mutate(haettu = Sys.Date())
+
+#liitokset <- nap_kon |> select(-tariffi)
+
+stopifnot(
+  "Asemataulu tyhjä" = nrow(asemat) > 0,
+  "Avaimissa duplikaatteja" = !any(duplicated(asemat$avain)),
+  "Negatiivisia tehoja" = all(liitokset$teho_kw >= 0, na.rm = TRUE)
+)
+
+qs2::qd_save(asemat, file.path(data_dir, "asemat.qs"))
+qs2::qd_save(liitokset, file.path(data_dir, "liitokset.qs"))
+qs2::qd_save(ops, file.path(data_dir, "operaattorit.qs"))
+qs2::qd_save(tibble(N = naytteet_kokonais),
+             file.path(data_dir, "posteriori_asemamaara.qs"))
+qs2::qs_save(nap_sf, file.path(data_dir, "asemat_sf.qs"))
+```
+
+Viimeinen tiedosto erottaa tämän sarjan tavanomaisesta verkostoanalyysistä. Kun
+myöhemmin lasketaan, mitkä asemat ovat verkon kriittisimpiä, laskenta tehdään
+näiden posteriorinäytteiden yli. Tieto siitä, että rekisteri on epätäydellinen,
+ei jää tähän postaukseen vaan kulkee mukana ja näkyy tulosten
+uskottavuusväleissä.
+
+## Takaisin siihen lukuun
+
+Uutisessa toistettu latauspisteiden lukumäärä ei ole väärä. Se on
+epätäydellinen tavalla, joka on mitattavissa mutta jota ei mitata.
+
+Neljä asiaa jää käteen.
+
+**Kysymys pitää esittää tarkemmin.** Sijainti, latauslaite ja pistoke ovat eri
+asioita, ja niiden lukumäärät eroavat kertaluokalla. Tavoite, joka ei kerro
+tasoa, ei ole tavoite.
+
+**Rekisteri on mittalaite, ei todellisuus.** Molemmissa tarkastelluissa
+rekistereissä on rakenteellisia ongelmia: tunnisteita jotka eivät yksilöi,
+laitteita jotka on kirjattu kahdesti, kenttä joka väittää olevansa
+laadunvarmistus mutta on aikaleima.
+
+**Havaintoyksikkö ei ole se, miltä näyttää.** Asemat eivät päädy rekisteriin
+yksi kerrallaan vaan operaattorin ja viime kädessä alustatoimittajan päätöksellä.
+Menetelmä, joka olettaa muuta, tuottaa liian kapean epävarmuusvälin — eli
+näyttää varmemmalta kuin on.
+
+**Epävarmuus ei ole heikkous.** Jos AFIR-tavoitteiden toteutumista seurataan
+luvulla, jonka virhemarginaalia ei tunneta, seuranta mittaa
+rekisteröintikäytäntöjen muutosta yhtä paljon kuin infrastruktuurin
+rakentumista.
+
+Seuraavassa osassa siirrytään asemien lukumäärästä niiden tehoon. Sielläkin
+julkisuudessa liikkuu yksi luku — keskimääräinen latausteho — ja sekin
+osoittautuu jakaumaksi, jolla on useampi huippu kuin yksi.
+
+---
+
+## Mitä tästä on hyötyä yrityksellesi
+
+Merkintä-takaisinpyynti kuulostaa ekologiasta lainatulta kuriositeetilta. Se on
+yksi käyttökelpoisimmista menetelmistä, joita tiedän, ja sitä käytetään
+liike-elämässä hämmästyttävän vähän. Se vastaa kysymykseen, johon mikään muu
+menetelmä ei vastaa: **kuinka paljon on sitä, mitä et ole havainnut?**
+
+**Kuinka monta järjestelmää organisaatiollasi oikeasti on?** DORA ja NIS2
+edellyttävät kriittisten toimintojen ja ICT-omaisuuden tunnistamista. Jokainen
+laitehallintatietokanta, jonka olen nähnyt, on epätäydellinen. Mutta jos on
+tietokanta ja erikseen verkkoskannauksen tuottama laitelista, päällekkäisyys
+kertoo kuinka monta järjestelmää puuttuu molemmista. Se luku on johdolle yleensä
+epämiellyttävä yllätys — ja juuri siksi arvokas ennen kuin valvoja kysyy.
+
+**Kuinka paljon petoksia jää havaitsematta?** Jos kaksi toisistaan riippumatonta
+kontrollia löytävät osittain samoja tapauksia, päällekkäisyydestä voi estimoida
+havaitsemattomien määrän. Tämä muuttaa raportoinnin luonteen: sen sijaan että
+kerrottaisiin "löysimme 40 tapausta", voidaan kertoa "kontrollien peittävyys on
+noin 60 %, joten tapauksia on todennäköisesti 60–80". Ensimmäinen luku kertoo
+kontrollien aktiivisuudesta, jälkimmäinen riskistä.
+
+**Kuinka monta asiakasta järjestelmistä puuttuu?** Vertaa
+asiakkuudenhallintaa laskutukseen. Päällekkäisyys kertoo, kuinka suuri osa
+asiakassuhteista ei ole missään järjestelmässä kokonaisena.
+
+**Ja ennen kaikkea: onko avaimesi avain?** Tämän postauksen työläin osuus ei
+ollut mallinnus vaan sen huomaaminen, ettei tunniste yksilöi. Sama ongelma on
+lähes jokaisessa integraatiossa, jossa kaksi järjestelmää yhdistetään
+kentällä, jonka oletetaan olevan uniikki. Virhe ei näy virheilmoituksena. Se näy
+väärinä lukuina, joita kukaan ei kyseenalaista.
+
+Jos organisaatiossasi on kaksi rekisteriä, joiden pitäisi kuvata samaa asiaa
+mutta jotka eivät täsmää, siinä on analyysi odottamassa. Teen tätä työtä
+vuokrattavana Head of Datana ja projektikohtaisesti — hinnasto ja yhteystiedot
+löytyvät [sivustolta](https://kristianvepsalainen.com).
+
+---
+
+*Aineistot: Open Charge Map API v3 ja Fintraffic AFIR / Digitraffic, molemmat
+haettu `r Sys.Date()`. Koodi on kokonaisuudessaan tässä postauksessa.
+Maailma on jakauma.*

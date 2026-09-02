@@ -8,7 +8,6 @@ description: |
   jakauman ja kerromme matkalla, mitä rekistereistä löytyi.
 date: 2026-09-01
 categories: [avoin data, bayes, latausverkko, rekisterit, datan laatu]
-draft: true
 ---
 
 ```{r}

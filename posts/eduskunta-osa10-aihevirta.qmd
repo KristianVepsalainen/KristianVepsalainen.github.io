@@ -1,0 +1,140 @@
+---
+title: "Mistä eduskunnassa tehdään aloitteita — ja miten se muuttuu"
+subtitle: "Eduskunta jakaumana, osa 10: lainsäädännön aihevirta"
+description: >
+  Mistä aiheista kansanedustajat tekevät aloitteita ja kysymyksiä, ja miten
+  painopisteet liikkuvat vuosien yli? Käytämme aineiston omia aihetunnisteita —
+  emme epävarmaa tekstimallinnusta.
+date: 2026-09-03
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, aihemallinnus, jakaumat]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+draft: true
+---
+
+## Uutiskoukku: mikä on pinnalla eduskunnassa?
+
+Media kertoo, mistä poliitikot puhuvat. Mutta mistä he tekevät konkreettisia
+aloitteita ja kysymyksiä — ja miten se on muuttunut? Vastaus on aineistossa, ja
+tärkeää on, että käytämme **aineiston omia aihetunnisteita**, emme itse tehtyä
+tekstiluokitusta.
+
+::: {.callout-note title="Miksi ei NLP?"}
+Aloitteet sisältävät valmiiksi luokitellut aihetunnisteet (`AiheTeksti`). Ne ovat
+eduskunnan itsensä antamia, joten ne ovat läpinäkyviä ja toistettavia — toisin kuin
+aihemallinnus (LDA tms.), joka olisi herkkä suomen kielen taivutukselle ja mallin
+valinnoille. Käytämme siis rakenteista dataa, joka on sekä luotettavampi että
+rehellisempi.
+:::
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(scales); library(ggdist)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d", keltainen = "yellow")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank()))
+DATA <- here("data", "eduskunta")
+init <- qs2::qd_read(file.path(DATA, "vaski_init.qs"))
+stopifnot("Aja ensin R/vaski-data-prep.R" = nrow(init) > 1000)
+```
+
+## Aiheet pitkässä muodossa
+
+```{r aiheet-long}
+aiheet <- init |> select(id, vpvuosi, tyyppi, aiheet) |>
+  unnest(aiheet) |> filter(!is.na(aiheet), aiheet != "") |>
+  mutate(aihe = str_squish(str_to_lower(aiheet)))
+stopifnot("Aihetunnisteita ei löytynyt" = nrow(aiheet) > 1000)
+
+# Yleisimmät aiheet koko aineistossa
+top <- aiheet |> count(aihe, sort = TRUE) |> slice_head(n = 20)
+ggplot(top, aes(x = n, y = fct_reorder(aihe, n))) +
+  geom_col(fill = pal[["laivasto"]]) +
+  labs(title = "Yleisimmät aloitteiden ja kysymysten aiheet",
+       subtitle = "Aineiston omat aihetunnisteet", x = "Mainintoja", y = NULL)
+```
+
+## Aihevirta ajassa
+
+```{r trendi}
+top_aiheet <- top |> slice_head(n = 6) |> pull(aihe)
+per_vuosi <- aiheet |> count(vpvuosi, name = "n_yht")
+trendi <- aiheet |> filter(aihe %in% top_aiheet) |>
+  count(vpvuosi, aihe) |> left_join(per_vuosi, by = "vpvuosi") |>
+  mutate(osuus = n / n_yht) |> filter(vpvuosi >= 2015, vpvuosi < 2026)
+
+ggplot(trendi, aes(vpvuosi, osuus, color = aihe)) +
+  geom_line(linewidth = 1) + geom_point() +
+  scale_y_continuous(labels = label_percent()) +
+  scale_color_manual(values = unname(pal)) +
+  labs(title = "Aiheiden painopiste liikkuu vuosien yli",
+       subtitle = "Kuuden yleisimmän aiheen osuus aloitteiden aihetunnisteista",
+       x = NULL, y = "Osuus maininnoista", color = NULL)
+```
+
+## Onko aihejakauma muuttunut? Tilastollinen testi
+
+Verrataan aihejakaumaa aineiston **ensimmäisen** ja **viimeisen** täyden
+vaalikauden välillä. Aiheet ovat kategorinen muuttuja, joten käytämme
+khii-neliötä ja efektikokona Cramérin V:tä.
+
+```{r testi}
+kaudet <- aiheet |> filter(aihe %in% top_aiheet) |>
+  mutate(kausi = case_when(vpvuosi %in% 2015:2018 ~ "2015–2018",
+                           vpvuosi %in% 2019:2022 ~ "2019–2022",
+                           TRUE ~ NA_character_)) |>
+  filter(!is.na(kausi))
+
+taulu <- table(kaudet$aihe, kaudet$kausi)
+khi <- chisq.test(taulu)
+cramers_v <- sqrt(unname(khi$statistic) / (sum(taulu) * (min(dim(taulu)) - 1)))
+tibble(khi2 = round(unname(khi$statistic),1), df = unname(khi$parameter),
+       p = signif(khi$p.value,3), cramers_V = round(cramers_v,3))
+```
+
+::: {.callout-note title="Tulkinta"}
+Merkitsevä ero kertoo, että aihejakauma *muuttui* kausien välillä; efektikoko
+(Cramérin V) kertoo *kuinka paljon*. Suuri aineisto tekee lähes mistä tahansa
+erosta merkitsevän, joten efektikoko on tässä olennaisempi kuin p-arvo.
+:::
+
+## Aihejakauma tyypeittäin
+
+Eri asiakirjatyypit painottuvat eri aiheisiin — lakialoitteet eri tavoin kuin
+kirjalliset kysymykset.
+
+```{r tyypeittain}
+aiheet |> filter(aihe %in% top_aiheet, tyyppi %in% c("KK","LA","TPA")) |>
+  count(tyyppi, aihe) |> group_by(tyyppi) |> mutate(osuus = n/sum(n)) |> ungroup() |>
+  ggplot(aes(osuus, fct_rev(aihe), fill = tyyppi)) +
+  geom_col(position = "dodge") +
+  scale_x_continuous(labels = label_percent()) +
+  scale_fill_manual(values = unname(pal[c(1,2,4)])) +
+  labs(title = "Aiheet painottuvat eri tavoin asiakirjatyypeittäin",
+       x = "Osuus tyypin maininnoista", y = NULL, fill = NULL)
+```
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Aihepainotukset ovat mitattava jakauma**, joka liikkuu — ja liikkeen suuruus
+  on kvantifioitavissa, ei fiiliksen varassa.
+- **Rakenteinen data voittaa mallinnuksen**, kun se on olemassa: aineiston omat
+  aihetunnisteet ovat läpinäkyvämpiä ja toistettavampia kuin tekstimalli.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Aiheiden ja painopisteiden seuranta rakenteisesta datasta, ilman mustan laatikon
+malleja — **kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data, VaskiData (CC BY 4.0).*

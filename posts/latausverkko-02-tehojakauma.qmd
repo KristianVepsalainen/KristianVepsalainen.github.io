@@ -6,7 +6,7 @@ description: |
   että jakaumassa on kuusi huippua, kaksi operaattoria ilmoittaa jännitteen
   nollana ja koko maan pikalatauskapasiteetti on harvempien käsissä kuin
   asemamäärä antaa ymmärtää.
-date: 2026-08-18
+date: 2026-09-08
 categories: [avoin data, bayes, latausverkko, keskittyminen, datan laatu]
 draft: true
 ---

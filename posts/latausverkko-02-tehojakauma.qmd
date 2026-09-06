@@ -1,0 +1,762 @@
+---
+title: "Keskimääräinen latausteho on luku, jota ei ole olemassa"
+subtitle: "Latausverkko jakaumana, osa 2: tehojakauma, kapasiteetin keskittyminen ja kenttä, jota kukaan ei täytä samalla tavalla"
+description: |
+  Latausverkon kapasiteettia mitataan tehona. Kun tehokenttä avataan, selviää
+  että jakaumassa on kuusi huippua, kaksi operaattoria ilmoittaa jännitteen
+  nollana ja koko maan pikalatauskapasiteetti on harvempien käsissä kuin
+  asemamäärä antaa ymmärtää.
+date: 2026-08-18
+categories: [avoin data, bayes, latausverkko, keskittyminen, datan laatu]
+draft: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+#| cache: false
+
+library(here)
+library(tidyverse)
+library(ggdist)
+library(patchwork)
+library(qs2)
+library(scales)
+
+source(here("R", "theme_kristian.R"))
+
+
+select <- dplyr::select
+filter <- dplyr::filter
+
+knitr::opts_chunk$set(
+  echo = FALSE, warning = FALSE, message = FALSE,
+  fig.width = 9, fig.height = 5.5, dpi = 150
+)
+
+theme_set(theme_kristian())
+
+pal <- c(punainen = "#e63946", turkoosi = "#2a9d8f", oranssi = "#f4a261",
+         navy = "#1d3557", sininen = "#457b9d")
+
+data_dir <- here("data", "latausverkko")
+set.seed(42)
+
+asemat    <- qs2::qd_read(file.path(data_dir, "asemat.qs"))
+liitokset <- qs2::qd_read(file.path(data_dir, "liitokset.qs"))
+ops       <- qs2::qd_read(file.path(data_dir, "operaattorit.qs"))
+
+stopifnot(
+  "Liitostaulusta puuttuu sarakkeita" =
+    all(c("avain", "evse_id", "standardi", "virta", "teho_kw") %in% names(liitokset)),
+  "Asemataulu tyhjä" = nrow(asemat) > 0,
+  "Liitostaulu tyhjä" = nrow(liitokset) > 0
+)
+
+# Osan 1 aineisto sisältää sekä AFIR- että OCM-rivit. Tehoanalyysi tehdään
+# AFIR-aineistolla, koska vain siinä teho on konnektorikohtainen.
+afir_asemat <- asemat |> filter(lahde == "AFIR")
+
+stopifnot(
+  "AFIR-asemia ei löytynyt" = nrow(afir_asemat) > 0,
+  "Liitokset eivät täsmää asemiin" =
+    mean(liitokset$avain %in% afir_asemat$avain) > 0.95
+)
+```
+
+## Luku, joka ei kuvaa mitään
+
+Latausverkon riittävyydestä puhutaan tehona. EU:n AFIR-asetus asettaa
+vaatimuksia kilowatteina. Uutisissa kerrotaan, että Suomen latausverkon
+kokonaisteho on noussut. Ja kun halutaan yksi luku, joka kuvaa verkon laatua,
+lasketaan keskiarvo.
+
+Keskiarvo on tässä huonompi kuin hyödytön. Se on harhaanjohtava.
+
+Syy on yksinkertainen. Sähköauton latausteho ei ole vapaasti valittava suure
+vaan seuraa muutamaa teknistä standardia. Kotitalouspistorasiasta saa noin 2
+kilowattia, tavallisesta seinälatauslaitteesta 7 tai 11, julkisesta
+vaihtovirtalaturista 22, vanhemmasta pikalaturista 50 ja uusimmista
+suurteholatureista 150–350. Väliin jääviä arvoja ei juuri ole, koska niitä ei
+valmisteta.
+
+Kun tällaisesta joukosta lasketaan keskiarvo, tulos osuu kohtaan, jossa ei ole
+yhtään laturia. Se on kuin kertoisi, että suomalaisen kengännumero on
+keskimäärin 41,3 — luku on tosi mutta kuvaa kenkää, jota kukaan ei käytä.
+
+Tässä osassa katson, miltä tehojakauma oikeasti näyttää, kuinka luotettavasti
+se on kirjattu ja miten latauskapasiteetti on jakautunut operaattorien kesken.
+Lopputulos on, että kaksi näistä kolmesta kysymyksestä on vastattavissa, ja
+kolmas paljastaa rekisterin ongelman, jota ei ole aiemmin dokumentoitu.
+
+## Ensin: mitä tehokenttä oikeasti sisältää
+
+Jokaisella konnektorilla — siis fyysisellä pistokkeella — on rekisterissä
+kolme sähköteknistä kenttää: suurin jännite, suurin virta ja suurin teho.
+Nämä kolme eivät ole toisistaan riippumattomia. Fysiikan mukaan teho on
+jännitteen ja virran tulo, kolmivaihevirralla kerrottuna vielä noin 1,73:lla.
+
+Tämä antaa harvinaisen mahdollisuuden: **aineisto voidaan tarkistaa itseään
+vastaan.** Jos ilmoitettu teho ei vastaa jännitteen ja virran tuloa, jokin
+kolmesta kentästä on väärin — eikä sen huomaamiseen tarvita mitään ulkoista
+vertailukohtaa.
+
+```{r}
+#| label: sahkotarkistus
+#| echo: true
+
+sahko <- liitokset |>
+  left_join(select(afir_asemat, avain, op_id, op_nimi), by = "avain") |>
+  mutate(
+    # Kolmivaihevirralla teho = jännite × virta × √3
+    kerroin = if_else(virta == "AC_3_PHASE", sqrt(3), 1),
+    laskettu_kw = volttia * ampeeria * kerroin / 1000,
+    suhde = if_else(laskettu_kw > 0, teho_kw / laskettu_kw, NA_real_),
+    puuttuva_sahko = is.na(volttia) | is.na(ampeeria) |
+                     volttia == 0 | ampeeria == 0
+  )
+
+stopifnot(
+  "Suhdeluku puuttuu useammalta kuin puolelta riveistä" =
+    mean(is.na(sahko$suhde)) < 0.5
+)
+
+sahko_op <- sahko |>
+  filter(virta == "AC_3_PHASE") |>
+  group_by(op_id, op_nimi) |>
+  summarise(
+    n = n(),
+    puuttuvia = mean(puuttuva_sahko),
+    mediaanisuhde = median(suhde, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  arrange(desc(n))
+```
+
+Tulos on hämmentävän siisti. Operaattorit jakautuvat kolmeen ryhmään, ja
+jokaisen ryhmän sisällä käytäntö on lähes täydellisen johdonmukainen.
+
+```{r}
+#| label: kuva-suhteet
+#| fig-cap: "Ilmoitetun ja lasketun tehon suhde kolmivaihelatureilla, operaattoreittain. Pystyviivat merkitsevät kolmea johdonmukaista tulkintaa. Palkin pituus kertoo konnektorien määrän."
+
+sahko_op |>
+  filter(is.finite(mediaanisuhde)) |>
+  mutate(op_nimi = fct_reorder(op_nimi, mediaanisuhde)) |>
+  ggplot(aes(mediaanisuhde, op_nimi, size = n)) +
+  geom_vline(xintercept = c(1/sqrt(3), 1, sqrt(3)),
+             colour = c(pal["punainen"], "grey60", pal["turkoosi"]),
+             linetype = 2) +
+  geom_point(colour = pal["oranssi"], alpha = 0.85) +
+  scale_x_continuous(breaks = c(1/sqrt(3), 1, sqrt(3)),
+                     labels = c("0,58\n(vaihejännite)", "1,00\n(täsmää)",
+                                "1,73\n(pääjännite)")) +
+  scale_size_continuous(range = c(2, 8), labels = label_number(big.mark = " ")) +
+  labs(x = "Ilmoitetun ja lasketun tehon suhde", y = NULL,
+       size = "Konnektoreita",
+       title = "Sama kenttä, kolme eri tulkintaa",
+       subtitle = "Jokainen operaattori on johdonmukainen itsensä kanssa – mutta ei muiden kanssa")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on luku, joka kertoo montako kertaa
+suurempi ilmoitettu teho on kuin jännitteestä ja virrasta laskettu teho. Jos
+kentät olisivat keskenään johdonmukaiset, kaikki pisteet asettuisivat
+pystyviivalle 1,00. Pallon koko kertoo, kuinka monta pistoketta kyseisellä
+operaattorilla on.
+
+Pisteet eivät ole viivalla 1,00. Ne ovat kolmessa rykelmässä.
+
+Ryhmä kohdassa 0,58 ilmoittaa jännitteeksi 230 volttia, joka on yhden vaiheen
+jännite. Ryhmä kohdassa 1,73 ilmoittaa 400 volttia, joka on kolmen vaiheen
+välinen jännite. Molemmat luvut ovat teknisesti oikeita — ne vain vastaavat eri
+kysymykseen. Ja koska kumpikin ryhmä on ilmoittanut tehon oikein, ristiriita
+paljastuu vasta kun kentät kerrotaan keskenään.
+
+Kaksi operaattoria puuttuu kuvasta kokonaan, koska niiden mediaanisuhde on
+ääretön: ne ilmoittavat jännitteeksi tai virraksi nollan.
+
+```{r}
+#| label: puuttuvat-sahko
+#| echo: true
+
+puuttuvat_taulu <- sahko |>
+  group_by(op_id, op_nimi) |>
+  summarise(n = n(), nollia = sum(puuttuva_sahko), .groups = "drop") |>
+  filter(nollia > 0) |>
+  mutate(osuus = nollia / n) |>
+  arrange(desc(nollia))
+
+osuus_nollia <- mean(sahko$puuttuva_sahko)
+```
+
+Nollalla ilmoitettuja sähköarvoja on `r percent(osuus_nollia, accuracy = 0.1)`
+kaikista pistokkeista. Nolla ei tässä tarkoita nollaa volttia — se tarkoittaa,
+että kenttä on jätetty täyttämättä ja jokin järjestelmä on korvannut tyhjän
+arvon nollalla.
+
+Ero on ratkaiseva. Puuttuva tieto on tunnistettavissa puuttuvaksi. Nollaksi
+muutettu puuttuva tieto ei ole, ja se päätyy laskelmiin oikean arvon paikalle.
+Jos joku laskee latauskapasiteetin jännitteen ja virran tulona, hän saa näiden
+kahden operaattorin kohdalla nollan — ja niiden asemat katoavat tilastosta
+näkymättä.
+
+::: {.callout-important}
+## Mitä tästä seuraa käytännössä
+
+Latausverkon kapasiteettia ei voi laskea rekisterin sähköteknisistä kentistä
+ilman operaattorikohtaista tulkintaa. Tehokenttä on käyttökelpoinen; jännite ja
+virta eivät ole.
+
+Tämä ei ole akateeminen huomio. AFIR-asetuksen seuranta perustuu tehoon, ja jos
+seurantaa tehdään johtamalla teho muista kentistä, tulos riippuu siitä kenen
+asemia lasketaan. Kolme operaattoria tuottaisi kolme eri vastausta samalla
+laskukaavalla.
+:::
+
+## Tehojakauma: kuusi huippua, ei yhtä keskiarvoa
+
+Koska tehokenttä osoittautui ainoaksi luotettavaksi, käytetään sitä.
+
+```{r}
+#| label: teho-jakauma
+#| echo: true
+
+tehot <- liitokset |>
+  filter(!is.na(teho_kw), teho_kw > 0) |>
+  left_join(select(afir_asemat, avain, op_id, op_nimi, kunta), by = "avain")
+
+# Kuinka kasautunutta jakauma on? Jos muutama arvo kattaa suuren osan
+# havainnoista, keskiarvo on erityisen harhaanjohtava.
+kasautuma <- tehot |>
+  count(teho_kw, sort = TRUE) |>
+  mutate(osuus = n / sum(n), kumulatiivinen = cumsum(osuus))
+
+top10_osuus <- kasautuma$kumulatiivinen[min(10, nrow(kasautuma))]
+n_uniikkeja <- nrow(kasautuma)
+
+keskiarvo <- mean(tehot$teho_kw)
+mediaani  <- median(tehot$teho_kw)
+osuus_lahella_keskiarvoa <- mean(abs(tehot$teho_kw - keskiarvo) < 2)
+```
+
+Aineistossa on `r n_uniikkeja` eri tehoarvoa, mutta kymmenen yleisintä kattaa
+`r percent(top10_osuus, accuracy = 1)` kaikista pistokkeista. Jakauma on siis
+voimakkaasti kasautunut muutamaan standardiarvoon.
+
+Keskiteho on `r round(keskiarvo, 1)` kW. Pistokkeita, joiden teho on kahden
+kilowatin päässä tuosta keskiarvosta, on
+**`r percent(osuus_lahella_keskiarvoa, accuracy = 0.1)`**.
+
+```{r}
+#| label: kuva-jakauma
+#| fig-cap: "Latauspistokkeiden tehojakauma. Ylhäällä koko jakauma, alhaalla sama logaritmisella asteikolla, jolla pienet tehot erottuvat."
+
+p_ylä <- tehot |>
+  ggplot(aes(teho_kw)) +
+  geom_histogram(binwidth = 5, fill = pal["navy"], colour = NA) +
+  geom_vline(xintercept = keskiarvo, colour = pal["punainen"], linewidth = 0.8) +
+  annotate("text", x = keskiarvo, y = Inf, hjust = -0.1, vjust = 1.8,
+           label = paste0("  keskiarvo ", round(keskiarvo, 1), " kW"),
+           colour = pal["punainen"], size = 3.4) +
+  scale_y_continuous(labels = label_number(big.mark = " "),
+                     expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Teho (kW)", y = "Pistokkeita",
+       title = "Keskiarvo osuu kohtaan, jossa ei ole latureita",
+       subtitle = "Jokainen pylväs on viiden kilowatin levyinen")
+
+p_ala <- tehot |>
+  ggplot(aes(teho_kw)) +
+  geom_histogram(bins = 60, fill = pal["turkoosi"], colour = NA) +
+  scale_x_log10(breaks = c(2, 3.7, 7.4, 11, 22, 50, 150, 350),
+                labels = c("2", "3,7", "7,4", "11", "22", "50", "150", "350")) +
+  scale_y_continuous(labels = label_number(big.mark = " "),
+                     expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Teho (kW, logaritminen asteikko)", y = "Pistokkeita",
+       subtitle = "Sama aineisto venytettynä: huiput osuvat teknisiin standardiarvoihin")
+
+p_ylä / p_ala
+```
+
+**Miten alempaa kuvaa luetaan.** Vaaka-akseli on venytetty logaritmiseksi, mikä
+tarkoittaa että samalla matkalla akselilla kuljetaan aina saman kertoimen
+verran: matka 2:sta 4:ään on yhtä pitkä kuin 100:sta 200:aan. Tämä on
+tarpeen siksi, että tehot vaihtelevat kahdesta kilowatista kolmeensataan, ja
+tavallisella asteikolla kaikki pienet tehot puristuisivat vasempaan reunaan
+yhdeksi tolpaksi.
+
+Huiput osuvat juuri niihin arvoihin, jotka lueteltiin alussa. Tämä ei ole
+sattumaa vaan seuraus siitä, että latauslaitteita valmistetaan standardeihin.
+
+### Osuudet ja niiden epävarmuus
+
+Päättäjää kiinnostaa harvoin yksittäinen pistoke. Häntä kiinnostaa, kuinka
+suuri osa verkosta on pikalatausta. Luokitellaan siis.
+
+```{r}
+#| label: luokat
+#| echo: true
+
+tehot <- tehot |>
+  mutate(luokka = case_when(
+    teho_kw < 3.7  ~ "Kotitalous (< 3,7 kW)",
+    teho_kw < 11   ~ "Hidas AC (3,7–11 kW)",
+    teho_kw < 43   ~ "Nopea AC (11–43 kW)",
+    teho_kw < 150  ~ "Pikalataus DC (43–150 kW)",
+    TRUE           ~ "Suurteho DC (≥ 150 kW)"
+  ) |> factor(levels = c("Kotitalous (< 3,7 kW)", "Hidas AC (3,7–11 kW)",
+                         "Nopea AC (11–43 kW)", "Pikalataus DC (43–150 kW)",
+                         "Suurteho DC (≥ 150 kW)")))
+
+luokka_lkm <- tehot |> count(luokka, .drop = FALSE)
+
+stopifnot(
+  "Luokittelu jätti rivejä ulkopuolelle" = sum(luokka_lkm$n) == nrow(tehot)
+)
+
+# Dirichlet-posteriori luokkaosuuksille. Jeffreysin priori (alfa = 1/2)
+# on heikko eikä vedä tulosta mihinkään suuntaan.
+alfa <- luokka_lkm$n + 0.5
+naytteet_dir <- rgamma(length(alfa) * 4000, rep(alfa, each = 4000)) |>
+  matrix(nrow = 4000)
+naytteet_dir <- naytteet_dir / rowSums(naytteet_dir)
+colnames(naytteet_dir) <- levels(tehot$luokka)
+
+osuudet_post <- as_tibble(naytteet_dir) |>
+  pivot_longer(everything(), names_to = "luokka", values_to = "osuus") |>
+  mutate(luokka = factor(luokka, levels = levels(tehot$luokka)))
+```
+
+```{r}
+#| label: kuva-osuudet
+#| fig-cap: "Latauspistokkeiden jakautuminen teholuokkiin. Piikin leveys kertoo epävarmuuden."
+
+osuudet_post |>
+  ggplot(aes(osuus, fct_rev(luokka))) +
+  stat_halfeye(fill = pal["sininen"], colour = "grey85",
+               .width = c(0.5, 0.95), alpha = 0.7) +
+  scale_x_continuous(labels = percent) +
+  labs(x = "Osuus kaikista pistokkeista", y = NULL,
+       title = "Verkko on valtaosin hidasta latausta",
+       subtitle = "Muoto kuvaa epävarmuutta: kapea muoto tarkoittaa tarkkaa tietoa")
+```
+
+**Miten kuvaa luetaan.** Jokainen luokka saa oman muotonsa. Muodon korkein
+kohta on todennäköisin arvo, ja leveys kertoo epävarmuuden. Alla oleva viiva
+näyttää välin, jolle osuus 95 prosentin todennäköisyydellä osuu.
+
+Tässä tapauksessa muodot ovat hyvin kapeita, koska havaintoja on tuhansia.
+Epävarmuus osuuksista on pieni — mikä on hyvä uutinen, ja se kannattaa sanoa
+suoraan. Kaikki epävarmuus ei ole suurta, ja analyysin tehtävä on kertoa kumpi
+tilanne on käsillä.
+
+::: {.callout-note}
+## Faktalaatikko: paljonko latausinfra vaikuttaa sähköautojen määrään?
+
+Latausinfran rakentamista perustellaan sillä, että se lisää sähköautojen
+myyntiä. Kysymys on empiirinen, ja siihen on vastattu useissa taloustieteen
+tutkimuksissa.
+
+Vaikutusta mitataan joustolla: kuinka monta prosenttia sähköautojen
+rekisteröinnit kasvavat, jos latausasemien määrä kasvaa yhden prosentin.
+
+*Springel (2021, American Economic Journal: Economic Policy)* tutki Norjan
+markkinaa vuosina 2010–2015 ja päätyi keskeiseen estimaattiin noin 0,22.
+Aiempi Yhdysvaltoja koskeva tutkimus *(Li ym. 2017)* raportoi selvästi
+suuremman arvon, noin 0,8. Ero ei ole ristiriita vaan seuraus siitä, kuinka
+kehittynyt verkko on: kun Springelin aineistosta valitaan vastaava
+verkkotiheys kuin Li ym:n aineistossa, jousto nousee noin 0,54:ään.
+
+**Johtopäätös päättäjälle:** latausaseman rakentamisen vaikutus riippuu siitä,
+kuinka paljon asemia jo on. Harvassa verkossa yksi lisäasema vaikuttaa paljon,
+tiheässä vähän. Sama euro tuottaa eri tuloksen eri paikassa — ja tämä on
+mitattavissa oleva suure, ei mielipide.
+:::
+
+## Kapasiteetin keskittyminen
+
+Asemien lukumäärä on huono mittari markkinan rakenteesta, koska asemat ovat
+erikokoisia. Operaattori, jolla on sata kotitalouspistoketta, näyttää
+tilastossa suuremmalta kuin operaattori, jolla on kaksikymmentä
+suurtehulaturia — vaikka jälkimmäinen tuottaa moninkertaisen määrän
+latausenergiaa.
+
+Katsotaan siis kapasiteettia, ei kappalemääriä.
+
+```{r}
+#| label: keskittyminen
+#| echo: true
+
+kapasiteetti_op <- tehot |>
+  group_by(op_id, op_nimi) |>
+  summarise(
+    pistokkeita = n(),
+    kw_yhteensa = sum(teho_kw),
+    hpc_kw = sum(teho_kw[teho_kw >= 150]),
+    .groups = "drop"
+  ) |>
+  arrange(desc(kw_yhteensa))
+
+# Gini-kerroin: 0 = täysin tasainen, 1 = kaikki yhdellä toimijalla
+gini <- function(x) {
+  x <- sort(x[!is.na(x)])
+  n <- length(x)
+  if (n < 2 || sum(x) == 0) return(NA_real_)
+  sum((2 * seq_len(n) - n - 1) * x) / (n * sum(x))
+}
+
+# Herfindahl-indeksi: markkinaosuuksien neliöiden summa
+hhi <- function(x) {
+  s <- x / sum(x)
+  sum(s^2)
+}
+
+gini_kw  <- gini(kapasiteetti_op$kw_yhteensa)
+gini_lkm <- gini(kapasiteetti_op$pistokkeita)
+hhi_kw   <- hhi(kapasiteetti_op$kw_yhteensa)
+
+# Epävarmuus bootstrapilla: otetaan pistokkeista toistuvia otoksia
+# ja lasketaan Gini uudelleen. Näin nähdään, kuinka herkkä luku on.
+boot_gini <- map_dbl(1:2000, function(i) {
+  otos <- tehot |> slice_sample(n = nrow(tehot), replace = TRUE)
+  otos |>
+    group_by(op_id) |>
+    summarise(kw = sum(teho_kw), .groups = "drop") |>
+    pull(kw) |>
+    gini()
+})
+
+gini_vali <- quantile(boot_gini, c(0.025, 0.975), na.rm = TRUE)
+```
+
+Gini-kerroin kapasiteetille on **`r round(gini_kw, 3)`**
+(95 %:n väli `r round(gini_vali[1], 3)`–`r round(gini_vali[2], 3)`).
+Pistokemäärille laskettuna se on `r round(gini_lkm, 3)`.
+
+**Mikä Gini-kerroin on.** Se on luku nollan ja ykkösen välillä, joka kertoo
+kuinka epätasaisesti jokin on jakautunut. Nolla tarkoittaa, että kaikilla
+operaattoreilla on täsmälleen yhtä paljon kapasiteettia. Ykkönen tarkoittaa,
+että yhdellä on kaikki ja muilla ei mitään. Sama mittari on tuttu tuloerojen
+mittaamisesta.
+
+```{r}
+#| label: kuva-lorenz
+#| fig-cap: "Lorenz-käyrä: kuinka suuri osa latauskapasiteetista on kuinka suurella osalla operaattoreista."
+
+lorenz <- kapasiteetti_op |>
+  arrange(kw_yhteensa) |>
+  mutate(
+    op_osuus = row_number() / n(),
+    kw_osuus = cumsum(kw_yhteensa) / sum(kw_yhteensa)
+  ) |>
+  bind_rows(tibble(op_osuus = 0, kw_osuus = 0)) |>
+  arrange(op_osuus)
+
+ggplot(lorenz, aes(op_osuus, kw_osuus)) +
+  geom_abline(slope = 1, intercept = 0, colour = "grey55", linetype = 2) +
+  geom_area(fill = pal["turkoosi"], alpha = 0.25) +
+  geom_line(colour = pal["turkoosi"], linewidth = 1) +
+  geom_point(colour = pal["turkoosi"], size = 1.6) +
+  scale_x_continuous(labels = percent) +
+  scale_y_continuous(labels = percent) +
+  annotate("text", x = 0.62, y = 0.72, label = "täysin tasainen jakautuminen",
+           colour = "grey70", size = 3.2, angle = 34) +
+  labs(x = "Operaattorit pienimmästä suurimpaan",
+       y = "Kertyvä osuus kapasiteetista",
+       title = "Latauskapasiteetti on harvojen käsissä",
+       subtitle = paste0("Gini-kerroin ", format(round(gini_kw, 3), decimal.mark = ","),
+                         " – mitä kauempana käyrä on katkoviivasta, sitä keskittyneempi markkina"))
+```
+
+**Miten kuvaa luetaan.** Operaattorit on asetettu riviin pienimmästä
+suurimpaan. Vaaka-akselilta luetaan, kuinka suuri osa operaattoreista on
+mukana, ja pystyakselilta, kuinka suuri osa kapasiteetista heillä yhteensä on.
+
+Katkoviiva kuvaa tilannetta, jossa kaikilla olisi yhtä paljon: puolella
+operaattoreista olisi puolet kapasiteetista. Mitä alempana varsinainen käyrä
+kulkee, sitä epätasaisemmin kapasiteetti on jakautunut. Käyrän ja katkoviivan
+väliin jäävä alue on se, mitä Gini-kerroin mittaa.
+
+```{r}
+#| label: kuva-top
+#| fig-cap: "Suurimmat operaattorit kapasiteetin mukaan. Tumma osa on suurtehokapasiteettia."
+
+kapasiteetti_op |>
+  slice_max(kw_yhteensa, n = 12) |>
+  mutate(muu_kw = kw_yhteensa - hpc_kw,
+         op_nimi = fct_reorder(op_nimi, kw_yhteensa)) |>
+  select(op_nimi, `Suurteho (≥150 kW)` = hpc_kw, `Muu kapasiteetti` = muu_kw) |>
+  pivot_longer(-op_nimi, names_to = "tyyppi", values_to = "kw") |>
+  ggplot(aes(kw, op_nimi, fill = tyyppi)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = c("Suurteho (≥150 kW)" = unname(pal["punainen"]),
+                               "Muu kapasiteetti" = unname(pal["navy"]))) +
+  scale_x_continuous(labels = label_number(big.mark = " ", suffix = " kW"),
+                     expand = expansion(mult = c(0, 0.05))) +
+  labs(x = NULL, y = NULL, fill = NULL,
+       title = "Kapasiteetti ja sen laatu eivät kulje käsi kädessä",
+       subtitle = "Suuri kokonaisteho voi koostua tuhannesta hitaasta pistokkeesta")
+```
+
+### Tilastollinen testi: eroavatko operaattorit toisistaan?
+
+Nyt tullaan kohtaan, jossa testin valinta ratkaisee, ja jossa moni analyysi
+menee pieleen.
+
+Kysymys on: tarjoavatko eri operaattorit erilaista latausta? Houkutteleva
+lähestymistapa olisi verrata keskitehoja varianssianalyysillä. Se olisi väärin
+kolmesta syystä.
+
+Ensinnäkin tehojakauma ei ole normaalijakautunut vaan monihuippuinen, kuten
+edellä nähtiin. Toiseksi keskiarvo ei kuvaa jakaumaa, jossa on kuusi huippua.
+Kolmanneksi — ja tämä on tärkein — kysymys ei oikeasti koske keskiarvoja vaan
+koko jakaumaa. Operaattori, joka tarjoaa pelkkää 22 kW:n latausta, ja
+operaattori, joka tarjoaa puoliksi 2 kW:ta ja puoliksi 42 kW:ta, voivat päätyä
+samaan keskiarvoon täysin erilaisella tarjonnalla.
+
+Käytän siksi permutaatiotestiä, joka vertaa jakaumia kokonaisuudessaan.
+
+```{r}
+#| label: testi
+#| echo: true
+
+# Rajataan operaattoreihin, joilla on riittävästi havaintoja
+isot_op <- kapasiteetti_op |> filter(pistokkeita >= 50) |> pull(op_id)
+testidata <- tehot |> filter(op_id %in% isot_op) |> droplevels()
+
+stopifnot(
+  "Vertailtavia operaattoreita alle kaksi" = n_distinct(testidata$op_id) >= 2
+)
+
+# Testisuure: luokkajakaumien khiin neliö -etäisyys.
+# Nollahypoteesi: kaikilla operaattoreilla sama tehojakauma.
+testisuure <- function(op, luokka) {
+  taulu <- table(op, luokka)
+  suppressWarnings(chisq.test(taulu)$statistic)
+}
+
+havaittu <- testisuure(testidata$op_id, testidata$luokka)
+
+perm <- map_dbl(1:2000, function(i) {
+  testisuure(sample(testidata$op_id), testidata$luokka)
+})
+
+p_arvo <- (sum(perm >= havaittu) + 1) / (length(perm) + 1)
+
+# Efektikoko: Cramérin V kertoo eron suuruuden, p-arvo vain sen olemassaolon
+taulu <- table(testidata$op_id, testidata$luokka)
+cramers_v <- sqrt(havaittu / (sum(taulu) * (min(dim(taulu)) - 1)))
+```
+
+Testi antaa p-arvoksi `r if (p_arvo < 0.0005) "alle 0,001" else format(round(p_arvo, 4), decimal.mark = ",")`
+ja Cramérin V:ksi `r format(round(cramers_v, 3), decimal.mark = ",")`.
+
+**Mitä nämä kaksi lukua tarkoittavat.** P-arvo vastaa kysymykseen: jos
+operaattorit todellisuudessa tarjoaisivat täsmälleen samanlaista latausta,
+kuinka todennäköisesti näkisimme näin suuren eron pelkän sattuman takia?
+Pieni p-arvo tarkoittaa, ettei sattuma selitä havaintoa.
+
+P-arvo ei kuitenkaan kerro, kuinka suuri ero on. Riittävän suuressa aineistossa
+mitättömänkin pieni ero tuottaa pienen p-arvon. Siksi raportoin myös Cramérin
+V:n, joka on nollan ja ykkösen välinen luku ja kertoo eron voimakkuuden.
+Nyrkkisääntönä alle 0,1 on heikko, 0,3 kohtalainen ja yli 0,5 vahva yhteys.
+
+Tämä pari — onko eroa ja kuinka suuri se on — pitäisi raportoida aina yhdessä.
+Pelkkä p-arvo on tavallisimpia tapoja johtaa lukijaa harhaan tilastotieteen
+keinoin, eikä yleensä tahallisesti.
+
+## Vaihtoehtoiset skenaariot: entä jos kapasiteetti olisi jakautunut toisin?
+
+Havaittu jakauma on vain yksi mahdollinen. Sitä kannattaa verrata
+vaihtoehtoihin, koska vasta vertailu kertoo, onko havaittu tilanne hyvä vai
+huono.
+
+Rakennan kolme vaihtoehtoista maailmaa, joissa kaikissa on **sama määrä
+pistokkeita ja sama kokonaisteho** kuin todellisuudessa. Vain jakautuminen
+muuttuu.
+
+```{r}
+#| label: counterfactual
+#| echo: true
+
+kok_kw <- sum(tehot$teho_kw)
+n_pist <- nrow(tehot)
+n_kuntia <- n_distinct(tehot$kunta)
+
+# Todellinen: kapasiteetti kunnittain
+todellinen <- tehot |>
+  group_by(kunta) |>
+  summarise(kw = sum(teho_kw), .groups = "drop")
+
+# Skenaario A: sama kokonaisteho jaettuna tasan kaikkien kuntien kesken
+skenaario_tasa <- tibble(
+  kunta = todellinen$kunta,
+  kw = kok_kw / n_kuntia
+)
+
+# Skenaario B: kaikki pistokkeet olisivat 22 kW (nopea AC)
+# – sama pistokemäärä, kapasiteetti muuttuu
+skenaario_ac <- todellinen |>
+  left_join(count(tehot, kunta, name = "n"), by = "kunta") |>
+  mutate(kw = n * 22) |>
+  select(kunta, kw)
+
+# Skenaario C: sama kokonaisteho, mutta jaettuna pistokemäärän suhteessa
+skenaario_suhde <- todellinen |>
+  left_join(count(tehot, kunta, name = "n"), by = "kunta") |>
+  mutate(kw = kok_kw * n / n_pist) |>
+  select(kunta, kw)
+
+vertailu <- bind_rows(
+  todellinen      |> mutate(skenaario = "Todellinen"),
+  skenaario_tasa  |> mutate(skenaario = "A: tasan kunnittain"),
+  skenaario_ac    |> mutate(skenaario = "B: kaikki 22 kW"),
+  skenaario_suhde |> mutate(skenaario = "C: pistokemäärän suhteessa")
+)
+
+gini_skenaariot <- vertailu |>
+  group_by(skenaario) |>
+  summarise(gini = gini(kw), kok_kw = sum(kw), .groups = "drop") |>
+  arrange(gini)
+
+stopifnot(
+  "Skenaarion kokonaisteho poikkeaa todellisesta yli 1 %" =
+    all(abs(gini_skenaariot$kok_kw[gini_skenaariot$skenaario != "B: kaikki 22 kW"] /
+              kok_kw - 1) < 0.01)
+)
+```
+
+```{r}
+#| label: kuva-counterfactual
+#| fig-cap: "Kapasiteetin keskittyminen kunnittain neljässä maailmassa. Alempi arvo tarkoittaa tasaisempaa jakautumista."
+
+gini_skenaariot |>
+  mutate(skenaario = fct_reorder(skenaario, gini),
+         todellinen = skenaario == "Todellinen") |>
+  ggplot(aes(gini, skenaario, fill = todellinen)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = format(round(gini, 3), decimal.mark = ",")),
+            hjust = -0.2, colour = "grey85", size = 3.6) +
+  scale_fill_manual(values = c(`TRUE` = unname(pal["punainen"]),
+                               `FALSE` = unname(pal["navy"])), guide = "none") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(x = "Gini-kerroin (kapasiteetin keskittyminen kunnittain)", y = NULL,
+       title = "Sama kokonaisteho, neljä eri maailmaa",
+       subtitle = "Vertailu kertoo, kuinka paljon nykytilanne poikkeaa vaihtoehdoista")
+```
+
+Vertailun arvo on siinä, että se erottaa kaksi asiaa, jotka menevät
+keskustelussa usein sekaisin: **kuinka paljon** kapasiteettia on ja **missä**
+se on. Skenaario A:ssa kapasiteettia on täsmälleen yhtä paljon kuin nyt, mutta
+se on jaettu kuntien kesken tasan. Skenaario C:ssä se seuraa pistokemäärää.
+
+Todellinen jakautuminen on markkinaehtoisen sijoittelun tulos: laturit
+rakennetaan sinne, missä niille on kysyntää. Se on taloudellisesti järkevää,
+mutta se ei ole sama asia kuin kattava verkko. Ero näiden kahden välillä on
+juuri se, mitä julkinen tuki voi kuroa umpeen — ja ero on mitattavissa.
+
+::: {.callout-note}
+## Faktalaatikko: korvaako latausverkko kantaman?
+
+Sähköauton käytettävyys riippuu kahdesta asiasta: kuinka pitkälle auto pääsee
+yhdellä latauksella ja kuinka helposti sen voi ladata. Nämä ovat osittain
+toisensa korvaavia — pidempi kantama vähentää latausverkon tarvetta ja
+päinvastoin.
+
+*Rosales-Tristancho ym. (2024, Transportation Research Part D)* kokosi
+meta-regressiolla useiden kuluttajatutkimusten tulokset ja tarkasteli, kuinka
+paljon parempaa latausverkkoa kuluttajat vaativat hyväksyäkseen lyhyemmän
+kantaman.
+
+Keskeinen tulos: **korvaavuus toimii vasta, kun kantama ylittää noin 250–300
+kilometriä.** Sen alapuolella kuluttajat eivät suostu vaihtokauppaan juuri
+millään latausverkolla. Sen yläpuolella latausinfran parantaminen voi
+kompensoida lyhyempää kantamaa.
+
+**Miksi tämä on olennaista Suomessa.** Kylmä sää lyhentää sähköauton kantamaa
+merkittävästi. Jos talviolosuhteissa merkittävä osa autokannasta putoaa tuon
+250–300 kilometrin rajan alapuolelle, latausverkon parantaminen ei enää
+kompensoi kantamaa samalla tavalla. Verkon riittävyyttä ei siis voi arvioida
+kesäolosuhteissa ja olettaa tuloksen pätevän ympäri vuoden.
+
+Tämä on myös hyvä esimerkki siitä, miksi käytän mieluummin meta-analyysiä kuin
+yksittäistä tutkimusta: yksittäinen kuluttajakysely kertoo yhden otoksen
+mieltymyksistä, meta-analyysi kertoo, mikä tulos toistuu.
+:::
+
+## Mitä tehojakaumasta jää käteen
+
+**Keskiarvo on väärä työkalu.** Kun jakaumassa on kuusi huippua,
+keskiarvo osuu niiden väliin, eikä kuvaa mitään todellista laturia. Jos
+latausverkon kehitystä seurataan keskitehona, mittari voi nousta samalla kun
+verkko huononee — riittää että hitaita latureita poistetaan.
+
+**Rekisterin sähkötekniset kentät eivät ole vertailukelpoisia.** Jännite ja
+virta on ilmoitettu kolmella eri tavalla, ja osalla ne ovat nollia. Teho on
+käyttökelpoinen, muut eivät.
+
+**Kapasiteetti on keskittyneempää kuin asemamäärä antaa ymmärtää.** Kun
+mitataan kilowatteja eikä kappaleita, kuva markkinan rakenteesta muuttuu.
+
+**Vertailu tekee luvusta tulkittavan.** Gini-kerroin yksinään ei kerro, onko
+tilanne hyvä. Vertailu vaihtoehtoisiin jakaumiin kertoo.
+
+Seuraavassa osassa siirrytään verkosta autoihin. Sähköauton kantama ei ole
+neljäsataa kilometriä, vaan sekin on jakauma — ja se muuttuu vuodenajan
+mukana enemmän kuin useimmat arvaavat.
+
+---
+
+## Mitä tästä on hyötyä yrityksellesi
+
+Tämän postauksen menetelmät eivät liity sähköautoihin. Ne liittyvät siihen,
+miten mitataan jotain, joka ei ole tasaisesti jakautunut — ja käytännössä
+mikään liiketoiminnassa ei ole.
+
+**Lopeta keskiarvojen raportointi monihuippuisista jakaumista.** Jos
+asiakkaidesi ostokset jakautuvat pieniin täydennysostoihin ja harvoihin
+suuriin projekteihin, keskimääräinen kauppa ei kuvaa kumpaakaan. Sama koskee
+toimitusaikoja, käsittelyaikoja, sopimuskokoja ja palvelupyyntöjä. Tarkista
+jakauman muoto ennen kuin valitset tunnusluvun. Se on yhden histogrammin
+työ ja säästää vääriltä päätöksiltä.
+
+**Laske keskittyminen, älä lukumääriä.** Gini-kerroin ja Herfindahl-indeksi
+ovat yksinkertaisia laskea ja vastaavat kysymykseen, jota kysytään harvoin
+mutta joka on usein tärkein: kuinka riippuvainen olen harvoista? Sovella niitä
+asiakaskuntaan (kuinka suuri osa liikevaihdosta on viideltä asiakkaalta),
+toimittajiin, kanaviin, avainhenkilöiden osaamiseen. Keskittymisluku on
+riskiluku.
+
+**Tee kentille sisäinen ristiriitatarkistus.** Tämän postauksen kiinnostavin
+löydös syntyi siitä, että kolme kenttää liittyy toisiinsa fysiikan lain kautta
+ja niiden ristiriita paljastui laskemalla. Sama pätee laajemmin: jos
+tietokannassa on määrä, yksikköhinta ja loppusumma, niiden pitää täsmätä. Jos
+on alkupäivä, loppupäivä ja kesto, niiden pitää täsmätä. Näiden tarkistusten
+automatisointi on halpaa, ja ne löytävät virheitä, joita mikään
+tyyppitarkistus ei löydä — koska jokainen kenttä on erikseen täysin
+uskottava.
+
+**Rakenna vaihtoehtoisia skenaarioita, älä vain kuvaile nykytilaa.** Luku
+"Gini 0,7" ei kerro mitään ilman vertailukohtaa. Luku "Gini 0,7, kun
+tasajakaumassa se olisi 0,1 ja jos suurin asiakas lähtisi se olisi 0,5"
+kertoo. Vertailuskenaarion rakentaminen on usein muutaman rivin työ ja tekee
+raportista päätöksentekokelpoisen.
+
+**Ja tärkein: tarkista, tarkoittaako kenttä samaa kaikilla.** Löysin
+rekisteristä kentän, jonka kolme operaattoriryhmää täyttää kolmella eri
+tavalla — kaikki omasta mielestään oikein. Sama tilanne on useimmissa
+organisaatioissa, joissa dataa kerätään useasta lähteestä. "Liikevaihto",
+"aktiivinen asiakas" ja "toimitettu" tarkoittavat eri järjestelmissä eri
+asioita, ja yhdistetty raportti summaa niitä yhteen kysymättä. Tämän
+löytäminen ei vaadi uutta järjestelmää — se vaatii sen, että joku katsoo.
+
+Jos organisaatiossasi raportoidaan keskiarvoja, joiden takana on
+monihuippuinen jakauma, tai yhdistetään lukuja järjestelmistä, joiden
+määritelmiä ei ole verrattu, siinä on työtä odottamassa. Teen tätä
+vuokrattavana Head of Datana ja projektikohtaisesti — hinnasto ja yhteystiedot
+löytyvät [sivustolta](https://kristianvepsalainen.com).
+
+---
+
+*Aineisto: Fintraffic AFIR / Digitraffic, haettu osassa 1. Tutkimuslähteet:
+Springel (2021), Li ym. (2017), Rosales-Tristancho ym. (2024). Koodi on
+kokonaisuudessaan tässä postauksessa. Maailma on jakauma.*

@@ -15,7 +15,6 @@ format:
     code-fold: true
     code-summary: "Näytä koodi"
 execute: { warning: false, message: false, echo: true }
-draft: true
 ---
 
 ## Uutiskoukku: mikä on pinnalla eduskunnassa?

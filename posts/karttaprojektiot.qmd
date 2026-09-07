@@ -1,0 +1,2162 @@
+---
+title: "Maailmankartta on jakauma"
+subtitle: "Miksi jokainen tasokartta valehtelee, mistä Equal Earth luopuu ja miksi Mercator aikanaan voitti"
+description: |
+  YK:n yleiskokous suositti 4.9.2026 luopumista Mercatorin projektiosta. Mutta
+  kartan vääristymä ei ole yksi luku — se on jakauma maapallon pinnan yli.
+  Lasketaan se auki: pinta-alat, kulmat, väestöpainotus, vastaskenaariot ja se,
+  mitä Mercator itse asiassa teki oikein.
+date: 2026-09-06
+categories: [matematiikka, geometria, avoin data, visualisointi, päätöksenteko]
+toc: true
+toc-depth: 3
+number-sections: true
+fig-width: 9
+fig-height: 5.5
+fig-dpi: 200
+execute:
+  warning: false
+  message: false
+  echo: true
+---
+
+## Uutinen, joka on oikeasti matematiikkaa
+
+Yhdistyneiden kansakuntien yleiskokous hyväksyi 4. syyskuuta 2026
+päätöslauselman, jossa jäsenvaltioita kehotetaan siirtymään pois Gerardus
+Mercatorin vuonna 1569 esittelemästä karttaprojektiosta ja käyttämään sen sijaan
+karttoja, jotka esittävät mantereiden pinta-alat oikeassa suhteessa. Päätöstä
+kannatti 164 maata, vastaan äänesti yksi (Yhdysvallat) ja kuusi pidättyi.
+Käytännössä suositus osoittaa vuonna 2018 julkaistuun **Equal Earth**
+-projektioon. Taustalla oli Afrikan unionin ja kansalaisjärjestöjen
+*Correct the Map* -kampanja, joka oli käynnistynyt jo elokuussa 2025.
+
+Julkisessa keskustelussa asia on tiivistetty yhteen lukuun: *"Afrikka on 14
+kertaa Grönlantia suurempi, mutta kartalla ne näyttävät samankokoisilta."*
+
+Tämä on tyypillinen esimerkki siitä, mistä tässä blogissa jatkuvasti puhutaan.
+Yksi luku on aina jonkin jakauman tiivistelmä, ja tiivistelmä hukkaa sen, mikä
+oikeasti on kiinnostavaa. Karttaprojektion vääristymä ei ole yksi luku. Se on
+**funktio, joka saa eri arvon jokaisessa maapallon pisteessä** — eli jakauma
+pallon pinnan yli. Ja kuten kohta nähdään, tuosta jakaumasta voi laskea useita
+eri "keskilukuja" riippuen siitä, painotetaanko maapinta-alaa, ihmisiä vai
+merialueita — ja vastaus siihen "kuinka paha Mercator on" muuttuu radikaalisti
+painotuksen mukana.
+
+Tämä postaus on tarkoituksella ennenkaikkea yleissivistävä. Aihe
+ansaitsee sen. Mutta lopussa kerron silti, miksi täsmälleen sama matemaattinen
+ilmiö tulee vastaan yritysdatassa joka ikinen viikko — ja miksi useimmat
+organisaatiot eivät huomaa sitä.
+
+---
+
+## Miksi tasokartta on aina kompromissi
+
+Otetaan appelsiini. Kuori se yhtenä palana ja yritä litistää kuori pöydälle
+niin, ettei se repeä eikä veny. Se ei onnistu. Sinun on joko revittävä kuori tai
+venytettävä sitä.
+
+Tämä ei ole kömpelyyttä. Se on **todistettu matemaattinen mahdottomuus**.
+
+::: {.callout-note title="Faktalaatikko 1: Gaussin Theorema Egregium (1827)"}
+Carl Friedrich Gauss osoitti tutkielmassaan *Disquisitiones generales circa
+superficies curvas* (1827) tuloksen, jota hän itse kutsui nimellä **Theorema
+Egregium** — "merkittävä lause".
+
+Lause sanoo, että pinnalla on ominaisuus nimeltä **Gaussin kaarevuus**, joka
+säilyy muuttumattomana kaikissa muunnoksissa, jotka eivät veny eivätkä purista
+pintaa. Kaarevuus on siis pinnan *sisäinen* ominaisuus: se voidaan mitata pinnan
+päällä ryömimällä, ilman että pintaa katsotaan ulkopuolelta.
+
+- Pallon pinnan Gaussin kaarevuus on positiivinen: $K = 1/R^2$, missä $R$ on säde.
+- Tason Gaussin kaarevuus on nolla: $K = 0$.
+
+Koska $1/R^2 \neq 0$, pallon pintaa **ei voi** kuvata tasolle venyttämättä.
+Ei nyt, ei koskaan, ei millään nerokkuudella. Jokainen maailmankartta on siis
+välttämättä väärässä jossakin — kysymys on vain siitä, *missä* ja *miten*.
+
+Arkinen todiste samasta lauseesta: kun taivutat pizzapalan U:n muotoon
+poikkisuunnassa, se ei enää notku pituussuunnassa. Kaarevuuden säilyminen pakottaa
+sen jäykäksi.
+
+**Vastaskenaario:** entä jos Maa olisi lieriö tai kartio? Silloin Gaussin
+kaarevuus olisi nolla, ja kartta voitaisiin tehdä täysin vääristymättä — sen voisi
+kirjaimellisesti leikata auki ja rullata tasoksi. Karttaprojektioiden koko
+ongelmakenttä on siis seurausta yhdestä ainoasta asiasta: Maa on likimain pallo.
+
+*Lähde:* Gauss, C. F. (1827). *Disquisitiones generales circa superficies curvas.*
+Commentationes Societatis Regiae Scientiarum Gottingensis Recentiores 6, 99–146.
+:::
+
+Koska kaikkea ei voi säilyttää, jokainen projektio valitsee **mitä se säilyttää
+ja mistä se luopuu**. Kolme klassista vaihtoehtoa:
+
+1. **Konformisuus** (kulmien säilyminen): pienet muodot pysyvät oikeina, mutta
+   pinta-alat vääristyvät. Mercator on tätä.
+2. **Ekvivalenssi** (pinta-alojen säilyminen): pinta-alat ovat oikein, mutta
+   muodot venyvät. Equal Earth ja Gall–Peters ovat tätä.
+3. **Kompromissi**: ei kumpaakaan täsmälleen, mutta kumpikaan ei myöskään mene
+   pahasti pieleen. Robinson ja Winkel Tripel ovat tätä.
+
+Ja tässä on olennainen asia, joka lähes aina jää uutisoinnista pois:
+**konformisuus ja ekvivalenssi ovat toisensa poissulkevia.** Ei ole olemassa
+karttaa, joka olisi molempia. Se ei ole tekninen puute vaan Theorema Egregiumin
+suora seuraus. Kun YK suosittelee siirtymistä pinta-alatarkkaan karttaan, se
+suosittelee samalla — väistämättä — siirtymistä karttaan, jossa muodot ovat
+väärin. Siitä tässä postauksessa tehdään numerot näkyviksi.
+
+---
+
+## Miten vääristymää mitataan: kaksi lukua per piste
+
+Tässä kohtaa on pakko selittää yksi käsite, koska koko loppu postaus nojaa
+siihen. Yritän tehdä sen ilman yhtään kaavaa ensin.
+
+Kuvittele, että piirrät maapallon pinnalle **hyvin pienen ympyrän** — vaikka
+sadan kilometrin säteisen. Piirrä se sitten kartalle. Ympyrästä tulee kartalla
+lähes aina **ellipsi**: soikio, jolla on pitkä ja lyhyt akseli. Tämä soikio on
+nimeltään **Tissot'n indikatriisi** (ranskalaisen matemaatikon Nicolas Auguste
+Tissot'n mukaan, 1859).
+
+Soikiosta luetaan kaksi lukua:
+
+- **$a$** = kuinka moninkertaiseksi etäisyydet venyvät soikion pisimmässä suunnassa
+- **$b$** = kuinka moninkertaiseksi etäisyydet venyvät soikion lyhimmässä suunnassa
+
+Näistä johdetaan kaksi ymmärrettävää mittaria:
+
+| Mittari | Kaava | Mitä se tarkoittaa arkikielellä |
+|---|---|---|
+| **Pinta-alakerroin** | $s = a \cdot b$ | Kuinka moninkertaiselta alue näyttää kartalla suhteessa todelliseen kokoonsa. Arvo 1 = oikein, 4 = näyttää nelinkertaiselta. |
+| **Suurin kulmavääristymä** | $\omega = 2\arcsin\frac{a-b}{a+b}$ | Kuinka monta astetta pahimmillaan kulmat vääristyvät. Arvo 0° = muodot oikein, 40° = muodot pahasti litistyneet tai venyneet. |
+
+Näiden kahden mittarin logiikka on suoraviivainen:
+
+- Jos $a = b$ (soikio on ympyrä), kulmavääristymä on nolla. Kartta on siinä
+  kohdassa **konforminen** — muodot ovat oikein.
+- Jos $a \cdot b = 1$ (soikio on venynyt yhteen suuntaan täsmälleen sen verran
+  kuin se on kutistunut toiseen), pinta-ala on oikein. Kartta on siinä kohdassa
+  **ekvivalentti**.
+- Molemmat yhtä aikaa ($a = b$ **ja** $ab = 1$) tarkoittaisi $a = b = 1$, eli ei
+  vääristymää lainkaan. Gaussin lauseen mukaan tämä on mahdotonta kaikkialla
+  yhtä aikaa.
+
+Nyt jokaisessa maapallon pisteessä on siis kaksi lukua. Miljardeja pisteitä,
+kaksi lukua kummassakin. **Siitä syntyy jakauma.**
+
+---
+
+## Data ja menetelmät
+
+### Mitä dataa käytetään
+
+| Aineisto | Lähde | Käyttö |
+|---|---|---|
+| Maiden rajat (vektori) | GISCO / Eurostat `giscoR`-paketilla | Maa-alueiden rajaus, maittaiset pinta-alat |
+| Maiden väkiluvut | Maailmanpankin avoin API (`SP.POP.TOTL`) | Väestöpainotettu vääristymäjakauma |
+| Mantereet ja aluejaot | `giscoR::gisco_countrycode` | Ryhmävertailut |
+| Projektiokaavat | PROJ-kirjasto `sf`-paketin kautta | Vääristymien laskenta |
+
+Kaikki lähteet ovat avointa dataa. Mitään lukuja ei ole simuloitu tai keksitty.
+
+### Miksi Monte Carlo -otanta
+
+Vääristymä pitää laskea "koko maapallon yli". Mutta maapallon pinnalla on
+äärettömän monta pistettä, joten integraali pitää approksimoida. Teen sen
+**tasa-aluepainotteisella satunnaisotannalla**: arvon pisteitä maapallon
+pinnalta niin, että jokainen neliökilometri on yhtä todennäköinen.
+
+Tässä on yksi klassinen sudenkuoppa. Jos arpoisi leveyspiirin tasajakaumasta
+välillä $-90^\circ \ldots 90^\circ$, napa-alueet ylipainottuisivat rajusti, koska
+leveyspiirit ovat siellä lyhyempiä. Oikea tapa on arpoa **leveyspiirin sini**
+tasajakaumasta:
+
+$$\varphi = \arcsin(u), \quad u \sim \text{Tasajakauma}(-1, 1)$$
+
+Tämä antaa tasaisen tiheyden pallon pinnalla. Koodissa tämä tarkistetaan
+erikseen.
+
+### Miten vääristymä lasketaan numeerisesti
+
+En johda kaavoja käsin jokaiselle projektiolle. Sen sijaan lasken **numeerisen
+derivaatan**: siirrän pistettä hiukan itään, hiukan länteen, hiukan pohjoiseen ja
+hiukan etelään, katson kuinka paljon kartan koordinaatit muuttuvat, ja rakennan
+niistä ns. Jacobin matriisin. Matriisin **singulaariarvot** ovat täsmälleen
+Tissot'n soikion akselit $a$ ja $b$. Menetelmä toimii mille tahansa
+projektiolle, myös sellaisille (kuten Robinson), joita ei edes ole määritelty
+suljetussa muodossa vaan interpoloimalla taulukosta.
+
+### Yksi kriittinen normalisointi
+
+Pinta-alakerroin $s$ sisältää mielivaltaisen globaalin vakion: jos kartta
+piirretään kahta kertaa isommaksi, kaikki kertoimet nelinkertaistuvat, mutta
+mikään ei muutu suhteellisesti. Siksi vertailen aina **suhteellista
+pinta-alavääristymää**:
+
+$$r(x) = \frac{s(x)}{g}, \qquad g = \exp\left(\overline{\log s}\right) \text{ maa-alueiden yli}$$
+
+Toisin sanoen: *kuinka moninkertaiselta tämä paikka näyttää verrattuna kartan
+"keskimääräiseen" maa-alueeseen*. Arvo 3 tarkoittaa, että alue näyttää kolme
+kertaa liian isolta suhteessa muihin maa-alueisiin samalla kartalla. Pinta-alan
+säilyttävillä projektioilla $r = 1$ kaikkialla. Tämä on normalisointivapaa
+suure: kahden paikan välinen suhde ei riipu siitä, miten kartta on skaalattu.
+
+::: {.callout-important title="Mitä ei voi tehdä ilman terra-pakettia"}
+Kaikki tämän postauksen laskenta tehdään `sf`-paketilla ja PROJ-kirjastolla,
+ilman rasteripaketteja. Se on itse asiassa etu: rasteripohjainen vääristymäanalyysi
+olisi *itsessään* projektioriippuvainen, koska rasterin solut olisivat jossakin
+projektiossa. Piste-otanta pallon pinnalta on projektiovapaa lähtökohta.
+:::
+
+---
+
+## Ympäristö ja apufunktiot
+
+```{r}
+#| label: setup
+
+library(here)
+library(sf)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(ggdist)
+library(scales)
+library(patchwork)
+library(giscoR)
+library(httr2)
+library(jsonlite)
+library(qs2)
+
+# Puolustuksellinen maskauksenesto (MASS, igraph yms. voivat varastaa nämä)
+select <- dplyr::select
+filter <- dplyr::filter
+
+source(here("R", "theme_kristian.R"))
+
+DATA_DIR <- here("data", "karttaprojektiot")
+if (!dir.exists(DATA_DIR)) dir.create(DATA_DIR, recursive = TRUE)
+
+set.seed(20260909)
+
+# Maapallon keskimääräinen säde metreinä (IUGG:n auktorisoitu keskisäde R_1).
+# Käytetään palloa, ei ellipsoidia: projektioiden vertailussa pallo on oikea
+# vertailukohta, ja osa projektioista (esim. Winkel Tripel) on määritelty
+# vain pallolle.
+R_MAA <- 6371007
+
+CRS_PALLO <- "+proj=longlat +R=6371007 +no_defs"
+
+# Vertailtavat projektiot. Kaikissa sama säde ja sama keskimeridiaani (Greenwich),
+# jotta vertailu on reilu.
+PROJEKTIOT <- c(
+  "Mercator"        = "+proj=merc     +lon_0=0 +R=6371007 +no_defs",
+  "Gall-Peters"     = "+proj=cea +lat_ts=45 +lon_0=0 +R=6371007 +no_defs",
+  "Mollweide"       = "+proj=moll     +lon_0=0 +R=6371007 +no_defs",
+  "Eckert IV"       = "+proj=eck4     +lon_0=0 +R=6371007 +no_defs",
+  "Equal Earth"     = "+proj=eqearth  +lon_0=0 +R=6371007 +no_defs",
+  "Robinson"        = "+proj=robin    +lon_0=0 +R=6371007 +no_defs",
+  "Winkel Tripel"   = "+proj=wintri   +lon_0=0 +R=6371007 +no_defs",
+  "Natural Earth"   = "+proj=natearth +lon_0=0 +R=6371007 +no_defs",
+  "Plate carree"    = "+proj=eqc      +lon_0=0 +R=6371007 +no_defs"
+)
+
+# Luokittelu myöhempää tulkintaa varten
+PROJ_TYYPPI <- c(
+  "Mercator"      = "konforminen",
+  "Gall-Peters"   = "pinta-alatarkka",
+  "Mollweide"     = "pinta-alatarkka",
+  "Eckert IV"     = "pinta-alatarkka",
+  "Equal Earth"   = "pinta-alatarkka",
+  "Robinson"      = "kompromissi",
+  "Winkel Tripel" = "kompromissi",
+  "Natural Earth" = "kompromissi",
+  "Plate carree"  = "kompromissi"
+)
+
+stopifnot(setequal(names(PROJEKTIOT), names(PROJ_TYYPPI)))
+```
+
+Vääristymien laskentafunktio. Tämä on postauksen matemaattinen ydin, joten se on
+kommentoitu rivi riviltä.
+
+```{r}
+#| label: vaaristymafunktio
+
+laske_vaaristymat <- function(lonlat, crs_kohde, R = R_MAA, delta_deg = 1e-4) {
+
+  stopifnot(is.matrix(lonlat), ncol(lonlat) == 2)
+  # Reunaehdot: numeerinen derivaatta ei saa ylittää päivämäärärajaa eikä napoja,
+  # koska PROJ kiertää pituusasteen takaisin ja derivaatta hyppäisi.
+  stopifnot(all(abs(lonlat[, 1]) <= 179.9), all(abs(lonlat[, 2]) <= 89.5))
+
+  d <- delta_deg
+  proj_apu <- function(m) sf::sf_project(CRS_PALLO, crs_kohde, m, keep = TRUE)
+
+  pI <- proj_apu(cbind(lonlat[, 1] + d, lonlat[, 2]))   # itään
+  pL <- proj_apu(cbind(lonlat[, 1] - d, lonlat[, 2]))   # länteen
+  pP <- proj_apu(cbind(lonlat[, 1], lonlat[, 2] + d))   # pohjoiseen
+  pE <- proj_apu(cbind(lonlat[, 1], lonlat[, 2] - d))   # etelään
+
+  # Askel radiaaneina (keskeisdifferenssi -> 2 * delta)
+  askel <- 2 * d * pi / 180
+  phi   <- lonlat[, 2] * pi / 180
+  cphi  <- cos(phi)
+
+  # Osittaisderivaatat kartan koordinaateille
+  dx_dlam <- (pI[, 1] - pL[, 1]) / askel
+  dy_dlam <- (pI[, 2] - pL[, 2]) / askel
+  dx_dphi <- (pP[, 1] - pE[, 1]) / askel
+  dy_dphi <- (pP[, 2] - pE[, 2]) / askel
+
+  # Jacobin matriisi suhteessa pallon PAIKALLISEEN ortonormaaliin kehykseen:
+  # itä-suunnan kaarenpituus on R*cos(phi)*dlambda, pohjois-suunnan R*dphi.
+  J11 <- dx_dlam / (R * cphi); J21 <- dy_dlam / (R * cphi)
+  J12 <- dx_dphi / R;          J22 <- dy_dphi / R
+
+  # J^T J:n alkiot -> singulaariarvot analyyttisesti (2x2, ei tarvita svd-silmukkaa)
+  Ee <- J11^2 + J21^2
+  Gg <- J12^2 + J22^2
+  Ff <- J11 * J12 + J21 * J22
+  jalki <- Ee + Gg
+  det2  <- Ee * Gg - Ff^2
+
+  diskr <- pmax(jalki^2 - 4 * det2, 0)          # numeerinen suoja
+  lam1  <- (jalki + sqrt(diskr)) / 2
+  lam2  <- pmax((jalki - sqrt(diskr)) / 2, 0)
+
+  a <- sqrt(lam1)                                # Tissot'n soikion pitkä puoliakseli
+  b <- sqrt(lam2)                                # lyhyt puoliakseli
+
+  tibble(
+    lon        = lonlat[, 1],
+    lat        = lonlat[, 2],
+    a          = a,
+    b          = b,
+    pinta_ala  = sqrt(pmax(det2, 0)),            # a * b
+    omega      = 2 * asin(pmin((a - b) / (a + b), 1)) * 180 / pi
+  )
+}
+```
+
+### Funktion validointi tunnetuilla arvoilla
+
+Ennen kuin luotan tuloksiin, tarkistan funktion kolmella tapauksella, joiden
+oikea vastaus tiedetään käsin laskemalla. Tämä on se kohta, jossa pilkkuvirheet
+karsiutuvat.
+
+```{r}
+#| label: validointi
+
+testipisteet <- cbind(
+  lon = c(0, 25, -70, 120, 10),
+  lat = c(0, 60, -33, 45, 78)
+)
+
+# 1) Mercator: pinta-alakerroin = 1/cos^2(phi), kulmavaaristyma = 0
+v_merc <- laske_vaaristymat(testipisteet, PROJEKTIOT[["Mercator"]])
+odotus_merc <- 1 / cos(testipisteet[, "lat"] * pi / 180)^2
+
+stopifnot(max(abs(v_merc$pinta_ala - odotus_merc) / odotus_merc) < 1e-5)
+stopifnot(max(v_merc$omega) < 1e-4)
+
+# 2) Pinta-alatarkat projektiot: pinta-alakerroin = 1 kaikkialla
+for (nimi in c("Equal Earth", "Mollweide", "Eckert IV", "Gall-Peters")) {
+  v <- laske_vaaristymat(testipisteet, PROJEKTIOT[[nimi]])
+  stopifnot(max(abs(v$pinta_ala - 1)) < 1e-4)
+}
+
+# 3) Plate carree: pinta-alakerroin = 1/cos(phi)
+v_eqc <- laske_vaaristymat(testipisteet, PROJEKTIOT[["Plate carree"]])
+stopifnot(max(abs(v_eqc$pinta_ala - 1 / cos(testipisteet[, "lat"] * pi / 180))) < 1e-5)
+
+cat("Kaikki kolme validointitestiä läpäisty.\n")
+cat("Mercator pinta-alakerroin 60. leveyspiirilla:",
+    round(v_merc$pinta_ala[2], 3), "(käsin laskettu:",
+    round(1 / cos(60 * pi / 180)^2, 3),")\n")
+```
+
+Funktio siis tuottaa täsmälleen ne arvot, jotka teoriasta seuraavat. Nyt sitä voi
+käyttää projektioihin, joille käsin laskeminen olisi työlästä.
+
+---
+
+## Aineiston haku
+
+```{r}
+#| label: maadata
+
+polku_maat <- file.path(DATA_DIR, "maat.qs")
+
+if (!file.exists(polku_maat)) {
+  maat_raaka <- giscoR::gisco_get_countries(
+    year       = "2020",
+    resolution = "20",
+    epsg       = "4326"
+  )
+  qs2::qs_save(maat_raaka, polku_maat)
+}
+maat_raaka <- qs2::qs_read(polku_maat)
+
+stopifnot(all(c("ISO3_CODE", "NAME_ENGL") %in% names(maat_raaka)))
+stopifnot(nrow(maat_raaka) > 200)
+
+# Mannerluokitus giscoR:n omasta koodikirjasta
+koodit <- giscoR::gisco_countrycode |>
+  select(ISO3_CODE, continent, un.region.name) |>
+  distinct(ISO3_CODE, .keep_all = TRUE)
+
+MANNER_FI <- c(
+  "Africa" = "Afrikka", "Asia" = "Aasia", "Europe" = "Eurooppa",
+  "Americas" = "Amerikat", "Oceania" = "Oseania", "Antarctica" = "Antarktis"
+)
+
+maat <- maat_raaka |>
+  left_join(koodit, by = "ISO3_CODE") |>
+  mutate(
+    manner_en = coalesce(continent, un.region.name),
+    manner    = unname(MANNER_FI[manner_en])
+  ) |>
+  filter(!is.na(manner), ISO3_CODE != "ATA")   # Antarktis erikseen, ks. alla
+
+# Antarktis on poistettu, koska Mercatorin projektio ei kykene esittamään sitä
+# lainkaan: kerroin kasvaa rajatta navalla. Tama on itsessään tulos, ei puute.
+cat("Maita mukana:", nrow(maat), "\n")
+cat("Ilman mannerluokitusta jääneet:",
+    sum(is.na(unname(MANNER_FI[coalesce(maat_raaka$ISO3_CODE, "")]))), "\n")
+print(count(st_drop_geometry(maat), manner, sort = TRUE))
+```
+
+```{r}
+#| label: vaesto
+
+polku_vaesto <- file.path(DATA_DIR, "vaesto_worldbank.qs")
+
+if (!file.exists(polku_vaesto)) {
+  vastaus <- request("https://api.worldbank.org/v2/country/all/indicator/SP.POP.TOTL") |>
+    req_url_query(format = "json", per_page = 20000, date = "2015:2024") |>
+    req_retry(max_tries = 3) |>
+    req_perform()
+
+  raaka <- jsonlite::fromJSON(resp_body_string(vastaus), flatten = TRUE)
+
+  stopifnot(length(raaka) == 2, is.data.frame(raaka[[2]]))
+
+  vaesto_raaka <- raaka[[2]] |>
+    as_tibble() |>
+    select(ISO3_CODE = countryiso3code, vuosi = date, vakiluku = value) |>
+    filter(!is.na(vakiluku), nchar(ISO3_CODE) == 3) |>
+    mutate(vuosi = as.integer(vuosi)) |>
+    group_by(ISO3_CODE) |>
+    slice_max(vuosi, n = 1, with_ties = FALSE) |>
+    ungroup()
+
+  qs2::qd_save(vaesto_raaka, polku_vaesto)
+}
+vaesto_raaka <- qs2::qd_read(polku_vaesto)
+
+stopifnot(nrow(vaesto_raaka) > 180)
+stopifnot(all(vaesto_raaka$vakiluku > 0))
+
+cat("Vakilukuja maittain:", nrow(vaesto_raaka),
+    "| viimeisin vuosi:", max(vaesto_raaka$vuosi),
+    "| yhteensa:", format(sum(vaesto_raaka$vakiluku), big.mark = " "), "\n")
+```
+
+### Otannan tuottaminen
+
+```{r}
+#| label: otanta
+
+polku_otos <- file.path(DATA_DIR, "maapisteet.qs")
+N_TAVOITE  <- 60000    # maa-alueille osuvien pisteiden tavoitemaara
+
+if (!file.exists(polku_otos)) {
+
+  sf::sf_use_s2(TRUE)
+  maat_yhd <- maat |> select(ISO3_CODE, NAME_ENGL, manner)
+
+  arvo_pisteita <- function(n) {
+    tibble(
+      lon = runif(n, -179.9, 179.9),
+      lat = asin(runif(n, -1, 1)) * 180 / pi   # tasa-alueotanta pallolla
+    ) |>
+      filter(abs(lat) <= 89.5)
+  }
+
+  kertyma <- list()
+  saatu   <- 0
+  kierros <- 0
+
+  while (saatu < N_TAVOITE && kierros < 40) {
+    kierros <- kierros + 1
+    ehdokas <- arvo_pisteita(250000)
+
+    ehdokas_sf <- st_as_sf(ehdokas, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+    osuma      <- st_join(ehdokas_sf, maat_yhd, join = st_intersects, left = FALSE)
+
+    osa <- osuma |> st_drop_geometry() |> as_tibble()
+    kertyma[[kierros]] <- osa
+    saatu <- saatu + nrow(osa)
+  }
+
+  maapisteet <- bind_rows(kertyma) |>
+    distinct(lon, lat, .keep_all = TRUE) |>
+    slice_head(n = N_TAVOITE)
+
+  qs2::qd_save(maapisteet, polku_otos)
+}
+maapisteet <- qs2::qd_read(polku_otos)
+
+stopifnot(nrow(maapisteet) > 50000)
+stopifnot(all(!is.na(maapisteet$manner)))
+stopifnot(all(abs(maapisteet$lat) <= 89.5), all(abs(maapisteet$lon) <= 179.9))
+
+# Tarkistus: osumaosuuden pitaisi vastata maapinta-alan osuutta (n. 29 % ilman
+# Antarktista noin 26-27 %). Jos ei, otanta on vinoutunut.
+cat("Maapisteita:", nrow(maapisteet), "\n")
+print(maapisteet |> count(manner, sort = TRUE) |> mutate(osuus = n / sum(n)))
+```
+
+::: {.callout-tip title="Miksi tämä tarkistus on tärkeä"}
+Yllä oleva mannerjakauma on samalla otannan laadunvarmistus. Koska otanta on
+tasa-aluepainotteinen, pisteiden osuuksien pitää vastata mantereiden todellisia
+pinta-alaosuuksia. Jos Eurooppa saisi 20 % pisteistä, tietäisin heti, että
+leveyspiiriotanta on väärin — ja koko postauksen tulokset olisivat roskaa.
+Tällaiset "pitäisi olla suunnilleen X" -tarkistukset ovat halpoja kirjoittaa ja
+säästävät nolouksilta.
+:::
+
+---
+
+## Tulos 1: Mercatorin vääristymä ei ole luku vaan jakauma
+
+Lasketaan nyt vääristymä jokaiselle otospisteelle jokaisessa projektiossa.
+
+```{r}
+#| label: laske-kaikki
+
+polku_vaar <- file.path(DATA_DIR, "vaaristymat.qs")
+
+if (!file.exists(polku_vaar)) {
+  koord <- as.matrix(maapisteet[, c("lon", "lat")])
+
+  vaaristymat <- imap_dfr(PROJEKTIOT, function(crs, nimi) {
+    laske_vaaristymat(koord, crs) |>
+      mutate(
+        projektio = nimi,
+        ISO3_CODE = maapisteet$ISO3_CODE,
+        manner    = maapisteet$manner
+      )
+  })
+
+  # Normalisointi: suhteellinen pinta-alavaaristyma r = s / geometrinen keskiarvo
+  vaaristymat <- vaaristymat |>
+    group_by(projektio) |>
+    mutate(r_pinta_ala = pinta_ala / exp(mean(log(pinta_ala)))) |>
+    ungroup() |>
+    mutate(
+      log2_r = log2(r_pinta_ala),
+      tyyppi = unname(PROJ_TYYPPI[projektio])
+    )
+
+  qs2::qd_save(vaaristymat, polku_vaar)
+}
+vaaristymat <- qs2::qd_read(polku_vaar)
+
+stopifnot(all(is.finite(vaaristymat$r_pinta_ala)))
+stopifnot(all(vaaristymat$omega >= -1e-9))
+
+# Sanity: pinta-alatarkoilla r pitaa olla 1
+tarkistus <- vaaristymat |>
+  filter(tyyppi == "pinta-alatarkka") |>
+  summarise(poikkeama = max(abs(r_pinta_ala - 1)))
+stopifnot(tarkistus$poikkeama < 1e-3)
+
+cat("Rivi\u00e4 yhteens\u00e4:", nrow(vaaristymat), "\n")
+```
+
+```{r}
+#| label: fig-mercator-jakauma
+#| fig-cap: "Mercatorin projektion suhteellinen pinta-alavääristymä maa-alueilla. Vaaka-akseli on logaritminen: jokainen askel oikealle tarkoittaa kaksinkertaistumista."
+#| fig-height: 5
+
+merc <- vaaristymat |> filter(projektio == "Mercator")
+
+kvantiilit <- quantile(merc$r_pinta_ala, c(0.05, 0.25, 0.5, 0.75, 0.95, 0.99))
+
+ggplot(merc, aes(x = r_pinta_ala)) +
+  geom_histogram(bins = 90, fill = "#457b9d", colour = NA, alpha = 0.9) +
+  geom_vline(xintercept = 1, colour = "#e63946", linewidth = 0.9) +
+  geom_vline(xintercept = kvantiilit[["50%"]], colour = "#f4a261",
+             linetype = "dashed", linewidth = 0.9) +
+  scale_x_continuous(
+    trans  = "log2",
+    breaks = c(0.5, 1, 2, 4, 8, 16, 32),
+    labels = c("0,5\u00d7", "1\u00d7", "2\u00d7", "4\u00d7", "8\u00d7", "16\u00d7", "32\u00d7")
+  ) +
+  labs(
+    title    = "Mercatorin pinta-alavääristymä on jakauma, ei luku",
+    subtitle = paste0(
+      "Punainen viiva = kartan keskimääräinen maa-alue. Katkoviiva = mediaani (",
+      formatC(kvantiilit[["50%"]], digits = 2, format = "f"), "\u00d7)."
+    ),
+    x = "Kuinka moninkertaiselta alue näyttää kartan keskimääräiseen maa-alueeseen verrattuna",
+    y = "Otospisteiden lukumäärä",
+    caption = "Aineisto: GISCO/Eurostat maarajat, 60 000 tasa-aluepainotettua otospistettä"
+  ) +
+  theme_kristian()
+```
+
+**Miten tätä kuvaa luetaan.** Vaaka-akselilla on se, kuinka monikertaiselta
+maapallon eri kohdat näyttävät Mercatorin kartalla verrattuna kartan
+keskimääräiseen maa-alueeseen. Pystyakselilla on, kuinka moni otospiste osui
+kuhunkin kohtaan. Punainen pystyviiva kohdassa "1×" on se kohta, jossa alue
+näyttää täsmälleen keskimääräiseltä. Sen vasemmalla puolella alueet näyttävät
+liian pieniltä, oikealla puolella liian isoilta. Akseli on **logaritminen**: joka
+kerta kun siirryt yhden merkinnän oikealle, luku kaksinkertaistuu. Se on
+tarpeen, koska muuten oikea häntä olisi niin pitkä, ettei kuvasta näkisi mitään.
+
+Numerot:
+
+```{r}
+#| label: mercator-luvut
+
+merc_yhteenveto <- tibble(
+  Tunnusluku = c("5. persentiili", "Alakvartiili", "Mediaani", "Yläkvartiili",
+                 "95. persentiili", "99. persentiili", "Maksimi",
+                 "Ylin / alin (5% vs 95%)"),
+  Arvo = c(
+    kvantiilit[["5%"]], kvantiilit[["25%"]], kvantiilit[["50%"]],
+    kvantiilit[["75%"]], kvantiilit[["95%"]], kvantiilit[["99%"]],
+    max(merc$r_pinta_ala),
+    kvantiilit[["95%"]] / kvantiilit[["5%"]]
+  )
+) |>
+  mutate(Arvo = paste0(formatC(Arvo, digits = 2, format = "f"), "\u00d7"))
+
+knitr::kable(merc_yhteenveto,
+             caption = "Mercatorin suhteellinen pinta-alavääristymä maa-alueilla")
+```
+
+Tässä on postauksen ensimmäinen olennainen havainto. **Mercatorin "pahuudelle"
+ei ole yhtä lukua.** Puolet maapallon maa-alueesta on melko lähellä oikeaa
+suhdetta, mutta jakauman oikea häntä on hyvin pitkä. Ero jakauman ylä- ja
+alapään välillä on monikymmenkertainen. Jos joku sanoo "Mercator liioittelee
+noin kaksinkertaisesti", hän puhuu mediaanista ja jättää kertomatta, että
+osalle maapalloa kerroin on kymmeniä.
+
+Ja tässä on sama asia karttana:
+
+```{r}
+#| label: fig-vaaristymakartta
+#| fig-cap: "Missä Mercator liioittelee ja missä se kutistaa. Väri kertoo suhteellisen pinta-alavääristymän."
+#| fig-height: 5.5
+
+hila <- expand.grid(
+  lon = seq(-179.5, 179.5, by = 1),
+  lat = seq(-84.5, 84.5, by = 1)
+) |> as.matrix()
+
+hila_v <- laske_vaaristymat(hila, PROJEKTIOT[["Mercator"]]) |>
+  mutate(r = pinta_ala / exp(mean(log(merc$pinta_ala))))
+
+rajat_sf <- maat |> st_geometry()
+
+ggplot() +
+  geom_tile(data = hila_v, aes(x = lon, y = lat, fill = log2(r)),
+            width = 1, height = 1) +
+  geom_sf(data = rajat_sf, fill = NA, colour = "grey20", linewidth = 0.12) +
+  scale_fill_gradient2(
+    low = "#1d3557", mid = "#f7f2e8", high = "#e63946", midpoint = 0,
+    breaks = log2(c(0.5, 1, 2, 4, 8, 16)),
+    labels = c("0,5\u00d7", "1\u00d7", "2\u00d7", "4\u00d7", "8\u00d7", "16\u00d7"),
+    name   = "Näennäinen\nkoko"
+  ) +
+  coord_sf(xlim = c(-180, 180), ylim = c(-85, 85), expand = FALSE, crs = 4326) +
+  labs(
+    title    = "Mercatorin vääristymä riippuu vain leveyspiiristä",
+    subtitle = "valkoinen = näyttää liian pieneltä, punainen = näyttää liian isolta",
+    x = NULL, y = NULL,
+    caption = "Kartta on piirretty tasakulmakoordinaatistossa, jotta vääristymä itse näkyy vääristymättä"
+  ) +
+  theme_kristian()
+```
+
+**Miten tätä karttaa luetaan.** Tämä kuva on piirretty tarkoituksella *ilman*
+Mercatoria — se on tavallinen pituus/leveysasteruudukko. Väri kertoo, mitä
+Mercator tekisi kullekin kohdalle. Vaalea keskikaista päiväntasaajan tienoilla on
+alue, jonka Mercator kutistaa. Voimakkaan punaiset alueet pohjoisessa ja
+etelässä ovat niitä, jotka se puhaltaa isoiksi. Huomaa, että väri riippuu vain
+korkeudesta kuvassa, ei lainkaan siitä ollaanko idässä vai lännessä: Mercatorin
+vääristymä on puhtaasti leveyspiirin funktio.
+
+---
+
+## Kestääkö "Grönlanti näyttää Afrikan kokoiselta" tarkastelun?
+
+Tämä on kampanjan iskulause. Testataan se tarkasti — ei otantana vaan laskemalla
+maiden todelliset ja näennäiset pinta-alat suoraan rajapolygoneista.
+
+```{r}
+#| label: gronlanti
+
+# Todelliset pinta-alat pallogeometrialla (s2)
+sf::sf_use_s2(TRUE)
+maat$ala_tosi <- as.numeric(st_area(maat))
+
+# Rajaviivat pitaa TIHENTAA ennen projisointia. Muuten pitka suora rajaviiva
+# (esim. USA/Kanada 49. leveyspiirilla) piirtyy kartalle suorana, vaikka sen
+# pitaisi kaartua -- ja pinta-ala menee vaarin. 50 km segmentti riittaa.
+maat_tiheat <- st_segmentize(maat, dfMaxLength = 50000)
+
+# Naennaiset pinta-alat kartalla: projisoidaan polygonit ja mitataan tason ala.
+naennainen_ala <- function(crs) {
+  sf::sf_use_s2(FALSE)
+  g <- maat_tiheat |>
+    st_wrap_dateline(options = c("WRAPDATELINE=YES", "DATELINEOFFSET=180")) |>
+    st_transform(crs)
+  ala <- as.numeric(st_area(g))
+  sf::sf_use_s2(TRUE)
+  ala
+}
+
+# Gronlanti on Tanskan alue; GISCO:ssa erillinen koodi GRL.
+kohteet <- c("GRL", "COD", "IND", "FIN", "BRA", "RUS", "AUS", "DZA")
+
+vertailu <- tibble(
+  ISO3_CODE   = maat$ISO3_CODE,
+  maa         = maat$NAME_ENGL,
+  ala_tosi    = maat$ala_tosi,
+  ala_merc    = naennainen_ala(PROJEKTIOT[["Mercator"]]),
+  ala_eqe     = naennainen_ala(PROJEKTIOT[["Equal Earth"]])
+) |>
+  mutate(
+    # normalisoidaan niin, etta maailman maa-alueiden yhteispinta-ala tasmaa
+    r_merc = (ala_merc / sum(ala_merc)) / (ala_tosi / sum(ala_tosi)),
+    r_eqe  = (ala_eqe  / sum(ala_eqe))  / (ala_tosi / sum(ala_tosi))
+  )
+
+# Equal Earth on pinta-alatarkka: suhteen pitaa olla 1 numeerisen tarkkuuden
+# rajoissa. Tama on koko pinta-alalaskennan validointi.
+cat("Equal Earth, suurin poikkeama ykkosesta:",
+    round(max(abs(vertailu$r_eqe - 1)), 4), "\n")
+stopifnot(max(abs(vertailu$r_eqe - 1)) < 0.02)
+
+# Afrikan yhteispinta-ala
+afr_iso <- maat$ISO3_CODE[maat$manner == "Afrikka"]
+afr <- vertailu |> filter(ISO3_CODE %in% afr_iso) |>
+  summarise(tosi = sum(ala_tosi), merc = sum(ala_merc))
+
+grl <- vertailu |> filter(ISO3_CODE == "GRL")
+
+cat("Afrikan todellinen pinta-ala / Gronlannin:",
+    round(afr$tosi / grl$ala_tosi, 2), "\n")
+cat("Afrikan naennainen pinta-ala Mercatorilla / Gronlannin:",
+    round(afr$merc / grl$ala_merc, 2), "\n")
+cat("Gronlannin liioittelukerroin Mercatorilla:",
+    round(grl$r_merc, 2), "\n")
+```
+
+```{r}
+#| label: tbl-maat
+vertailu |>
+  filter(ISO3_CODE %in% kohteet) |>
+  arrange(desc(r_merc)) |>
+  transmute(
+    Maa = maa,
+    `Todellinen pinta-ala (milj. km²)` = round(ala_tosi / 1e12, 2),
+    `Liioittelukerroin Mercatorilla`   = paste0(formatC(r_merc, digits = 2, format = "f"), "\u00d7")
+  ) |>
+  knitr::kable(caption = "Kuinka moninkertaiselta maa näyttää Mercatorin kartalla")
+```
+
+Tässä on kiinnostava nyanssi. Väite "Afrikka ja Grönlanti näyttävät
+samankokoisilta" on **liioiteltu**, jos sillä tarkoitetaan täsmällistä
+yhtäsuuruutta. Todellinen suhde on noin 14:1, ja Mercator kutistaa sen
+laskennallisesti selvästi — mutta ei aivan ykköseen asti. Yksi syy on se, että
+Grönlanti ei ole kokonaan hyvin pohjoisessa: sen eteläkärki on 60. leveyspiirin
+tuntumassa, missä liioittelukerroin on paljon pienempi kuin pohjoiskärjessä.
+
+Miksi väite silti tuntuu useimmista ihmisistä oikealta? Todennäköisin selitys on,
+että Grönlanti sijaitsee kartan yläreunassa, jossa se on iso ja yhtenäinen
+muoto, kun taas Afrikkaa katsotaan keskellä muiden mantereiden ympäröimänä.
+Havaintopsykologia ja geometria eivät ole sama asia.
+
+Tässä on tämän blogin peruskysymys tiivistettynä: **kampanjan pointti on oikea
+(Mercator vääristää pinta-aloja systemaattisesti ja voimakkaasti), mutta
+markkinointiin valittu yksittäinen luku ei kestä tarkkaa tarkastelua.** Molemmat
+asiat voivat olla totta yhtä aikaa, ja päättäjän on hyvä osata erottaa ne.
+
+::: {.callout-note title="Faktalaatikko 2: vaikuttaako Mercator oikeasti ihmisten maailmankuvaan?"}
+Kampanjan keskeinen väite on, että Mercator vääristää ihmisten mielikuvaa
+maailmasta. Väitteelle on empiiristä tutkimusta — ja tulos on yllättävän
+epäselvä.
+
+**Battersby & Montello (2009)** tutkivat kahdella kokeella, kuinka tarkasti
+ihmiset arvioivat maailman alueiden pinta-aloja. Muistista tuotetut arviot eivät
+noudattaneet Mercatorin vääristymän kaavaa: napa-alueita ei arvioitu
+suhteettoman suuriksi sillä tavalla kuin "Mercator-efekti" ennustaisi. Arviot
+seurasivat pikemminkin psykofysiikan yleistä lainalaisuutta, jossa suuria määriä
+aliarvioidaan ja pieniä yliarvioidaan. Sen sijaan silloin, kun koehenkilöt
+katsoivat karttaa suoraan, he onnistuivat vain osittain korjaamaan vääristymää
+mielessään.
+
+**De Boeck & Ooms (2019)** toistivat kokeen sukupolvella, joka on kasvanut
+Web Mercatoriin perustuvien verkkokarttojen kanssa, eli altistunut Mercatorille
+selvästi enemmän kuin alkuperäinen tutkimusjoukko.
+
+**Vastaskenaario:** jos Mercator-efekti muistiarvioissa olisi voimakas, YK:n
+päätöksen käytännön vaikutus olisi suuri: kartan vaihtaminen korjaisi
+suoraan ihmisten maailmankuvaa. Jos taas efektiä ei ole, päätöksen merkitys on
+enemmän symbolinen ja institutionaalinen — mikä ei tarkoita, ettei se olisi
+merkittävä, mutta se on eri asia.
+
+Huomionarvoista: tästä kysymyksestä ei ole julkaistua meta-analyysiä. Tutkimuksia
+on vähän, otokset ovat pieniä ja koostuvat pääosin opiskelijoista. Tämä on
+rehellisyyden nimissä sanottava: **väite kartan vaikutuksesta maailmankuvaan on
+uskottava mutta heikosti todennettu.**
+
+*Lähteet:* Battersby, S. E. & Montello, D. R. (2009). Area estimation of world
+regions and the projection of the global-scale cognitive map. *Annals of the
+Association of American Geographers*, 99(2), 273–291. — De Boeck, M. & Ooms, K.
+(2019). Evaluating young people's area estimation of countries and continents.
+*ISPRS International Journal of Geo-Information*, 8(3), 125.
+:::
+
+---
+
+## Tulos 2: kaikki projektiot rinnakkain
+
+Nyt varsinainen vertailu. Piirretään jokaisen projektion kaksi
+vääristymäjakaumaa vierekkäin.
+
+```{r}
+#| label: fig-vertailu
+#| fig-cap: "Kaikkien vertailtujen projektioiden vääristymäjakaumat maa-alueilla."
+#| fig-height: 8
+
+jarjestys <- vaaristymat |>
+  group_by(projektio) |>
+  summarise(m = median(omega), .groups = "drop") |>
+  arrange(m) |>
+  pull(projektio)
+
+d_plot <- vaaristymat |>
+  mutate(projektio = factor(projektio, levels = jarjestys))
+
+VARIT <- c("pinta-alatarkka" = "#2a9d8f",
+           "konforminen"     = "#e63946",
+           "kompromissi"     = "#f4a261")
+
+# HUOM: osa jakaumista on degeneroituneita eli vakioita. Pinta-alatarkoilla
+# projektioilla r_pinta_ala == 1 kaikkialla ja Mercatorilla omega == 0
+# kaikkialla. Ydinestimointi (bw.SJ) kaatuu vakiodataan, joten slab lasketaan
+# histogrammilla. Se on tassa myos rehellisempi esitys: piikki on aito piikki,
+# ei levitetty kumpare.
+
+p1 <- ggplot(d_plot, aes(x = r_pinta_ala, y = projektio, fill = tyyppi)) +
+  stat_halfeye(
+    density   = "histogram",
+    .width    = c(0.5, 0.9),
+    normalize = "groups",
+    slab_alpha = 0.85,
+    point_size = 1.6,
+    interval_size_range = c(0.5, 1.2)
+  ) +
+  geom_vline(xintercept = 1, colour = "#e63946", linewidth = 0.7) +
+  scale_x_continuous(
+    trans  = "log2",
+    breaks = c(0.5, 1, 2, 4, 8, 16),
+    labels = c("0,5\u00d7", "1\u00d7", "2\u00d7", "4\u00d7", "8\u00d7", "16\u00d7")
+  ) +
+  coord_cartesian(xlim = c(0.4, 20)) +
+  scale_fill_manual(values = VARIT) +
+  labs(title = "Pinta-alavääristymä", x = "Näennäinen koko", y = NULL, fill = NULL) +
+  theme_kristian()
+
+p2 <- ggplot(d_plot, aes(x = omega, y = projektio, fill = tyyppi)) +
+  stat_halfeye(
+    density   = "histogram",
+    .width    = c(0.5, 0.9),
+    normalize = "groups",
+    slab_alpha = 0.85,
+    point_size = 1.6,
+    interval_size_range = c(0.5, 1.2)
+  ) +
+  scale_x_continuous(labels = function(x) paste0(x, "\u00b0")) +
+  coord_cartesian(xlim = c(0, 80)) +
+  scale_fill_manual(values = VARIT) +
+  labs(title = "Kulmavääristymä (muotojen vääristymä)",
+       x = "Suurin kulmavirhe", y = NULL, fill = NULL) +
+  theme_kristian()
+
+(p1 | p2) +
+  plot_layout(guides = "collect") +
+  plot_annotation(
+    title = "Jokainen projektio valitsee, kummasta virheestä se maksaa",
+    subtitle = "Vasemmalla pinta-alojen virhe, oikealla muotojen virhe. Sama piste-otos molemmissa.",
+    caption = paste0(
+      "60 000 tasa-aluepainotettua otospistett\u00e4 maa-alueilta. ",
+      "Akselit on rajattu luettavuuden vuoksi; Mercatorin pinta-alah\u00e4nt\u00e4 jatkuu ",
+      formatC(max(vaaristymat$r_pinta_ala[vaaristymat$projektio == "Mercator"]),
+              digits = 0, format = "f"), "\u00d7 asti."
+    )
+  ) &
+  theme_kristian()
+```
+
+**Miten tätä kuvaa luetaan.** Jokaista projektiota kohti on piirretty kaksi
+"vuorenharjannetta". Harjanteen korkeus kertoo, kuinka tavallinen kyseinen arvo
+on: leveä ja matala harjanne tarkoittaa, että vääristymä vaihtelee paljon
+paikasta toiseen, kapea ja korkea harjanne tarkoittaa, että vääristymä on lähes
+sama kaikkialla. Harjanteen alla oleva paksu jana kattaa keskimmäiset 50 %
+maa-alueesta ja ohut jana keskimmäiset 90 %. Vasemmalla puolella kaikki vihreät
+harjanteet ovat kapeita piikkejä kohdassa 1× — se on pinta-alatarkkuuden
+määritelmä. Oikealla puolella juuri nuo samat vihreät ovat leveitä: hinta
+maksetaan muodoissa.
+
+```{r}
+#| label: tbl-yhteenveto
+
+yhteenveto <- vaaristymat |>
+  group_by(projektio, tyyppi) |>
+  summarise(
+    pa_med   = median(r_pinta_ala),
+    pa_p95   = quantile(r_pinta_ala, 0.95),
+    pa_haj   = quantile(r_pinta_ala, 0.95) / quantile(r_pinta_ala, 0.05),
+    om_med   = median(omega),
+    om_p95   = quantile(omega, 0.95),
+    om_max   = max(omega),
+    .groups  = "drop"
+  ) |>
+  arrange(om_med)
+
+yhteenveto |>
+  transmute(
+    Projektio = projektio,
+    Tyyppi    = tyyppi,
+    `Pinta-ala, mediaani` = paste0(formatC(pa_med, digits = 2, format = "f"), "\u00d7"),
+    `Pinta-ala, 95 %`     = paste0(formatC(pa_p95, digits = 2, format = "f"), "\u00d7"),
+    `Ylin/alin -suhde`    = paste0(formatC(pa_haj, digits = 1, format = "f"), "\u00d7"),
+    `Kulmavirhe, mediaani`= paste0(formatC(om_med, digits = 1, format = "f"), "\u00b0"),
+    `Kulmavirhe, 95 %`    = paste0(formatC(om_p95, digits = 1, format = "f"), "\u00b0")
+  ) |>
+  knitr::kable(caption = "Projektioiden vertailu maa-alueiden yli")
+```
+
+Taulukko kertoo tarinan tiiviisti. Mercator on ainoa, jonka kulmavirhe on nolla
+kaikkialla — se on **täsmälleen** konforminen. Hinta näkyy vasemmassa
+sarakkeessa: ylin/alin -suhde on kymmeniä. Pinta-alatarkat projektiot ovat
+peilikuva: pinta-alasarake on täsmälleen 1,00× kaikkialla, mutta kulmasarake
+kasvaa. Kompromissiprojektiot asettuvat väliin molemmissa.
+
+---
+
+## Mistä Equal Earth luopuu
+
+Nyt päästään postauksen otsikkokysymykseen. Equal Earth on
+pinta-alatarkka, joten sen pinta-alavirhe on nolla. Mistä se maksaa sen?
+
+```{r}
+#| label: fig-eqearth-kartta
+#| fig-cap: "Equal Earthin kulmavääristymä eli muotojen vääristymä maapallon yli."
+#| fig-height: 5.5
+
+hila_eqe <- laske_vaaristymat(hila, PROJEKTIOT[["Equal Earth"]])
+
+ggplot() +
+  geom_tile(data = hila_eqe, aes(x = lon, y = lat, fill = omega),
+            width = 1, height = 1) +
+  geom_sf(data = rajat_sf, fill = NA, colour = "grey15", linewidth = 0.12) +
+  scale_fill_gradientn(
+    colours = c("#f7f2e8", "#f4a261", "#e63946", "#7a1020"),
+    values  = scales::rescale(c(0, 15, 35, 70)),
+    name    = "Kulmavirhe",
+    labels  = function(x) paste0(x, "\u00b0")
+  ) +
+  coord_sf(xlim = c(-180, 180), ylim = c(-85, 85), expand = FALSE, crs = 4326) +
+  labs(
+    title    = "Equal Earthin hinta: muodot vääristyvät reunoilla ja navoilla",
+    subtitle = "Vaalea = muodot lähes oikein, tumma = muodot pahasti vääristyneet",
+    x = NULL, y = NULL
+  ) +
+  theme_kristian()
+```
+
+**Miten tätä karttaa luetaan.** Vaaleat alueet ovat niitä, joissa Equal Earth
+piirtää muodot melkein oikein. Tummat alueet ovat niitä, joissa muodot venyvät
+tai litistyvät pahasti. Huomaa kuvion muoto: se ei enää riipu pelkästä
+leveyspiiristä kuten Mercatorilla, vaan myös siitä, kuinka kaukana ollaan kartan
+keskimeridiaanista (nollameridiaani, joka kulkee Greenwichin läpi). Kartan
+oikea ja vasen reuna ovat huonompia kuin keskikaista. Tähän palataan
+vastaskenaarioissa, koska se tarkoittaa että **kartan keskikohdan valinta on
+poliittinen päätös, jolla on mitattava seuraus.**
+
+```{r}
+#| label: eqearth-luvut
+
+eqe <- vaaristymat |> filter(projektio == "Equal Earth")
+
+pahin <- eqe |>
+  group_by(manner) |>
+  summarise(
+    mediaani = median(omega),
+    p90      = quantile(omega, 0.90),
+    osuus_yli_20 = mean(omega > 20),
+    .groups = "drop"
+  ) |>
+  arrange(desc(mediaani))
+
+pahin |>
+  transmute(
+    Manner = manner,
+    `Kulmavirhe, mediaani` = paste0(formatC(mediaani, digits = 1, format = "f"), "\u00b0"),
+    `Kulmavirhe, 90 %`     = paste0(formatC(p90, digits = 1, format = "f"), "\u00b0"),
+    `Osuus, jossa yli 20°`  = percent(osuus_yli_20, accuracy = 0.1)
+  ) |>
+  knitr::kable(caption = "Equal Earthin muotovirhe mantereittain")
+```
+
+Tässä on tulos, joka ei ole ollut esillä uutisoinnissa: **Equal Earthin muotovirhe
+on suurin juuri niillä alueilla, joita kampanja halusi kohdella
+oikeudenmukaisemmin.** Pinta-ala tulee oikein, mutta muodot vääristyvät
+merkittävästi kartan reunoilla ja korkeilla leveyspiireillä. Tämä ei ole
+argumentti Equal Earthia vastaan — se on Theorema Egregium toiminnassa. Jokin on
+pakko uhrata. Mutta rehellinen keskustelu edellyttää, että uhraus sanotaan
+ääneen.
+
+::: {.callout-note title="Faktalaatikko 3: Equal Earth ja sen suunnitteluperiaate"}
+Equal Earth julkaistiin vuonna 2018. Sen tekivät slovenialainen geodeetti
+**Bojan Šavrič**, yhdysvaltalainen kartografi **Tom Patterson** ja sveitsiläinen
+kartografian tutkija **Bernhard Jenny**.
+
+Projektio on **pseudosylinterinen** ja **pinta-alatarkka**. Sen suunnittelun
+lähtökohta oli nimenomaan esteettinen ja viestinnällinen: tekijät halusivat
+pinta-alatarkan projektion, joka *näyttää* miellyttävältä, koska aiemmat
+pinta-alatarkat vaihtoehdot (etenkin Gall–Peters) koettiin laajalti rumiksi ja
+siksi niitä ei otettu käyttöön. Kaavat sovitettiin numeerisesti Robinsonin
+projektion ulkoasua muistuttaviksi, mutta pinta-alatarkkuuden ehdolla.
+
+**Vastaskenaario:** jos vuonna 2018 ei olisi julkaistu Equal Earthia,
+vaihtoehtoina olisivat olleet Mollweide, Eckert IV tai Gall–Peters. Tämän
+postauksen taulukoista näkyy, että Mollweiden ja Eckert IV:n vääristymäprofiilit
+ovat samaa luokkaa Equal Earthin kanssa — matemaattisesti kyse ei ole isosta
+harppauksesta. Equal Earthin merkittävin panos ei ole matemaattinen vaan
+sosiaalinen: se teki pinta-alatarkasta kartasta poliittisesti hyväksyttävän
+näköisen. Se on hyvä muistutus siitä, että menetelmän omaksuminen riippuu
+harvoin pelkästä matematiikasta.
+
+*Lähde:* Šavrič, B., Patterson, T. & Jenny, B. (2019). The Equal Earth map
+projection. *International Journal of Geographical Information Science*,
+33(3), 454–465.
+:::
+
+---
+
+## Väestöpainotus: kenen vääristymä oikeastaan on tärkeä?
+
+Tähän asti olen painottanut **maapinta-alaa**. Mutta ihmiset eivät jakaudu
+maapinta-alan mukaan. Siperia, Sahara ja Australian sisäosat ovat valtavia ja
+lähes asumattomia.
+
+Jos kysymys on siitä, miten kartta vaikuttaa **ihmisten** käsitykseen omasta
+maastaan, oikea painotus ei olekaan neliökilometri vaan ihminen. Lasketaan sama
+jakauma väestöpainotettuna.
+
+```{r}
+#| label: vaestopainotus
+
+# Jokaiselle otospisteelle paino = maan vakiluku / kyseisen maan otospisteiden lkm.
+# Tama vastaa oletusta, etta vaesto jakautuu tasaisesti maan sisalla. Oletus on
+# karkea, mutta se ei riipu mistaan projektiosta eika lisaa piilo-oletuksia
+# muuta kuin maan sisalla, missa leveyspiirivaihtelu on useimmilla mailla pieni.
+
+pisteet_per_maa <- maapisteet |> count(ISO3_CODE, name = "n_pisteita")
+
+painot <- pisteet_per_maa |>
+  inner_join(vaesto_raaka, by = "ISO3_CODE") |>
+  mutate(paino = vakiluku / n_pisteita)
+
+cat("Maita, joille saatiin sek\u00e4 otospisteit\u00e4 ett\u00e4 v\u00e4kiluku:", nrow(painot), "\n")
+cat("Katettu v\u00e4est\u00f6:", format(sum(painot$vakiluku), big.mark = " "), "\n")
+
+stopifnot(nrow(painot) > 150)
+
+vaaristymat_p <- vaaristymat |>
+  inner_join(select(painot, ISO3_CODE, paino), by = "ISO3_CODE")
+
+# Painotettu kvantiilifunktio (ei lisariippuvuuksia)
+painotettu_kvantiili <- function(x, w, p) {
+  stopifnot(length(x) == length(w), all(w >= 0), all(is.finite(x)))
+  jarj <- order(x)
+  x <- x[jarj]; w <- w[jarj]
+  kumul <- cumsum(w) / sum(w)
+  vapply(p, function(pp) x[which.max(kumul >= pp)], numeric(1))
+}
+
+vertailu_painotus <- vaaristymat_p |>
+  filter(projektio == "Mercator") |>
+  summarise(
+    `Maapinta-ala, mediaani`   = median(r_pinta_ala),
+    `Väestöpainotettu, mediaani` = painotettu_kvantiili(r_pinta_ala, paino, 0.5),
+    `Maapinta-ala, 90 %`       = quantile(r_pinta_ala, 0.90),
+    `Väestöpainotettu, 90 %`   = painotettu_kvantiili(r_pinta_ala, paino, 0.90)
+  ) |>
+  pivot_longer(everything(), names_to = "Painotus", values_to = "Arvo") |>
+  mutate(Arvo = paste0(formatC(Arvo, digits = 2, format = "f"), "\u00d7"))
+
+knitr::kable(vertailu_painotus,
+             caption = "Mercatorin vääristymä riippuu ratkaisevasti siitä, mitä painotetaan")
+```
+
+```{r}
+#| label: fig-painotus
+#| fig-cap: "Sama projektio, kolme eri painotusta, kolme eri vastausta."
+#| fig-height: 5
+
+# Vertailukohta: tasainen otanta koko maapallon pinnalta, meret mukaan lukien.
+pallo_otos <- cbind(
+  lon = runif(60000, -179.9, 179.9),
+  lat = asin(runif(60000, -1, 1)) * 180 / pi
+)
+pallo_otos <- pallo_otos[abs(pallo_otos[, "lat"]) <= 89.5, , drop = FALSE]
+
+# Normalisoidaan samalla vakiolla kuin maa-alueet, jotta kaikki kolme kayraa
+# ovat samalla asteikolla ja keskenaan vertailukelpoisia.
+G_MERC <- exp(mean(log(merc$pinta_ala)))
+
+pallo_v <- laske_vaaristymat(pallo_otos, PROJEKTIOT[["Mercator"]]) |>
+  mutate(r = pinta_ala / G_MERC)
+
+# Painotettu kertymafunktio. Aloituspiste F = 0 lisataan, jotta askelkuvaaja
+# lahtee nollasta eika ensimmaisen havainnon korkeudelta.
+ecdf_painotettu <- function(x, w = rep(1, length(x)), nimi) {
+  stopifnot(length(x) == length(w), all(is.finite(x)), all(w >= 0))
+  jarj <- order(x)
+  x <- x[jarj]; w <- w[jarj]
+  tibble(
+    arvo     = c(x[1], x),
+    F        = c(0, cumsum(w) / sum(w)),
+    painotus = nimi
+  )
+}
+
+mercp <- vaaristymat_p |> filter(projektio == "Mercator")
+
+kaikki_ecdf <- bind_rows(
+  ecdf_painotettu(pallo_v$r,             nimi = "Koko maapallon pinta"),
+  ecdf_painotettu(merc$r_pinta_ala,      nimi = "Maa-alueet"),
+  ecdf_painotettu(mercp$r_pinta_ala, mercp$paino, nimi = "Ihmiset")
+) |>
+  mutate(painotus = factor(painotus,
+    levels = c("Koko maapallon pinta", "Maa-alueet", "Ihmiset")))
+
+stopifnot(
+  all(abs(
+    kaikki_ecdf |> group_by(painotus) |> summarise(m = max(F)) |> pull(m) - 1
+  ) < 1e-9)
+)
+
+ggplot(kaikki_ecdf, aes(x = arvo, y = F, colour = painotus)) +
+  geom_step(linewidth = 1) +
+  geom_vline(xintercept = 1, colour = "grey50", linetype = "dotted") +
+  scale_x_continuous(
+    trans  = "log2",
+    breaks = c(0.5, 1, 2, 4, 8, 16, 32),
+    labels = c("0,5\u00d7", "1\u00d7", "2\u00d7", "4\u00d7", "8\u00d7", "16\u00d7", "32\u00d7")
+  ) +
+  scale_y_continuous(labels = percent, limits = c(0, 1)) +
+  # Rajaus tehdaan coord_cartesianilla, EI scale_x:n limits-argumentilla:
+  # limits pudottaisi havainnot pois datasta, jolloin kertymakayra ei enaa
+  # yltaisi sataan prosenttiin. coord_cartesian vain zoomaa.
+  coord_cartesian(xlim = c(0.4, 40)) +
+  scale_colour_manual(values = c("Koko maapallon pinta" = "#457b9d",
+                                 "Maa-alueet"           = "#f4a261",
+                                 "Ihmiset"              = "#2a9d8f")) +
+  labs(
+    title    = "Kenen näkökulmasta Mercator on paha?",
+    subtitle = "Kertymäfunktio: käyrä kertoo, kuinka suuri osuus jää kunkin vääristymäarvon alle",
+    x = "Näennäinen koko Mercatorin kartalla",
+    y = "Kertymäosuus", colour = "Painotus",
+    caption = "Väestöpainotus: Maailmanpankki SP.POP.TOTL. Vaaka-akseli on rajattu, ei suodatettu."
+  ) +
+  theme_kristian()
+```
+
+**Miten tätä kuvaa luetaan.** Jokainen käyrä nousee vasemmalta oikealle nollasta
+sataan prosenttiin. Kun valitset vaaka-akselilta jonkin arvon, käyrän korkeus
+siinä kohdassa kertoo, kuinka suuri osuus jää sen arvon *alle*. Esimerkiksi jos
+vihreä käyrä on 2× kohdalla korkeudella 80 %, se tarkoittaa: 80 % maailman
+ihmisistä asuu alueella, joka näyttää Mercatorin kartalla vähemmän kuin
+kaksinkertaiselta. Mitä enemmän käyrä on **vasemmalla**, sitä pienempiä
+vääristymiä kyseinen painotus tuottaa.
+
+Tulos on kirkas ja se on tämän postauksen kiinnostavin yksittäinen havainto:
+**väestöpainotettuna Mercator on paljon vähemmän paha kuin pinta-alapainotettuna.**
+Syy on yksinkertainen: valtaosa maailman ihmisistä asuu suhteellisen matalilla
+leveyspiireillä, missä Mercatorin vääristymä on maltillinen. Pahimmat
+liioittelut kohdistuvat Grönlantiin, Pohjois-Kanadaan, Siperiaan, Huippuvuorille
+ja Antarktikselle — alueille, joilla asuu hyvin vähän ihmisiä.
+
+Tämä ei kumoa kampanjan pointtia. Se tarkentaa sitä: Mercatorin ongelma ei ole
+ensisijaisesti se, että se vääristäisi *asuttujen* alueiden keskinäisiä suhteita
+rajusti. Ongelma on se, että se antaa *muutamalle harvaan asutulle
+pohjoiselle alueelle* suhteettoman suuren visuaalisen painoarvon — ja nämä
+alueet sattuvat olemaan pohjoisen pallonpuoliskon vauraiden valtioiden alueita.
+Se on eri väite kuin "Afrikka näyttää liian pieneltä", ja itse asiassa
+vahvempi väite, koska se kestää tarkastelun.
+
+---
+
+## Tilastolliset testit: eroavatko mantereet toisistaan?
+
+Tehdään nyt asianmukainen tilastollinen vertailu. Ensin on kuitenkin
+välttämätöntä puhua siitä, mitä testi tässä tilanteessa oikeastaan tarkoittaa.
+
+::: {.callout-warning title="Faktalaatikko 4: milloin p-arvo on hyödytön"}
+Karttaprojektion vääristymä on **deterministinen**. Jokaisessa maapallon
+pisteessä sillä on täsmälleen yksi oikea arvo, joka voidaan laskea kaavasta.
+Siinä ei ole satunnaisuutta.
+
+Ainoa satunnaisuus tässä analyysissä tulee siitä, että olen **arponut** 60 000
+pistettä sen sijaan että olisin laskenut integraalin analyyttisesti. Tilastollinen
+testi vastaa siis kysymykseen: *"onko havaittu ero suurempi kuin oman
+otantani kohina?"* Koska otos on suuri ja ero on iso, vastaus on triviaalisti
+kyllä. **P-arvo lähestyy nollaa riippumatta siitä, onko ero käytännössä
+merkityksellinen.**
+
+Tämä on täsmälleen sama ongelma, joka vaivaa yritysten A/B-testejä ja
+rekisteritutkimuksia: kun n on satojatuhansia, kaikki on "tilastollisesti
+merkitsevää". Siksi raportoin p-arvon rinnalla aina **efektikoon** — luvun, joka
+kertoo *kuinka suuri* ero on, ei vain onko sitä.
+
+Toinen tekninen ongelma: otospisteet eivät ole riippumattomia. Kaksi vierekkäistä
+pistettä Grönlannissa kertovat lähes saman asian. Tämä on **spatiaalista
+autokorrelaatiota**, ja se tekee nimellisistä p-arvoista liian pieniä.
+Korjaan tämän kahdella tavalla: klusteroidulla bootstrapilla (maa klusterina) ja
+hierarkkisella bayesilaisella mallilla.
+
+**Vastaskenaario:** jos otospisteet olisivat aidosti riippumattomia havaintoja
+jostakin satunnaisilmiöstä, tavallinen Wilcoxonin testi olisi oikea työkalu ja
+sen p-arvo tulkittavissa suoraan. Näin ei ole, ja siksi raportoin kolme eri
+lähestymistapaa: lukija näkee itse, kuinka paljon johtopäätös riippuu
+menetelmävalinnasta.
+:::
+
+### Testi 1: mantereiden väliset erot (Kruskal–Wallis)
+
+```{r}
+#| label: testi-kruskal
+
+merc_test <- vaaristymat |>
+  filter(projektio == "Mercator") |>
+  select(log2_r, manner, ISO3_CODE)
+
+kw <- kruskal.test(log2_r ~ manner, data = merc_test)
+
+# Efektikoko: epsilon-neliö = (H - k + 1) / (n - k)
+n_kaikki <- nrow(merc_test)
+k_ryhmat <- n_distinct(merc_test$manner)
+eps2 <- as.numeric((kw$statistic - k_ryhmat + 1) / (n_kaikki - k_ryhmat))
+
+cat("Kruskal-Wallis H =", round(as.numeric(kw$statistic), 1),
+    "| df =", kw$parameter,
+    "| p =", format.pval(kw$p.value, digits = 3, eps = 1e-300), "\n")
+cat("Efektikoko epsilon^2 =", round(eps2, 3), "\n")
+```
+
+**Miten tämä tulkitaan.** Kruskal–Wallisin testi on ei-parametrinen
+varianssianalyysi: se vertaa ryhmien **järjestyslukuja**, ei keskiarvoja. Valitsin
+sen kahdesta syystä. Ensinnäkin vääristymäjakauma on voimakkaasti vino ja pitkä
+häntäinen, jolloin normaalijakaumaoletukseen nojaava varianssianalyysi ei ole
+perusteltu. Toiseksi vertailen mediaaneja, jotka ovat tässä kiinnostavampia kuin
+keskiarvot: keskiarvoa hallitsisi muutama Grönlannin pohjoiskärjen piste.
+
+Efektikoko $\varepsilon^2$ on asteikolla 0–1 ja kertoo, kuinka suuri osuus
+järjestyslukujen vaihtelusta selittyy mantereella. P-arvo on olematon, kuten
+edellä ennakoitiin — efektikoko on se, jota kannattaa katsoa.
+
+### Testi 2: pareittaiset vertailut efektikokoineen
+
+```{r}
+#| label: testi-pareittain
+
+mantereet <- sort(unique(merc_test$manner))
+parit <- combn(mantereet, 2, simplify = FALSE)
+
+# Rank-biserial -korrelaatio Wilcoxonin U:sta.
+# HUOM: kokonaisluvun ylivuoto on todellinen riski kun n1*n2 > 2^31,
+# siksi as.numeric() ennen kertolaskua.
+rank_biserial <- function(x, y) {
+  w <- wilcox.test(x, y, exact = FALSE, correct = FALSE)
+  U <- as.numeric(w$statistic)
+  n1 <- as.numeric(length(x)); n2 <- as.numeric(length(y))
+  list(p = w$p.value, r = 2 * U / (n1 * n2) - 1)
+}
+
+tulokset_parit <- map_dfr(parit, function(pp) {
+  x <- merc_test$log2_r[merc_test$manner == pp[1]]
+  y <- merc_test$log2_r[merc_test$manner == pp[2]]
+  rb <- rank_biserial(x, y)
+  tibble(
+    ryhma1 = pp[1], ryhma2 = pp[2],
+    mediaani1 = 2^median(x), mediaani2 = 2^median(y),
+    p_raaka = rb$p, rank_biserial = rb$r
+  )
+}) |>
+  mutate(p_bh = p.adjust(p_raaka, method = "BH")) |>
+  arrange(desc(abs(rank_biserial)))
+
+tulokset_parit |>
+  transmute(
+    Vertailu = paste(ryhma1, "vs.", ryhma2),
+    `Mediaani 1` = paste0(formatC(mediaani1, digits = 2, format = "f"), "\u00d7"),
+    `Mediaani 2` = paste0(formatC(mediaani2, digits = 2, format = "f"), "\u00d7"),
+    `Rank-biserial` = formatC(rank_biserial, digits = 2, format = "f"),
+    `p (BH-korjattu)` = format.pval(p_bh, digits = 2, eps = 1e-300)
+  ) |>
+  knitr::kable(caption = "Mercatorin vääristymän erot mantereiden välillä")
+```
+
+**Rank-biserial -korrelaatio** on efektikoko, joka kertoo suoraan: jos poimit
+satunnaisen pisteen ryhmästä A ja satunnaisen pisteen ryhmästä B, kuinka
+todennäköisesti A:n vääristymä on suurempi? Arvo 0 tarkoittaa täyttä
+sattumanvaraisuutta (50–50), arvo 1 tarkoittaa että A on aina suurempi ja −1 että
+B on aina suurempi. Toisin kuin p-arvo, se ei riipu otoskoosta.
+
+### Testi 3: klusteroitu bootstrap
+
+Edellä olevat p-arvot ovat harhaisia spatiaalisen autokorrelaation vuoksi.
+Korjaan sen bootstrapilla, jossa uudelleenotanta tehdään **maiden tasolla**, ei
+pisteiden tasolla. Tämä vastaa kysymykseen: *kuinka paljon tulos muuttuisi, jos
+maailmassa olisi hieman eri joukko maita?*
+
+```{r}
+#| label: bootstrap
+
+set.seed(4711)
+B <- 1000
+
+maalista    <- split(merc_test$log2_r, merc_test$ISO3_CODE)
+maan_manner <- merc_test |> distinct(ISO3_CODE, manner)
+
+stopifnot(all(maan_manner$ISO3_CODE %in% names(maalista)))
+
+boot_mediaanit <- map_dfr(seq_len(B), function(i) {
+  otos_maat <- maan_manner |>
+    group_by(manner) |>
+    slice_sample(prop = 1, replace = TRUE) |>
+    ungroup()
+
+  arvot <- map2(otos_maat$ISO3_CODE, otos_maat$manner,
+                ~ tibble(log2_r = maalista[[.x]], manner = .y)) |>
+    bind_rows()
+
+  arvot |>
+    group_by(manner) |>
+    summarise(med = median(log2_r), .groups = "drop") |>
+    mutate(toisto = i)
+})
+
+boot_ci <- boot_mediaanit |>
+  group_by(manner) |>
+  summarise(
+    alaraja = quantile(med, 0.025),
+    piste   = quantile(med, 0.5),
+    ylaraja = quantile(med, 0.975),
+    .groups = "drop"
+  ) |>
+  mutate(across(c(alaraja, piste, ylaraja), ~ 2^.x)) |>
+  arrange(desc(piste))
+
+boot_ci |>
+  transmute(
+    Manner = manner,
+    `Mediaanivääristymä` = paste0(formatC(piste, digits = 2, format = "f"), "\u00d7"),
+    `95 % luottamusväli` = paste0(
+      formatC(alaraja, digits = 2, format = "f"), "\u2013",
+      formatC(ylaraja, digits = 2, format = "f"), "\u00d7"
+    )
+  ) |>
+  knitr::kable(caption = "Mercatorin mediaanivääristymä mantereittain, maatason bootstrap")
+```
+
+```{r}
+#| label: fig-bootstrap
+#| fig-cap: "Mantereiden mediaanivääristymät ja niiden epävarmuus."
+#| fig-height: 4
+
+ggplot(boot_ci, aes(x = piste, y = reorder(manner, piste))) +
+  geom_vline(xintercept = 1, colour = "#e63946", linetype = "dashed") +
+  geom_errorbarh(aes(xmin = alaraja, xmax = ylaraja), height = 0.2,
+                 colour = "#457b9d", linewidth = 1) +
+  geom_point(size = 3.2, colour = "#1d3557") +
+  scale_x_continuous(trans = "log2", breaks = c(1, 1.5, 2, 3, 4, 6),
+                     labels = function(x) paste0(gsub("\\.", ",", x), "\u00d7")) +
+  labs(
+    title    = "Mercatorin liioittelu mantereittain",
+    subtitle = "Piste = mediaani, jana = 95 % luottamusväli \n (maatason bootstrap, 1000 toistoa)",
+    x = "Näennäinen koko suhteessa kartan keskimääräiseen \n maa-alueeseen", y = NULL
+  ) +
+  theme_kristian()
+```
+
+**Miten tätä kuvaa luetaan.** Jokaisella mantereella on yksi piste ja yksi jana.
+Piste on paras arvio mantereen tyypillisestä vääristymästä. Jana kertoo, kuinka
+epävarma tuo arvio on: jos janat eivät mene päällekkäin, ero on selvä myös
+epävarmuus huomioiden. Punainen katkoviiva on "oikein" -kohta. Huomaa, että
+janat ovat leveitä. Se johtuu siitä, että bootstrap-menetelmä arpoo maita
+uudelleen, ja mantereen tulos riippuu paljon siitä, mitkä maat siihen sattuvat
+osumaan. Tavallinen pistetason luottamusväli olisi ollut lähes olematon — ja
+harhaanjohtava.
+
+### Testi 4: hierarkkinen bayesilainen malli
+
+Vielä yksi näkökulma. Bootstrap käsittelee maita vaihdettavina yksikköinä.
+Bayesilainen hierarkkinen malli tekee jotain hienovaraisempaa: se **kutistaa**
+pienten maiden estimaatteja kohti mantereen keskiarvoa sitä enemmän, mitä
+vähemmän niistä on tietoa. Tämä on juuri se ominaisuus, joka tekee bayesilaisista
+menetelmistä hyödyllisiä epätasapainoisissa aineistoissa — ja
+maailmankartta on erittäin epätasapainoinen aineisto (Venäjä vs. Malta).
+
+```{r}
+#| label: brms-malli
+
+library(brms)
+
+polku_malli <- file.path(DATA_DIR, "malli_manner_meta.qs")
+
+# HUOM: jos mallin kaava tai aineiston rakenne muuttuu, TÄMÄ TIEDOSTO ON
+# POISTETTAVA KÄSIN. Muuten if(!file.exists()) lataa hiljaa vanhentuneen mallin.
+
+# Maatason yhteenveto. Koska otospisteet arvottiin tasaisesti maapallon
+# pinnalta, kunkin maan sisällä ne ovat riippumattomia poimintoja maan
+# pinta-alalta -- keskivirhe sd/sqrt(n) on siis paikkansapitäväk.
+maatason <- merc_test |>
+  group_by(ISO3_CODE, manner) |>
+  summarise(
+    n         = n(),
+    keskiarvo = mean(log2_r),
+    hajonta   = sd(log2_r),
+    .groups   = "drop"
+  ) |>
+  filter(n >= 20, is.finite(hajonta), hajonta > 0) |>
+  mutate(
+    se     = hajonta / sqrt(n),
+    manner = factor(manner)
+  )
+
+# Raportoidaan mita jai pois, jotta lukija nakee rajauksen vaikutuksen.
+cat("Maita mallissa:", nrow(maatason),
+    "| pudonneet (alle 20 otospistetta):",
+    n_distinct(merc_test$ISO3_CODE) - nrow(maatason), "\n")
+cat("Mallissa olevien maiden osuus otospisteista:",
+    scales::percent(sum(maatason$n) / nrow(merc_test), accuracy = 0.1), "\n")
+
+stopifnot(all(maatason$se > 0), nrow(maatason) > 100)
+
+if (!file.exists(polku_malli)) {
+  malli <- brm(
+    # se(): maakohtainen mittausepavarmuus on TUNNETTU, ei estimoitava.
+    # sigma = TRUE: sen paalle estimoidaan maiden valinen heterogeenisuus.
+    keskiarvo | se(se, sigma = TRUE) ~ 0 + manner,
+    data    = maatason,
+    family  = student(),          # paksut hannat: Gronlannin kaltaiset poikkeamat
+    prior   = c(
+      prior(normal(0, 3), class = b),
+      prior(exponential(1), class = sigma)
+    ),
+    chains  = 4, iter = 4000, warmup = 1000,
+    cores   = 4, seed = 20260909,
+    control = list(adapt_delta = 0.95),
+    refresh = 0
+  )
+  qs2::qs_save(malli, polku_malli)
+}
+malli <- qs2::qs_read(polku_malli)
+
+# Konvergenssin tarkistus. Nama kolme ovat minimivaatimus ennen kuin
+# posteriorijakaumasta saa sanoa yhtaan mitaan.
+diag <- brms::nuts_params(malli)
+divergenssit <- sum(diag$Value[diag$Parameter == "divergent__"])
+rhat_max     <- max(brms::rhat(malli), na.rm = TRUE)
+ess_min      <- min(brms::neff_ratio(malli), na.rm = TRUE)
+
+cat("Divergensseja:", divergenssit,
+    "| suurin R-hat:", round(rhat_max, 4),
+    "| pienin ESS-suhde:", round(ess_min, 3), "\n")
+
+stopifnot(divergenssit == 0, rhat_max < 1.01, ess_min > 0.1)
+
+posteriori <- brms::as_draws_df(malli) |>
+  as_tibble() |>
+  select(starts_with("b_manner")) |>
+  pivot_longer(everything(), names_to = "manner", values_to = "log2_r") |>
+  mutate(
+    manner  = gsub("^b_manner", "", manner),
+    kerroin = 2^log2_r
+  )
+```
+
+```{r}
+#| label: fig-posteriori
+#| fig-cap: "Bayesilaisen mallin posteriorijakaumat mantereiden tyypilliselle vääristymälle."
+#| fig-height: 4.5
+
+ggplot(posteriori, aes(x = kerroin, y = reorder(manner, kerroin))) +
+  ggdist::stat_halfeye(.width = c(0.5, 0.95), fill = "#2a9d8f", alpha = 0.85) +
+  geom_vline(xintercept = 1, colour = "#e63946", linetype = "dashed") +
+  scale_x_continuous(trans = "log2", breaks = c(1, 1.5, 2, 3, 4, 6),
+                     labels = function(x) paste0(gsub("\\.", ",", x), "\u00d7")) +
+  labs(
+    title    = "Sama kysymys bayesilaisittain",
+    subtitle = "Harjanne = uskottavuusjakauma. \n Leveys kertoo epävarmuuden, sijainti kertoimen",
+    x = "Tyypillinen näennäinen koko Mercatorin kartalla", y = NULL,
+    caption = "brms, Student-t -jakauma, maakohtainen satunnaisvaikutus"
+  ) +
+  theme_kristian()
+```
+
+**Miten tätä kuvaa luetaan.** Toisin kuin edellisessä kuvassa, tässä ei ole
+yksittäistä pistettä ja janaa vaan kokonainen harjanne. Harjanne on
+uskottavuusjakauma: sen korkeus jokaisessa kohdassa kertoo, kuinka uskottava
+kyseinen arvo on annetun aineiston valossa. Tämä on täsmälleen se, mitä
+tarkoitan sloganilla "maailma on jakauma" — vastaus ei ole luku vaan jakauma
+mahdollisista luvuista, ja jakauman leveys on yhtä tärkeä tieto kuin sen sijainti.
+
+Vertaa tätä ja edellistä kuvaa: bootstrapin ja bayesilaisen mallin
+johtopäätökset ovat samansuuntaiset. Se on hyvä merkki. Kun kaksi
+menetelmällisesti erilaista lähestymistapaa antaa saman vastauksen, tulos ei ole
+menetelmävalinnan artefakti.
+
+---
+
+## Miksi Mercator sitten valittiin? Suoran kurssin hinta
+
+Nyt siirryn siihen puoleen tarinaa, joka useimmiten jää uutisoinnista kokonaan
+pois. **Mercator ei ollut virhe.** Se oli erinomainen ratkaisu erittäin tärkeään
+ongelmaan, ja tuo ongelma oli navigointi.
+
+Mercatorin projektiolla on yksi ainutlaatuinen ominaisuus: **loksodromi eli
+tasakulmaviiva piirtyy suorana viivana.** Loksodromi on reitti, jolla kompassin
+lukema pysyy koko ajan samana. Purjelaivan navigaattorille tämä oli
+mullistavaa: piirrä viivain kartalle lähtö- ja määräsataman välille, lue viivan
+kulma, aseta ruori siihen kulmaan ja pysy siinä. Ei laskutoimituksia, ei jatkuvaa
+kurssin korjausta, ei tähtitieteellistä osaamista.
+
+Vaihtoehto on **ortodromi eli isoympyräreitti**, joka on lyhin mahdollinen reitti
+pallon pinnalla. Se on lyhyempi, mutta sen seuraaminen vaatii kompassisuunnan
+jatkuvaa muuttamista.
+
+Kysymys kuuluu: **kuinka paljon pidempi loksodromi oikeasti on?** Sitä ei ole
+tapana kysyä, koska vastaus on jakauma.
+
+```{r}
+#| label: loksodromi
+
+# Isoympyraetaisyys (haversine)
+etaisyys_ortodromi <- function(lon1, lat1, lon2, lat2, R = R_MAA) {
+  rad <- pi / 180
+  dphi <- (lat2 - lat1) * rad
+  dlam <- (lon2 - lon1) * rad
+  a <- sin(dphi / 2)^2 + cos(lat1 * rad) * cos(lat2 * rad) * sin(dlam / 2)^2
+  2 * R * asin(pmin(sqrt(a), 1))
+}
+
+# Loksodromietaisyys isometrisen leveyden avulla
+etaisyys_loksodromi <- function(lon1, lat1, lon2, lat2, R = R_MAA) {
+  rad  <- pi / 180
+  phi1 <- lat1 * rad; phi2 <- lat2 * rad
+  dphi <- phi2 - phi1
+  dlam <- (lon2 - lon1) * rad
+  dlam <- ((dlam + pi) %% (2 * pi)) - pi        # lyhin suunta
+  dpsi <- log(tan(pi / 4 + phi2 / 2) / tan(pi / 4 + phi1 / 2))
+  q <- ifelse(abs(dpsi) > 1e-12, dphi / dpsi, cos(phi1))
+  R * sqrt(dphi^2 + q^2 * dlam^2)
+}
+
+# Validointi: paivantasaajaa pitkin loksodromi = ortodromi
+stopifnot(abs(etaisyys_loksodromi(0, 0, 90, 0) - etaisyys_ortodromi(0, 0, 90, 0)) < 1)
+# Validointi: samaa meridiaania pitkin myos yhta pitkat
+stopifnot(abs(etaisyys_loksodromi(20, -30, 20, 40) - etaisyys_ortodromi(20, -30, 20, 40)) < 1)
+# Loksodromi ei koskaan lyhyempi
+set.seed(99)
+tst <- tibble(a = runif(5000, -180, 180), b = asin(runif(5000, -1, 1)) * 180 / pi,
+              c = runif(5000, -180, 180), d = asin(runif(5000, -1, 1)) * 180 / pi)
+stopifnot(all(etaisyys_loksodromi(tst$a, tst$b, tst$c, tst$d) >=
+              etaisyys_ortodromi(tst$a, tst$b, tst$c, tst$d) - 1))
+
+cat("Loksodromifunktion validointi lapaisty.\n")
+```
+
+```{r}
+#| label: loksodromi-jakauma
+
+set.seed(1569)   # Mercatorin kartan julkaisuvuosi
+N_REITTI <- 200000
+
+reitit <- tibble(
+  lon1 = runif(N_REITTI, -180, 180),
+  lat1 = asin(runif(N_REITTI, -1, 1)) * 180 / pi,
+  lon2 = runif(N_REITTI, -180, 180),
+  lat2 = asin(runif(N_REITTI, -1, 1)) * 180 / pi
+) |>
+  mutate(
+    d_orto = etaisyys_ortodromi(lon1, lat1, lon2, lat2) / 1000,
+    d_lokso = etaisyys_loksodromi(lon1, lat1, lon2, lat2) / 1000,
+    ylimaara = d_lokso / d_orto - 1
+  ) |>
+  filter(d_orto > 100, is.finite(ylimaara))
+
+stopifnot(all(reitit$ylimaara >= -1e-6))
+
+reitit <- reitit |>
+  mutate(pituusluokka = cut(
+    d_orto,
+    breaks = c(0, 1000, 3000, 6000, 10000, 20100),
+    labels = c("alle 1 000 km", "1 000\u20133 000 km", "3 000\u20136 000 km",
+               "6 000\u201310 000 km", "yli 10 000 km")
+  ))
+
+lokso_yht <- reitit |>
+  group_by(pituusluokka) |>
+  summarise(
+    n = n(),
+    mediaani = median(ylimaara),
+    p75 = quantile(ylimaara, 0.75),
+    p95 = quantile(ylimaara, 0.95),
+    .groups = "drop"
+  )
+
+lokso_yht |>
+  transmute(
+    `Reitin pituus` = pituusluokka,
+    `Reittejä` = format(n, big.mark = " "),
+    `Ylimääräinen matka, mediaani` = percent(mediaani, accuracy = 0.1),
+    `75. persentiili` = percent(p75, accuracy = 0.1),
+    `95. persentiili` = percent(p95, accuracy = 0.1)
+  ) |>
+  knitr::kable(caption = "Kuinka paljon pidempi suora kompassikurssi on lyhimpään reittiin verrattuna")
+```
+
+```{r}
+#| label: fig-loksodromi
+#| fig-cap: "Suoran kompassikurssin hinta reitin pituuden funktiona."
+#| fig-height: 5.5
+
+# Luokiteltu puolisilmakuvaaja ei toimi tassa: ylimaarainen matka on nollassa
+# kiinni valtaosalla reitteja, jolloin tiheysestimaatista tulee nakymattoman
+# kapea piikki. Piirretaan sen sijaan kvantiilivyohykkeet jatkuvana.
+
+BIN_LEVEYS <- 500   # km
+
+vyohykkeet <- reitit |>
+  mutate(bin = floor(d_orto / BIN_LEVEYS) * BIN_LEVEYS + BIN_LEVEYS / 2) |>
+  group_by(bin) |>
+  filter(n() >= 200) |>          # ohuet reunabinit pois
+  summarise(
+    n   = n(),
+    p05 = quantile(ylimaara, 0.05),
+    p25 = quantile(ylimaara, 0.25),
+    p50 = quantile(ylimaara, 0.50),
+    p75 = quantile(ylimaara, 0.75),
+    p95 = quantile(ylimaara, 0.95),
+    .groups = "drop"
+  )
+
+stopifnot(nrow(vyohykkeet) > 20, all(vyohykkeet$p05 >= 0))
+
+# Toinen paneeli: kuinka suuri osuus reiteista jaa alle viiden prosentin
+# ylimaaran. Tama on se luku, joka ratkaisi asian 1500-luvun navigaattorille.
+osuudet <- reitit |>
+  mutate(bin = floor(d_orto / BIN_LEVEYS) * BIN_LEVEYS + BIN_LEVEYS / 2) |>
+  group_by(bin) |>
+  filter(n() >= 200) |>
+  summarise(osuus_alle_5 = mean(ylimaara < 0.05), .groups = "drop")
+
+pA <- ggplot(vyohykkeet, aes(x = bin)) +
+  geom_ribbon(aes(ymin = p05, ymax = p95), fill = "#457b9d", alpha = 0.25) +
+  geom_ribbon(aes(ymin = p25, ymax = p75), fill = "#457b9d", alpha = 0.45) +
+  geom_line(aes(y = p50), colour = "#f4a261", linewidth = 1.1) +
+  geom_hline(yintercept = 0.05, colour = "#e63946",
+             linetype = "dashed", linewidth = 0.6) +
+  annotate("text", x = max(vyohykkeet$bin), y = 0.052,
+           label = "5 %", hjust = 1, vjust = 0, colour = "#e63946", size = 3.4) +
+  scale_x_continuous(labels = function(x) format(x, big.mark = " ")) +
+  scale_y_continuous(
+    trans  = "sqrt",                     # neliojuuriasteikko: pieni pää auki
+    breaks = c(0, 0.01, 0.05, 0.1, 0.2, 0.4, 0.6),
+    labels = percent_format(accuracy = 1)
+  ) +
+  labs(
+    title    = "Suoran kompassikurssin hinta kasvaa matkan mukana",
+    subtitle = paste0(
+      "Oranssi viiva = mediaani. Tumma vyöhyke = keskimmäiset 50 %, ",
+      "vaalea = keskimmäiset 90 %."
+    ),
+    x = NULL, y = "Ylimääräinen matka"
+  ) +
+  theme_kristian()
+
+pB <- ggplot(osuudet, aes(x = bin, y = osuus_alle_5)) +
+  geom_line(colour = "#2a9d8f", linewidth = 1.1) +
+  geom_hline(yintercept = 0.5, colour = "grey50", linetype = "dotted") +
+  scale_x_continuous(labels = function(x) format(x, big.mark = " ")) +
+  scale_y_continuous(labels = percent, limits = c(0, 1)) +
+  labs(
+    x = "Reitin pituus (km)",
+    y = "Osuus reiteistä,\njoilla hukka alle 5 %"
+  ) +
+  theme_kristian()
+
+(pA / pB) +
+  plot_layout(heights = c(2.2, 1)) +
+  plot_annotation(
+    caption = "200 000 satunnaista reittiparia maapallon pinnalla, tasa-aluepainotettu otanta"
+  ) &
+  theme_kristian()
+```
+
+**Miten tätä kuvaa luetaan.** Jokainen harjanne vastaa yhtä reitinpituusluokkaa.
+Pystyakselilla on se, kuinka monta prosenttia pidempi suora kompassikurssi on
+verrattuna lyhimpään mahdolliseen reittiin. Nolla tarkoittaisi, että hukkaa ei
+synny lainkaan. Harjanteen leveys kertoo, kuinka paljon tulos vaihtelee reitistä
+toiseen: lyhyillä reiteillä lähes kaikki reitit ovat lähellä nollaa, mutta
+pitkillä reiteillä hajonta kasvaa rajusti.
+
+Tässä on Mercatorin puolustus numeroina. Lyhyillä ja keskipitkillä reiteillä
+suoran kompassikurssin hinta on tyypillisesti muutamia prosentteja. 1500-luvun
+purjelaivalle tuo muutaman prosentin lisämatka oli **täysin merkityksetön**
+verrattuna siihen etuun, että navigointi muuttui viivaimen ja kompassin
+tehtäväksi. Isoympyräreitin laskeminen käsin pallotrigonometrialla oli
+aikansa huipputiedettä.
+
+::: {.callout-note title="Faktalaatikko 5: Web Mercator ja se, miksi Mercator ei ole poistunut"}
+Mercatorin projektio ei elä pelkästään historiasta. Käytännössä jokainen
+verkkokartta — Google Maps, OpenStreetMap, Bing, useimmat mobiilisovellukset —
+käyttää muunnelmaa nimeltä **Web Mercator** (EPSG:3857). Sen leveyspiirialue
+katkaistaan noin ±85,05 asteeseen, koska muuten kartta olisi äärettömän korkea.
+
+**Battersby, Finn, Usery & Yamamoto (2014)** analysoivat, miksi Web Mercator
+syrjäytti muut vaihtoehdot verkkokartoissa. Keskeiset syyt ovat teknisiä:
+konformisuus tarkoittaa, että kartta näyttää oikealta millä tahansa
+zoomaustasolla, kadut kohtaavat oikeissa kulmissa, eikä kuvaa tarvitse laskea
+uudelleen kun käyttäjä zoomaa. Lisäksi projektio on laskennallisesti erittäin
+kevyt, mikä 2000-luvun alun palvelinkapasiteetilla oli ratkaisevaa.
+
+**Vastaskenaario:** jos verkkokartat käyttäisivät Equal Earthia, katujen kulmat
+piirtyisivät väärin ja korttelit vinoutuisivat sitä enemmän, mitä kauempana
+päiväntasaajasta ollaan. Suomessa, jossa vääristymä olisi merkittävä,
+kaupunkinavigointi kärsisi konkreettisesti. YK:n suositus koskeekin
+maailmankarttoja — ei paikallista navigointia. Tätä eroa ei uutisoinnissa
+juuri tehdä, ja se on eron ymmärtämisen kannalta olennainen.
+
+*Lähde:* Battersby, S. E., Finn, M. P., Usery, E. L. & Yamamoto, K. H. (2014).
+Implications of web Mercator and its use in online mapping. *Cartographica*,
+49(2), 85–101.
+:::
+
+---
+
+## Vastaskenaariot: mitä olisi voinut olla toisin
+
+Nyt tehdään se, mitä tässä blogissa aina tehdään: kysytään, mitä olisi tapahtunut
+toisenlaisilla valinnoilla. Vastaskenaario on paras tapa tehdä valinnan hinta
+näkyväksi, koska se pakottaa vertaamaan johonkin konkreettiseen vaihtoehtoon
+sen sijaan että vertailtaisiin abstraktiin "täydellisyyteen", jota ei ole
+olemassa.
+
+### Vastaskenaario 1: entä jos maailma olisi valinnut Gall–Petersin?
+
+1970- ja 80-luvuilla käytiin kiivas julkinen kiista, jossa saksalainen
+historioitsija Arno Peters vaati Mercatorin korvaamista pinta-alatarkalla
+projektiolla. Monet järjestöt, kuten UNESCO ja useat kehitysyhteistyöjärjestöt,
+ottivat sen käyttöön. Kartografit vastustivat kiivaasti. Miksi?
+
+```{r}
+#| label: cf-gallpeters
+
+vertailu_cf1 <- vaaristymat |>
+  filter(projektio %in% c("Gall-Peters", "Equal Earth", "Mollweide", "Eckert IV")) |>
+  group_by(projektio) |>
+  summarise(
+    kulma_mediaani = median(omega),
+    kulma_p90      = quantile(omega, 0.90),
+    osuus_yli_30   = mean(omega > 30),
+    .groups = "drop"
+  ) |>
+  arrange(kulma_mediaani)
+
+vertailu_cf1 |>
+  transmute(
+    Projektio = projektio,
+    `Kulmavirhe, mediaani` = paste0(formatC(kulma_mediaani, digits = 1, format = "f"), "\u00b0"),
+    `Kulmavirhe, 90 %`     = paste0(formatC(kulma_p90, digits = 1, format = "f"), "\u00b0"),
+    `Osuus maa-alasta, jossa yli 30°` = percent(osuus_yli_30, accuracy = 0.1)
+  ) |>
+  knitr::kable(caption = "Pinta-alatarkkojen projektioiden muotovirheet")
+```
+
+Kaikki neljä ovat täsmälleen yhtä hyviä pinta-aloissa — mutta niiden muotovirheet
+eroavat merkittävästi. Gall–Peters venyttää tropiikin pystysuuntaan ja litistää
+napa-alueet vaakasuuntaan. Se on syy siihen, miksi kartografit inhosivat sitä ja
+miksi se ei koskaan levinnyt laajaan käyttöön kiistan kiivaudesta huolimatta.
+
+**Vastaskenaarion johtopäätös:** jos Gall–Peters olisi voittanut 1980-luvulla,
+pinta-alakiista olisi ratkennut mutta muotokiista olisi alkanut. Equal Earthin
+todellinen saavutus on, että se saavuttaa saman pinta-alatarkkuuden
+huomattavasti pienemmällä muotovirheellä. Se on paras vastaus kysymykseen
+"miksi juuri Equal Earth eikä jokin vanha pinta-alatarkka projektio".
+
+### Vastaskenaario 2: entä jos kartta olisi keskitetty ihmisten mukaan?
+
+Kaikki maailmankartat keskitetään käytännössä Greenwichin nollameridiaaniin.
+Se ei ole matemaattinen välttämättömyys vaan historiallinen sopimus vuodelta
+1884. Equal Earthin muotovirhe kasvaa sitä suuremmaksi, mitä kauempana kartan
+keskimeridiaanista ollaan. Mikä olisi **väestön kannalta optimaalinen**
+keskimeridiaani?
+
+```{r}
+#| label: cf-keskimeridiaani
+
+testi_lon0 <- seq(-180, 175, by = 5)
+
+kohdat <- maapisteet |>
+  inner_join(select(painot, ISO3_CODE, paino), by = "ISO3_CODE") |>
+  slice_sample(n = 20000)
+
+stopifnot(nrow(kohdat) == 20000, all(kohdat$paino > 0))
+
+koord_k <- as.matrix(kohdat[, c("lon", "lat")])
+
+# Kartan takasauma on kohdassa lon_0 + 180. Numeerinen derivaatta hyppaa siina,
+# joten sen valittomassa laheisyydessa olevat pisteet on jatettava pois.
+# Poisjaava kaista on 1 aste 360:sta, eli vaikutus tuloksiin on olematon.
+optimointi <- map_dfr(testi_lon0, function(l0) {
+  crs <- sprintf("+proj=eqearth +lon_0=%g +R=6371007 +no_defs", l0)
+
+  suht_lon <- ((koord_k[, 1] - l0 + 180) %% 360) - 180
+  ok <- abs(abs(suht_lon) - 180) > 0.5
+
+  v <- laske_vaaristymat(koord_k[ok, , drop = FALSE], crs)
+  stopifnot(all(is.finite(v$omega)))
+
+  tibble(
+    lon_0 = l0,
+    n_kaytetty = sum(ok),
+    kulma_painotettu = weighted.mean(v$omega, kohdat$paino[ok]),
+    kulma_maa_ala    = mean(v$omega)
+  )
+})
+
+stopifnot(min(optimointi$n_kaytetty) > 19800)
+
+paras_vaesto <- optimointi$lon_0[which.min(optimointi$kulma_painotettu)]
+paras_ala    <- optimointi$lon_0[which.min(optimointi$kulma_maa_ala)]
+greenwich    <- optimointi |> filter(lon_0 == 0)
+
+cat("Vaestopainotettu optimi:", paras_vaesto, "astetta\n")
+cat("Maa-alapainotettu optimi:", paras_ala, "astetta\n")
+cat("Greenwich (nykyinen), vaestopainotettu kulmavirhe:",
+    round(greenwich$kulma_painotettu, 2), "astetta\n")
+cat("Optimi, vaestopainotettu kulmavirhe:",
+    round(min(optimointi$kulma_painotettu), 2), "astetta\n")
+cat("Parannus:",
+    percent(1 - min(optimointi$kulma_painotettu) / greenwich$kulma_painotettu,
+            accuracy = 0.1), "\n")
+```
+
+```{r}
+#| label: fig-keskimeridiaani
+#| fig-cap: "Equal Earthin muotovirhe kartan keskikohdan funktiona."
+#| fig-height: 4.5
+
+optimointi_pitka <- optimointi |>
+  select(-n_kaytetty) |>
+  pivot_longer(c(kulma_painotettu, kulma_maa_ala),
+               names_to = "painotus", values_to = "kulmavirhe") |>
+  mutate(painotus = recode(painotus,
+                           kulma_painotettu = "Väestöpainotettu",
+                           kulma_maa_ala    = "Maapinta-alapainotettu"))
+
+ggplot(optimointi_pitka, aes(x = lon_0, y = kulmavirhe, colour = painotus)) +
+  geom_line(linewidth = 1.1) +
+  geom_vline(xintercept = 0, colour = "#e63946", linetype = "dashed") +
+  annotate("text", x = 3, y = max(optimointi_pitka$kulmavirhe),
+           label = "Greenwich", hjust = 0, colour = "#e63946", size = 3.4) +
+  scale_x_continuous(breaks = seq(-180, 180, 60),
+                     labels = function(x) paste0(x, "\u00b0")) +
+  scale_y_continuous(labels = function(x) paste0(round(x, 1), "\u00b0")) +
+  scale_colour_manual(values = c("Väestöpainotettu" = "#2a9d8f",
+                                 "Maapinta-alapainotettu" = "#f4a261")) +
+  labs(
+    title    = "Kartan keskikohdan valinta on mitattava päätös",
+    subtitle = "Keskimääräinen muotovirhe Equal Earthilla eri keskimeridiaaneilla",
+    x = "Kartan keskimeridiaani", y = "Keskimääräinen kulmavirhe",
+    colour = NULL
+  ) +
+  theme_kristian()
+```
+
+**Miten tätä kuvaa luetaan.** Vaaka-akselilla on se, minkä pituuspiirin kohdalle
+kartta keskitetään. Pystyakselilla on siitä seuraava keskimääräinen muotovirhe.
+Mitä alempana käyrä on, sitä parempi kyseinen keskitys on. Punainen katkoviiva on
+nykyinen valinta, Greenwich. Kaksi käyrää vastaavat kahta eri kysymystä:
+vihreä painottaa ihmisiä, oranssi maapinta-alaa. Huomaa, että käyrät eivät ole
+minimissään samassa kohdassa — kysymyksenasettelu määrää vastauksen.
+
+Tämä on hyvä esimerkki siitä, että karttavalinnassa on **useampi kuin yksi
+poliittinen päätös**. Projektion valinta on ollut uutisissa. Keskimeridiaanin
+valinta ei ole, vaikka sillä on mitattava vaikutus siihen, kenen alue piirtyy
+kartalle hyvin ja kenen huonosti.
+
+### Vastaskenaario 3: entä jos standardileveyspiiri valittaisiin väestön mukaan?
+
+Gall–Petersin projektio on erikoistapaus **sylinterisestä pinta-alaprojektiosta**,
+jonka ainoa parametri on ns. standardileveyspiiri: se leveyspiiri, jolla muodot
+ovat täsmälleen oikein. Peters valitsi 45 astetta. Mitä tapahtuisi muilla
+valinnoilla?
+
+```{r}
+#| label: cf-latts
+
+testi_lat <- seq(0, 75, by = 1)
+
+lat_optimointi <- map_dfr(testi_lat, function(lt) {
+  crs <- sprintf("+proj=cea +lat_ts=%g +lon_0=0 +R=6371007 +no_defs", lt)
+  v <- laske_vaaristymat(koord_k, crs)
+  tibble(
+    lat_ts = lt,
+    kulma_painotettu = weighted.mean(v$omega, kohdat$paino),
+    kulma_maa_ala    = mean(v$omega)
+  )
+})
+
+paras_lat_vaesto <- lat_optimointi$lat_ts[which.min(lat_optimointi$kulma_painotettu)]
+paras_lat_ala    <- lat_optimointi$lat_ts[which.min(lat_optimointi$kulma_maa_ala)]
+peters <- lat_optimointi |> filter(lat_ts == 45)
+
+cat("Petersin valinta (45 astetta), vaestopainotettu kulmavirhe:",
+    round(peters$kulma_painotettu, 2), "\n")
+cat("Vaestopainotettu optimi:", paras_lat_vaesto, "astetta, kulmavirhe:",
+    round(min(lat_optimointi$kulma_painotettu), 2), "\n")
+cat("Maa-alapainotettu optimi:", paras_lat_ala, "astetta\n")
+```
+
+```{r}
+#| label: fig-latts
+#| fig-cap: "Sylinterisen pinta-alaprojektion muotovirhe standardileveyspiirin funktiona."
+#| fig-height: 4.5
+
+lat_pitka <- lat_optimointi |>
+  pivot_longer(c(kulma_painotettu, kulma_maa_ala),
+               names_to = "painotus", values_to = "kulmavirhe") |>
+  mutate(painotus = recode(painotus,
+                           kulma_painotettu = "Väestöpainotettu",
+                           kulma_maa_ala    = "Maapinta-alapainotettu"))
+
+ggplot(lat_pitka, aes(x = lat_ts, y = kulmavirhe, colour = painotus)) +
+  geom_line(linewidth = 1.1) +
+  geom_vline(xintercept = 45, colour = "#e63946", linetype = "dashed") +
+  annotate("text", x = 46, y = max(lat_pitka$kulmavirhe),
+           label = "Petersin valinta", hjust = 0, colour = "#e63946", size = 3.4) +
+  scale_x_continuous(labels = function(x) paste0(x, "\u00b0")) +
+  scale_y_continuous(labels = function(x) paste0(round(x, 1), "\u00b0")) +
+  scale_colour_manual(values = c("Väestöpainotettu" = "#2a9d8f",
+                                 "Maapinta-alapainotettu" = "#f4a261")) +
+  labs(
+    title    = "Petersin valinta ei ollut optimaalinen kummallakaan mittarilla",
+    subtitle = "Sylinterinen pinta-alaprojektio: muotovirhe standardileveyspiirin mukaan",
+    x = "Standardileveyspiiri", y = "Keskimääräinen kulmavirhe", colour = NULL
+  ) +
+  theme_kristian()
+```
+
+Tämä on hyvä esimerkki siitä, mitä numerot voivat tehdä poliittiselle
+väittelylle. Petersin kartta esitettiin 1970-luvulla ainoana oikeudenmukaisena
+vaihtoehtona, ja sen parametrivalintaa ei juuri kyseenalaistettu. Kun sama
+projektioperhe optimoidaan eksplisiittisellä kriteerillä, käy ilmi, että valinta
+oli mielivaltainen. Ja tässä on olennainen huomio: **argumentti "pinta-alat
+oikein" ei riitä määrittämään yhtä karttaa.** Pinta-alatarkkoja projektioita on
+ääretön määrä, ja niiden välillä valitseminen vaatii jonkin *toisen* kriteerin.
+Se toinen kriteeri on aina arvovalinta.
+
+### Vastaskenaario 4: entä jos kouluihin valittaisiin kompromissiprojektio?
+
+Yhdysvaltain National Geographic Society käyttää maailmankartoissaan Winkel
+Tripeliä, ei Equal Earthia eikä Mercatoria. Miten se pärjää?
+
+```{r}
+#| label: cf-winkel
+
+vertailu_cf4 <- vaaristymat |>
+  filter(projektio %in% c("Mercator", "Equal Earth", "Winkel Tripel",
+                          "Robinson", "Natural Earth")) |>
+  group_by(projektio) |>
+  summarise(
+    pa_p05  = quantile(r_pinta_ala, 0.05),
+    pa_p95  = quantile(r_pinta_ala, 0.95),
+    pa_suhde = pa_p95 / pa_p05,
+    om_med  = median(omega),
+    om_p95  = quantile(omega, 0.95),
+    .groups = "drop"
+  ) |>
+  arrange(pa_suhde)
+
+vertailu_cf4 |>
+  transmute(
+    Projektio = projektio,
+    `Pinta-alojen ylin/alin -suhde` = paste0(formatC(pa_suhde, digits = 1, format = "f"), "\u00d7"),
+    `Kulmavirhe, mediaani` = paste0(formatC(om_med, digits = 1, format = "f"), "\u00b0"),
+    `Kulmavirhe, 95 %` = paste0(formatC(om_p95, digits = 1, format = "f"), "\u00b0")
+  ) |>
+  knitr::kable(caption = "Kompromissiprojektiot Mercatorin ja Equal Earthin välissä")
+```
+
+Kompromissiprojektiot tekevät täsmälleen sen, mitä nimi lupaa. Winkel Tripel ja
+Robinson vääristävät pinta-aloja selvästi vähemmän kuin Mercator ja muotoja
+selvästi vähemmän kuin Equal Earth — mutta kumpaakaan ne eivät saa oikein.
+
+**Vastaskenaarion johtopäätös:** jos tavoite on "kartta, joka ei valehtele
+pahasti missään", kompromissiprojektio on puolustettavissa. Jos tavoite on
+"kartta, jonka pinta-aloista voi lukea totuuden", vain pinta-alatarkka kelpaa.
+YK:n päätös valitsi jälkimmäisen. Se on **arvovalinta, ei tekninen totuus**, ja
+juuri siksi siitä äänestettiin eikä sitä laskettu.
+
+---
+
+## Yhteenveto: mitä tästä jää käteen
+
+Kootaan langat yhteen.
+
+1. **Jokainen tasokartta on väärä.** Gaussin Theorema Egregium takaa sen. Ei ole
+   olemassa parasta karttaa, on vain kartta, joka on paras johonkin tarkoitukseen.
+
+2. **Mercator vääristää pinta-aloja systemaattisesti ja voimakkaasti.**
+   Vääristymä ei ole yksi luku vaan jakauma, jonka ylä- ja alapään ero on
+   monikymmenkertainen.
+
+3. **Kampanjan iskulause "Afrikka ja Grönlanti näyttävät samankokoisilta" ei
+   kestä tarkkaa tarkastelua** — mutta sen taustalla oleva väite Mercatorin
+   systemaattisesta vääristymästä kestää.
+
+4. **Väestöpainotettuna Mercator on paljon vähemmän paha.** Suurin osa
+   maailman ihmisistä asuu alueilla, joissa vääristymä on maltillinen. Mercatorin
+   todellinen ongelma on se, että se antaa muutamalle harvaan asutulle
+   pohjoiselle alueelle suhteettoman visuaalisen painoarvon.
+
+5. **Equal Earth maksaa pinta-alatarkkuutensa muodoissa**, ja muotovirhe on
+   suurin juuri kartan reunoilla ja korkeilla leveyspiireillä.
+
+6. **Mercator ei ollut virhe.** Se ratkaisi navigointiongelman erinomaisesti, ja
+   suoran kompassikurssin hinta oli tyypillisesti muutamia prosentteja.
+
+7. **Pinta-alatarkkuus ei määrää yhtä karttaa.** Niitä on ääretön määrä, ja
+   niiden välillä valitaan jollakin toisella kriteerillä, joka on aina
+   arvovalinta.
+
+8. **Karttavalinnassa on useampi kuin yksi poliittinen päätös.** Keskimeridiaanin
+   valinta on niistä toinen, ja siitä ei keskustella lainkaan, vaikka sen
+   vaikutus on mitattava.
+
+Jos yksi asia jää mieleen, olkoon se tämä: **kun joku esittää yhden luvun,
+kysy mikä jakauma sen takana on ja millä painotuksella se on laskettu.**
+Karttaprojektioiden tapauksessa vastaus muuttuu radikaalisti sen mukaan,
+lasketaanko neliökilometrejä vai ihmisiä.
+
+---
+
+## Miten tätä käytetään yrityksessä
+
+Tämä ei ollut myyntipostaus, mutta olisi epärehellistä olla sanomatta ääneen,
+että sama matematiikka tulee vastaan yritysdatassa joka viikko. Tässä
+konkreettiset kohdat, joissa olen nähnyt täsmälleen tämän ilmiön:
+
+**1. Koneoppimisen dimensioreduktio on karttaprojektio.** Kun ajat
+UMAP- tai t-SNE-visualisoinnin asiakassegmenteistä, teet täsmälleen saman asian:
+kuvaat korkeaulotteisen avaruuden kaksiulotteiselle tasolle. Ja täsmälleen sama
+Theorema Egregium pätee — et voi säilyttää sekä paikallisia että globaalisia
+etäisyyksiä. t-SNE valitsee paikalliset (kuin Mercator kulmat), MDS valitsee
+globaalit (kuin Equal Earth pinta-alat). **Klusterien koko t-SNE-kuvassa ei
+tarkoita mitään**, aivan kuten Grönlannin koko Mercatorilla ei tarkoita mitään.
+Tämä on yleisimpiä virheitä, joita näen data-esityksissä.
+
+**2. Karttavisualisointi liiketoimintadatassa.** Kun piirrät myyntiluvut
+Suomen kartalle värialueina, Lapin kunnat vievät valtavan osan pinta-alasta ja
+Helsinki mikroskooppisen — vaikka asiakkaista valtaosa on Helsingissä. Katsojan
+silmä painottaa pinta-alaa, ei asiakasmäärää. Ratkaisuja on: kartogrammi, jossa
+alueiden koko skaalataan asiakasmäärään, tai heksakartta, jossa jokainen alue on
+samankokoinen. Molemmat ovat "vääriä" karttoja, jotka viestivät oikeamman asian.
+
+**3. Mittariston normalisointi.** Kysymys "mikä on oikea painotus" on
+täsmälleen sama kuin tässä postauksessa. Onko toimipisteen suoritus
+per neliömetri, per työntekijä vai per asiakas? Jokainen näistä antaa
+eri paremmuusjärjestyksen, jokainen on puolustettavissa, eikä yksikään ole
+"oikea". Yleisin virhe on valita painotus kertomatta siitä — jolloin
+mittarista tulee salaa poliittinen väline.
+
+**4. Riskimalleissa asteikkovalinta on projektiovalinta.** Kun luottoriskimallissa
+raportoidaan PD:tä, valinta lineaarisen ja logit-asteikon välillä on täsmälleen
+sama päätös kuin Mercator vs. Equal Earth: toinen säilyttää suhteelliset erot
+matalilla arvoilla, toinen absoluuttiset erot. Väärä valinta piilottaa
+riskikeskittymän täsmälleen kuten Mercator piilottaa Afrikan koon.
+
+**5. Kysy jokaisesta luvusta, mikä jakauma sen takana on.** Tämä on sen
+arvoinen, että sen voi tehdä johtoryhmän käytännöksi. "Keskimääräinen
+läpimenoaika on 4 päivää" on Mercator-tason tieto. "Puolet menee alle kahdessa
+päivässä, mutta joka kymmenes kestää yli kolme viikkoa" on Equal Earth -tason
+tieto. Jälkimmäinen kertoo, mihin resurssit kannattaa laittaa.
+
+Jos organisaatiossanne on datavisualisointeja tai mittaristoja, joissa epäilette
+tällaista piilotettua painotusvalintaa, se on tyypillisesti puolen päivän
+tarkastelu — ja tulos on lähes aina, että vähintään yksi keskeinen mittari
+kertoo eri tarinan kuin sen oli tarkoitus kertoa. Otan mielelläni tuollaisen
+tarkastelun tehtäväksi.
+
+---
+
+## Lähteet
+
+**Matemaattinen perusta**
+
+- Gauss, C. F. (1827). Disquisitiones generales circa superficies curvas.
+  *Commentationes Societatis Regiae Scientiarum Gottingensis Recentiores*, 6, 99–146.
+- Tissot, N. A. (1881). *Mémoire sur la représentation des surfaces et les
+  projections des cartes géographiques.* Gauthier-Villars, Pariisi.
+- Snyder, J. P. (1987). *Map Projections: A Working Manual.* U.S. Geological
+  Survey Professional Paper 1395.
+
+**Projektiot ja niiden arviointi**
+
+- Šavrič, B., Patterson, T. & Jenny, B. (2019). The Equal Earth map projection.
+  *International Journal of Geographical Information Science*, 33(3), 454–465.
+- Goldberg, D. M. & Gott, J. R. (2007). Flexion and skewness in map projections
+  of the Earth. *Cartographica*, 42(4), 297–318.
+- Battersby, S. E., Finn, M. P., Usery, E. L. & Yamamoto, K. H. (2014).
+  Implications of web Mercator and its use in online mapping. *Cartographica*,
+  49(2), 85–101.
+- Canters, F. (2002). *Small-scale Map Projection Design.* Taylor & Francis.
+
+**Kartat ja havaintokyky**
+
+- Battersby, S. E. & Montello, D. R. (2009). Area estimation of world regions and
+  the projection of the global-scale cognitive map. *Annals of the Association of
+  American Geographers*, 99(2), 273–291.
+- De Boeck, M. & Ooms, K. (2019). Evaluating young people's area estimation of
+  countries and continents. *ISPRS International Journal of Geo-Information*,
+  8(3), 125.
+- Monmonier, M. (2004). *Rhumb Lines and Map Wars: A Social History of the
+  Mercator Projection.* University of Chicago Press.
+
+**Aineistot**
+
+- GISCO / Eurostat: Countries 2020, resoluutio 1:20 milj. (`giscoR`-paketti)
+- Maailmanpankki: World Development Indicators, indikaattori `SP.POP.TOTL`
+- PROJ-kirjasto (versio `sf`-paketin kautta), projektiokaavat
+
+**Uutislähteet**
+
+- YK:n yleiskokouksen päätöslauselma 4.9.2026 (164–1, 6 pidättyi)
+- Afrikan unionin tuki *Correct the Map* -kampanjalle, elokuu 2025

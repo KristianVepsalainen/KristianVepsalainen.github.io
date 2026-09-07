@@ -148,7 +148,8 @@ jobs:
             "giscoR",
             "tidybayes",
             "osmextract",
-            "dodgr"
+            "dodgr",
+            "lwgeom"
           ))
 
         shell: Rscript {0}

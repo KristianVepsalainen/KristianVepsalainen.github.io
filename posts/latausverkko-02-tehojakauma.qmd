@@ -8,7 +8,6 @@ description: |
   asemamäärä antaa ymmärtää.
 date: 2026-09-08
 categories: [avoin data, bayes, latausverkko, keskittyminen, datan laatu]
-draft: true
 ---
 
 ```{r}

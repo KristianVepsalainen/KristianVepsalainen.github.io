@@ -1,0 +1,177 @@
+---
+title: "Kuka allekirjoittaa kenen aloitteen? Eduskunnan yhteistyöverkostot"
+subtitle: "Eduskunta jakaumana, osa 11: allekirjoitusverkosto"
+description: >
+  Lakialoitteilla on usein useita allekirjoittajia. Kun katsomme, ketkä
+  allekirjoittavat toistensa aloitteita yhden vaalikauden aikana, syntyy verkosto,
+  joka paljastaa puoluerajat ylittävän yhteistyön ja tiiviit ryhmittymät.
+date: 2026-09-10
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, verkostoanalyysi, igraph]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+## Uutiskoukku: kuka tekee yhteistyötä kenen kanssa?
+
+Puolue on ilmeisin jakolinja eduskunnassa. Mutta aloitteiden allekirjoitukset
+paljastavat toisen kartan: kuka on valmis laittamaan nimensä kenenkin aloitteeseen.
+Se ei aina noudata puoluerajoja.
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(scales)
+library(igraph); library(ggraph); library(tidygraph)
+select <- dplyr::select; filter <- dplyr::filter   # igraph/MASS-maskaus pois
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+# Yhteisövärit: tarpeeksi sävyjä, generoidaan paletista (ei "insufficient values")
+yhteiso_varit <- function(n) grDevices::colorRampPalette(unname(pal))(n)
+theme_set(theme_minimal(base_size = 13) + theme(plot.title = element_text(face="bold")))
+
+DATA <- here("data", "eduskunta")
+init <- qs2::qd_read(file.path(DATA, "vaski_init.qs"))
+mp   <- qs2::qs_read(file.path(DATA, "mp.qs"))
+
+KAUSI_ALKU <- 2023L   # rajaus yhteen vaalikauteen -> luettava verkosto
+KYNNYS     <- 5L      # säilytä vain parit, jotka esiintyvät vähintään näin usein
+MAX_ALLEK  <- 20L     # massa-aloitteet pois: ne ovat ryhmäkuria, eivät yhteistyötä
+```
+
+## Verkoston rakentaminen
+
+Yhteistyön yksikkö on **yhteinen allekirjoitus**: kaksi edustajaa yhdistyy, kun he
+allekirjoittavat saman aloitteen. Kolme tietoista rajausta pitävät verkoston
+luettavana ja mittaavat aitoa yhteistyötä, eivät rakenteellisia artefakteja:
+
+- **Yksi vaalikausi** (2023–2027): ~200 edustajaa tuhansien sijaan, jolloin rakenne
+  erottuu eikä hukkaannu "hairballiin".
+- **Massa-aloitteet pois** (yli `r 20` allekirjoittajaa): kymmenien nimien
+  aloitteet ovat ryhmäkuria, ja ne loisivat keinotekoisia klikkejä.
+- **Kynnys yhteyksille**: säilytämme vain parit, jotka toistuvat — satunnainen yksi
+  yhteinen aloite ei ole yhteistyötä.
+
+```{r verkosto}
+allek <- init |> filter(tyyppi %in% c("LA","TPA"), vpvuosi >= KAUSI_ALKU) |>
+  select(id, allekirjoittajat) |>
+  mutate(n_allek = map_int(allekirjoittajat, length)) |>
+  filter(n_allek >= 2, n_allek <= MAX_ALLEK) |>
+  select(id, allekirjoittajat) |> unnest(allekirjoittajat) |>
+  filter(!is.na(allekirjoittajat)) |> rename(henkilo_nro = allekirjoittajat)
+stopifnot("Allekirjoituksia ei löytynyt kaudelta" = nrow(allek) > 100)
+
+# Parit per aloite -> painotetut reunat
+parit <- allek |> group_by(id) |>
+  summarise(p = list(as_tibble(t(combn(sort(unique(henkilo_nro)), 2))) |>
+                       set_names(c("a","b"))), .groups = "drop") |>
+  unnest(p)
+reunat <- parit |> count(a, b, name = "paino") |> filter(paino >= KYNNYS)
+stopifnot("Kynnyksen jälkeen ei reunoja — laske KYNNYS" = nrow(reunat) > 0)
+
+# Vain solmut, joilla jää reuna; puolue väritietona
+kaytetyt <- unique(c(reunat$a, reunat$b))
+solmut <- tibble(henkilo_nro = kaytetyt) |>
+  left_join(mp |> select(henkilo_nro, nimi, ryhma_nyt), by = "henkilo_nro") |>
+#korjataan kaksi nimiea oikeisiin puolueisiin
+  mutate(ryhma_nyt = case_when(henkilo_nro == 1387 ~ 'Vihreä eduskuntaryhmä',
+                               henkilo_nro == 1400 ~ 'Vasemmistoliiton eduskuntaryhmä',
+                               T ~ ryhma_nyt))
+
+g <- tbl_graph(nodes = solmut, edges = reunat |> rename(from = a, to = b),
+               directed = FALSE) |>
+  activate(nodes) |>
+  mutate(yhteiso = as.factor(group_louvain(weights = paino)),
+         aste = centrality_degree(weights = paino))
+```
+
+## Verkosto ja yhteisöt
+
+Etsimme tiiviit ryhmittymät **yhteisödetektiolla** (Louvain) ja väritämme solmut
+yhteisön mukaan — se on tarina. Puolue jää lisätiedoksi seuraavaan kuvaan. Käytämme
+painotettua Kamada–Kawai-asettelua, joka erottelee ryppäät paremmin kuin tiheälle
+verkolle tukkoinen voimasuunnattu asettelu.
+
+```{r yhteisot}
+n_yht <- nlevels(pull(g, yhteiso) )
+ggraph(g, layout = "kk", weights = paino) +
+  geom_edge_link(aes(width = paino), alpha = .10, color = "grey55") +
+  geom_node_point(aes(color = yhteiso, size = aste)) +
+  scale_edge_width(range = c(.1, 1.5), guide = "none") +
+  scale_size(range = c(1.5, 8), guide = "none") +
+  scale_color_manual(values = yhteiso_varit(n_yht), guide = "none") +
+  labs(title = "Eduskunnan allekirjoitusverkosto (2023–2027)",
+       subtitle = "Väri = tiivis yhteistyöryhmä (Louvain), koko = kytkeytyneisyys") +
+  theme_graph()
+```
+
+```{r puolueet}
+# Sama verkosto, väri puolueen mukaan — vertaa: noudattavatko yhteisöt puoluerajoja?
+n_pue <- n_distinct(pull(g, ryhma_nyt))
+ggraph(g, layout = "kk", weights = paino) +
+  geom_edge_link(alpha = .08, color = "grey60") +
+  geom_node_point(aes(color = ryhma_nyt, size = aste)) +
+  scale_size(range = c(1.5, 8), guide = "none") +
+  scale_color_manual(values = yhteiso_varit(n_pue), na.value = "grey70") +
+  labs(title = "Sama verkosto puolueväreillä",
+       subtitle = "Jos yhteisöt eivät seuraa värejä, yhteistyö ylittää puoluerajat",
+       color = NULL) +
+  theme_graph()
+```
+
+## Kuinka puoluerajaista yhteistyö on? Nollamalli
+
+Onko puoluerajat ylittäviä yhteyksiä **enemmän vai vähemmän** kuin sattumalta
+odottaisi? Vertaamme havaittua osuutta permutaatio-nollamalliin, jossa
+puolueleimat sekoitetaan satunnaisesti.
+
+```{r nollamalli}
+e <- reunat |>
+  left_join(mp |> select(henkilo_nro, ra = ryhma_nyt), by = c("a"="henkilo_nro")) |>
+  left_join(mp |> select(henkilo_nro, rb = ryhma_nyt), by = c("b"="henkilo_nro")) |>
+  filter(!is.na(ra), !is.na(rb))
+havaittu <- mean(e$ra != e$rb)
+
+puolueet <- mp |> filter(henkilo_nro %in% c(e$a, e$b)) |> distinct(henkilo_nro, ryhma_nyt)
+perm <- replicate(1000, {
+  sek <- puolueet |> mutate(r = sample(ryhma_nyt))
+  e2 <- e |> left_join(sek |> select(henkilo_nro, ra2 = r), by = c("a"="henkilo_nro")) |>
+    left_join(sek |> select(henkilo_nro, rb2 = r), by = c("b"="henkilo_nro"))
+  mean(e2$ra2 != e2$rb2)
+})
+tibble(havaittu_ylitys = round(havaittu,3),
+       nollamalli_ka = round(mean(perm),3),
+       p = round(mean(perm <= havaittu),3),
+       tulkinta = if_else(havaittu < mean(perm),
+                          "Vähemmän puoluerajan ylityksiä kuin sattumalta (yhteistyö puolueen sisäistä)",
+                          "Enemmän puoluerajan ylityksiä kuin sattumalta"))
+```
+
+::: {.callout-note title="Miksi nollamalli?"}
+Pelkkä puoluerajan ylittävien yhteyksien osuus ei kerro mitään ilman vertailukohtaa
+— se riippuu puolueiden koosta ja aloitteiden määrästä. Permutaatio-nollamalli antaa
+sen, mitä *sattumalta* odottaisi, jolloin havaittu luku saa merkityksen.
+:::
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Yhteistyö on verkosto, ei puoluelista.** Allekirjoitukset paljastavat rakenteen,
+  jota puoluejako ei näytä — mutta vasta oikein rajattuna.
+- **Rajaus on osa analyysia.** Massa-aloitteet ja koko historia tuottaisivat
+  tukkoisen möykyn; yksi kausi ja kynnys tekevät rakenteen näkyväksi.
+- **Verkkomittari vaatii nollamallin.** Ilman satunnaisvertailua "30 % ylittää
+  puoluerajan" on luku ilman merkitystä.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Verkostoanalyysi ja yhteisödetektio — asiakkaista, toimijoista tai riskeistä —
+oikein rajattuna ja nollamallilla validoituna. **kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data, VaskiData (CC BY 4.0).*

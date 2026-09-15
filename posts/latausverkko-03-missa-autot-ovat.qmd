@@ -6,7 +6,7 @@ description: |
   moninkertaisesti, ja pienissä kunnissa sitä ei tiedetä tarkasti. Rakennamme
   hierarkkisen mallin, joka kertoo kunnittain sekä arvion että sen
   epävarmuuden, ja vertaamme autokantaa latauspistokkeisiin.
-date: 2026-09-14
+date: 2026-09-15
 categories: [avoin data, bayes, latausverkko, alueellisuus, hierarkkinen malli]
 draft: true
 ---
@@ -725,6 +725,13 @@ if (!file.exists(lau_path)) {
   kunnat_sf <- qs2::qs_read(lau_path)
 }
 
+# Koordinaattijärjestelmä tallentuu sf-objektiin WKT-merkkijonona, jonka
+# asennettu PROJ-kirjasto muodostaa. Eri ympäristöissä sama EPSG-koodi
+# tuottaa hieman eri merkkijonon, ja sf vertaa merkkijonoja. Siksi CRS
+# asetetaan uudelleen lukemisen jälkeen: silloin molemmat objektit saavat
+# saman ajoympäristön oman esityksen.
+st_crs(kunnat_sf) <- 3067
+
 stopifnot(
   "Kuntageometria on tyhjä" = nrow(kunnat_sf) > 0,
   "Kuntia on odottamaton määrä" = between(nrow(kunnat_sf), 290, 320)
@@ -734,6 +741,11 @@ asemat_sf <- asemat |>
   filter(!is.na(lat), !is.na(lon)) |>
   st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
   st_transform(3067)
+
+stopifnot(
+  "Koordinaattijärjestelmät eivät täsmää" =
+    st_crs(asemat_sf) == st_crs(kunnat_sf)
+)
 
 asema_kunta <- st_join(asemat_sf, kunnat_sf, join = st_within) |>
   st_drop_geometry() |>

@@ -1,0 +1,124 @@
+---
+title: "Kuka on nopea, kuka ruuhkautuu? Valiokuntien käsittelyajat"
+subtitle: "Eduskunta jakaumana, osa 12: käsittelyaika jakaumana"
+description: >
+  Valiokunnat tekevät eduskunnan varsinaisen työn. Kuinka kauan asian käsittely
+  kestää, ja miten se vaihtelee valiokunnittain ja aiheittain? Käsittelyaika ei
+  ole yksi luku vaan jakauma.
+date: 2026-09-17
+author: "Kristian Vepsäläinen"
+categories: [eduskunta, avoin data, jakaumat, käsittelyaika]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+## Uutiskoukku: kuinka kauan laki hautuu?
+
+Kun hallituksen esitys tai aloite tulee eduskuntaan, sen käsittelee valiokunta. Osa
+menee nopeasti, osa hautuu kuukausia. Kuka on nopea, kuka ruuhkautuu — ja onko ero
+aiheessa vai valiokunnassa?
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank()))
+DATA <- here("data", "eduskunta")
+docs <- qs2::qd_read(file.path(DATA, "vaski_docs.qs"))
+```
+
+## Käsittelyajan rakentaminen
+
+::: {.callout-important title="Verifiointikohta — mietinnön päivämäärät"}
+Käsittelyaika = **mietinnön laadintapäivä** miinus **asian vireilletulopäivä**.
+Molemmat ovat valiokuntamietinnön (VM/VP/VE) XML:ssä, mutta en ole vielä nähnyt
+mietinnön rakennetta. Vaski-prepissä on diagnostiikka (kohta B), joka näyttää
+`LaadintaPvmTeksti`n ja vireilletulon. Aja se ja liitä tulos, niin kirjoitan
+`kasittelyajat`-poiminnan prepiin (valiokunta, aihe, alku- ja loppupvm).
+:::
+
+```{r data}
+#| eval: false
+# Kytketään, kun mietinnön pvm-rakenne on varmistettu (ks. prep, kohta B).
+kasittely <- qs2::qd_read(file.path(DATA, "kasittelyajat.qs"))
+# odotettu rakenne: valiokunta, aihe, vireille_pvm, mietinto_pvm
+kasittely <- kasittely |>
+  mutate(paivia = as.integer(mietinto_pvm - vireille_pvm)) |>
+  filter(paivia >= 0, paivia < 1000)
+```
+
+## Jakauma ensin
+
+Käsittelyaika on vino: useimmat asiat käsitellään kohtuuajassa, mutta pitkä häntä
+venyy kauas. Keskiarvo pettäisi tässä pahasti.
+
+```{r jakauma}
+#| eval: false
+ggplot(kasittely, aes(x = paivia)) +
+  geom_histogram(bins = 50, fill = pal[["sininen"]], alpha = .9) +
+  geom_vline(aes(xintercept = median(paivia)), color = pal[["punainen"]], linetype = "dashed") +
+  labs(title = "Valiokuntakäsittelyn kesto — vino jakauma",
+       subtitle = "Punainen: mediaani (keskiarvo olisi harhaanjohtava)",
+       x = "Käsittelypäiviä", y = "Asioita")
+```
+
+## Valiokunnittain
+
+```{r valiokunnittain}
+#| eval: false
+jarjestys <- kasittely |> group_by(valiokunta) |>
+  summarise(med = median(paivia), n = n(), .groups = "drop") |>
+  filter(n >= 20) |> arrange(med)
+
+kasittely |> semi_join(jarjestys, by = "valiokunta") |>
+  mutate(valiokunta = factor(valiokunta, levels = jarjestys$valiokunta)) |>
+  ggplot(aes(x = paivia, y = valiokunta)) +
+  stat_pointinterval(color = pal[["laivasto"]]) +
+  labs(title = "Käsittelyaika valiokunnittain",
+       subtitle = "Mediaani ja vaihteluväli — jakaumana, ei yhtenä lukuna",
+       x = "Käsittelypäiviä", y = NULL)
+```
+
+## Eroavatko valiokunnat merkitsevästi?
+
+Vino, jatkuva muuttuja ja monta ryhmää → **Kruskal–Wallis** ja efektikokona
+epsilon-neliö. Jos ero on merkitsevä, katsomme parittaiset erot varovasti.
+
+```{r testi}
+#| eval: false
+kw <- kruskal.test(paivia ~ factor(valiokunta), data = kasittely)
+eps2 <- unname(kw$statistic) / (nrow(kasittely) - 1)
+tibble(khi2 = round(unname(kw$statistic),1), df = unname(kw$parameter),
+       p = signif(kw$p.value,3), epsilon2 = round(eps2,3))
+```
+
+::: {.callout-note title="Käsittelyajan tulkinta vaatii varovaisuutta"}
+Pitkä käsittelyaika ei tarkoita tehottomuutta — monimutkainen tai kiistanalainen
+asia *kuuluukin* käsitellä perusteellisesti. Käsittelyaika on siis kuvaava mittari,
+ei suoritusarvosana. Vertailussa on huomioitava asian tyyppi ja aihe.
+:::
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Käsittelyaika on jakauma.** Mediaani ja häntä kertovat eri tarinan kuin
+  keskiarvo — ja häntä on se, missä ruuhkat piilevät.
+- **Nopeus ei ole hyvyys.** Mittari kuvaa prosessia, ei sen laatua; tulkinta vaatii
+  kontekstin.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Läpimenoaikojen ja prosessien pullonkaulojen analyysi jakaumina — asiakirjoista,
+tiketeistä tai tuotantovirroista. **kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data, VaskiData (CC BY 4.0).*

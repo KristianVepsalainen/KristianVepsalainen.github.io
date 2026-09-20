@@ -1,0 +1,1017 @@
+---
+title: "Linnuntietä ei aja kukaan"
+subtitle: "Latausverkko jakaumana, osa 4: todelliset ajomatkat lähimmälle suurtehulaturille"
+description: |
+  Latausaseman etäisyys mitataan yleensä suorana viivana kartalla. Autoilija
+  ajaa teitä pitkin. Rakennamme Suomen tieverkosta graafin, laskemme
+  todelliset ajoajat lähimmälle pikalaturille ja katsomme, kuka jää katveeseen.
+date: 2026-09-22
+categories: [avoin data, verkostoanalyysi, latausverkko, saavutettavuus, OpenStreetMap]
+draft: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+#| cache: false
+
+library(here)
+library(tidyverse)
+library(sf)
+library(dodgr)
+library(osmextract)
+library(spdep)
+library(ggrepel)
+library(ggdist)
+library(patchwork)
+library(qs2)
+library(scales)
+
+select <- dplyr::select
+filter <- dplyr::filter
+count <- dplyr::count
+
+source(here("R", "theme_kristian.R"))
+
+knitr::opts_chunk$set(
+  echo = FALSE, warning = FALSE, message = FALSE,
+  fig.width = 9, fig.height = 5.5, dpi = 150
+)
+
+theme_set(theme_kristian())
+
+pal <- c(punainen = "#e63946", turkoosi = "#2a9d8f", oranssi = "#f4a261",
+         navy = "#1d3557", sininen = "#457b9d")
+
+data_dir <- here("data", "latausverkko")
+set.seed(42)
+
+asemat    <- qs2::qd_read(file.path(data_dir, "asemat.qs"))
+liitokset <- qs2::qd_read(file.path(data_dir, "liitokset.qs"))
+kunnat_sf <- qs2::qs_read(file.path(data_dir, "kunnat_lau.qs"))
+```
+
+## Kartalla mitattu etäisyys on väärä luku
+
+Kun latausverkon kattavuudesta puhutaan, etäisyydet mitataan yleensä suorana
+viivana. Niin tehdään myös EU:n AFIR-asetuksessa, joka edellyttää tietyn tehon
+latauspisteitä tietyin välein TEN-T-verkolla.
+
+Suora viiva on helppo laskea ja usein riittävä. Suomessa se on kuitenkin
+säännönmukaisesti liian optimistinen, ja syy on maantieteessä. Maa on täynnä
+järviä, joiden ympäri on ajettava. Rannikko on rikkonainen. Pohjoisessa tiet
+kulkevat jokilaaksoja pitkin, eivät niiden poikki.
+
+Kahden pisteen välinen ajomatka voi siis olla puolitoista- tai kaksinkertainen
+suoraan viivaan verrattuna. Ja kun kysymys on siitä, riittääkö sähköauton
+akku seuraavalle laturille, ero ei ole akateeminen.
+
+Tässä osassa rakennan Suomen tieverkosta graafin ja lasken todelliset ajoajat.
+Lopputulos on kartta siitä, kuinka kaukana lähin suurtehulaturi on — ja
+vastaus kysymykseen, kuinka moni sähköauto on tuon matkan päässä.
+
+## Tieverkko graafina
+
+Verkostoanalyysin peruskäsitteet ovat yksinkertaisia, ja ne kannattaa avata,
+koska koko sarjan loppuosa nojaa niihin.
+
+**Graafi** on joukko pisteitä ja niitä yhdistäviä viivoja. Pisteitä kutsutaan
+solmuiksi ja viivoja kaariksi. Tieverkossa solmut ovat risteyksiä ja kaaret
+tieosuuksia niiden välillä.
+
+**Kaarella on paino.** Se kertoo, kuinka "kallista" kyseisen tieosuuden
+kulkeminen on. Paino voi olla matka metreinä tai aika sekunteina. Käytän aikaa,
+koska autoilijaa kiinnostaa se — sadan kilometrin matka moottoritietä on eri
+asia kuin sadan kilometrin matka mutkaista seututietä.
+
+**Lyhin polku** on se reittien yhdistelmä, jolla painojen summa on pienin.
+Tämä on sama laskenta, jota navigaattori tekee.
+
+Aineistona käytän OpenStreetMapia, joka on avoin ja yhteisön ylläpitämä
+karttatietokanta. Se on Suomen tieverkon osalta kattava, koska Väylävirasto ja
+kunnat ovat tuoneet siihen aineistojaan.
+
+```{r}
+#| label: verkko
+#| echo: true
+#| cache: false
+
+verkko_path <- file.path(data_dir, "tieverkko.qs")
+
+if (!file.exists(verkko_path)) {
+  # Rajaus pääteihin on tietoinen. Pikalaturille ajetaan valta- ja
+  # kantateitä, ja koko tieverkko (myös metsäautotiet) kasvattaisi
+  # aineiston kymmenkertaiseksi tuomatta tarkkuutta.
+  tiet <- oe_get(
+    "Finland",
+    layer = "lines",
+    extra_tags = c("maxspeed", "oneway", "lanes"),
+    query = "SELECT osm_id, highway, maxspeed, oneway, lanes, name, geometry
+             FROM lines
+             WHERE highway IN ('motorway','trunk','primary','secondary',
+                               'motorway_link','trunk_link','primary_link')",
+    quiet = TRUE
+  )
+
+  stopifnot(
+    "Tieaineisto on tyhjä" = nrow(tiet) > 0,
+    "Geometria puuttuu" = !all(st_is_empty(tiet)),
+    "Väärä koordinaattijärjestelmä" = st_crs(tiet)$epsg == 4326
+  )
+
+  v <- weight_streetnet(tiet, wt_profile = "motorcar", id_col = "osm_id")
+  qs2::qs_save(v, verkko_path)
+} else {
+  v <- qs2::qs_read(verkko_path)
+}
+
+# Verkko hajoaa osiin siellä, missä yhteys katkeaa. Suurin osa
+# (komponentti 1) on Manner-Suomen yhtenäinen tieverkko.
+osuus_paakomponentissa <- mean(v$component == 1)
+
+stopifnot(
+  "Pääkomponentti kattaa alle 95 % verkosta" = osuus_paakomponentissa > 0.95,
+  "Aikapainoja ei löytynyt verkosta" = "time" %in% names(v)
+)
+
+verkko <- v[v$component == 1, ]
+n_kaaria <- nrow(verkko)
+```
+
+Verkossa on `r format(n_kaaria, big.mark = " ")` kaarta, ja
+`r percent(osuus_paakomponentissa, accuracy = 0.1)` alkuperäisen aineiston
+kaarista kuuluu siihen.
+
+::: {.callout-warning}
+## Kolme rajausta, jotka on sanottava ääneen
+
+**Ahvenanmaa ei ole mukana.** Verkon toiseksi suurin irrallinen osa osoittautui
+Ahvenanmaaksi, joka on lauttayhteyksien takana eikä siis liity mantereen
+tieverkkoon. Lauttayhteyksiä ei ole mallinnettu.
+
+**Vain pääteitä.** Aineistossa ovat moottoritiet, valtatiet, kantatiet ja
+seututiet liittymärampipeineen. Pienemmät tiet on jätetty pois. Tämä on
+perusteltua pitkien matkojen tarkastelussa mutta tarkoittaa, että aivan
+matkan alku- ja loppupää on karkeampi kuin todellisuudessa.
+
+**Ajoajat ovat systemaattisesti optimistisia.** Aika lasketaan
+nopeusrajoituksista, eikä laskenta tunne liikennevaloja, risteysviiveitä,
+taajamien hidastuksia tai ruuhkia. Käytännössä esitetyt ajat ovat noin
+kymmenesosan lyhyempiä kuin navigaattorin arvio samalle välille.
+
+Vertailujen kannalta tämä ei ole ongelma: virhe on samansuuntainen kaikilla
+reiteillä, joten alueiden ja asemien keskinäinen järjestys säilyy. Yksittäistä
+lukua ei kuitenkaan pidä lukea todellisena matka-aikana.
+
+**Yksisuuntaisuustieto on osin puutteellinen.** OpenStreetMapissa
+yksisuuntaisuus voidaan merkitä useilla eri tavoilla, eikä käyttämäni
+työkalu tunnista niitä kaikkia. Vaikutus pitkiin matkoihin on vähäinen,
+mutta kaupunkien sisällä reitti voi paikoin kulkea väärään suuntaan.
+:::
+
+## Ajoaika lähimmälle suurtehulaturille
+
+Nyt voidaan laskea se, mikä kiinnostaa: kuinka kaukana lähin riittävän
+tehokas laturi on.
+
+Rajaan tarkastelun suurtehulatureihin, joiden teho on vähintään 150 kilowattia.
+Rajaus on tarkoituksellinen. Hitaalla laturilla lataaminen kestää tunteja, mikä
+on matkan varrella epäkäytännöllistä. Suurteholaturilla tyypillinen
+latauspysähdys on parikymmentä minuuttia.
+
+```{r}
+#| label: hpc-asemat
+#| echo: true
+
+hpc_asemat <- liitokset |>
+  filter(teho_kw >= 150) |>
+  distinct(avain) |>
+  left_join(asemat, by = "avain") |>
+  filter(!is.na(lat), !is.na(lon))
+
+stopifnot(
+  "Suurtehulatureita ei löytynyt" = nrow(hpc_asemat) > 20,
+  "Koordinaatit Suomen ulkopuolella" =
+    all(between(hpc_asemat$lat, 59.4, 70.2) &
+        between(hpc_asemat$lon, 18.9, 31.7))
+)
+
+n_hpc <- nrow(hpc_asemat)
+```
+
+Suurtehulatureita on `r n_hpc` sijainnissa.
+
+### Kunnan keskipiste ei ole siellä missä ihmiset ovat
+
+Lähtöpisteen valinta on tässä ratkaisevampi kuin miltä kuulostaa.
+
+Ilmeisin vaihtoehto olisi kunnan geometrinen keskipiste. Se on kuitenkin
+systemaattisesti väärä, ja syy on kuntaliitoksissa. Joensuu on nykyisin niin
+laaja, että sen geometrinen keskipiste osuu noin 35 kilometriä keskustasta
+itään — vaikka kaupungissa on yhdeksän suurtehulatauspaikkaa. Geometriseen
+keskipisteeseen nojaava analyysi luokittelisi Joensuun katvealueeksi ja
+suosittelisi sinne laturia, joita siellä jo on.
+
+Sama virhe toistuu jokaisessa laajassa kunnassa. Se ei tasoitu keskiarvoissa,
+koska se osuu aina samaan suuntaan: harvaan asutut kunnat näyttävät todellista
+huonommilta.
+
+Käytän siksi lähtöpisteenä kunnan **väestöpainotettua keskipistettä**, joka
+lasketaan taajamien sijainneista ja niiden asukasluvuista. Taajamatiedot tulevat
+samasta OpenStreetMap-aineistosta, joka on jo ladattuna.
+
+```{r}
+#| label: taajamat
+#| echo: true
+#| cache: false
+
+taajama_path <- file.path(data_dir, "taajamapisteet.qs")
+
+if (!file.exists(taajama_path)) {
+  taajamat <- oe_get(
+    "Finland",
+    layer = "points",
+    extra_tags = c("population", "place"),
+    query = "SELECT osm_id, name, place, population, geometry FROM points
+             WHERE place IN ('city','town','village')",
+    quiet = TRUE
+  )
+
+  stopifnot(
+    "Taajamapisteitä ei löytynyt" = nrow(taajamat) > 100,
+    "Geometria puuttuu" = !all(st_is_empty(taajamat))
+  )
+
+  qs2::qs_save(taajamat, taajama_path)
+} else {
+  taajamat <- qs2::qs_read(taajama_path)
+}
+
+# Väkiluku on vapaa tekstikenttä ja usein tyhjä. Puuttuvalle annetaan
+# taajamatyypin mukainen oletusarvo, joka on karkea mutta parempi kuin
+# pisteen pudottaminen kokonaan pois.
+taajamat <- taajamat |>
+  mutate(
+    vakiluku = suppressWarnings(as.numeric(population)),
+    vakiluku = case_when(
+      !is.na(vakiluku) & vakiluku > 0 ~ vakiluku,
+      place == "city" ~ 30000,
+      place == "town" ~ 6000,
+      TRUE ~ 800
+    )
+  ) |>
+  st_transform(3067)
+
+osuus_vakiluvulla <- mean(!is.na(suppressWarnings(as.numeric(taajamat$population))))
+
+# Väestöpainotettu keskipiste kunnittain
+kuntapisteet_sf <- st_join(taajamat, st_transform(kunnat_sf, 3067),
+                           join = st_within) |>
+  filter(!is.na(kunta_geo)) |>
+  mutate(x = st_coordinates(geometry)[, 1],
+         y = st_coordinates(geometry)[, 2]) |>
+  st_drop_geometry() |>
+  group_by(kunta_geo) |>
+  summarise(
+    x = weighted.mean(x, vakiluku),
+    y = weighted.mean(y, vakiluku),
+    taajamia = n(),
+    .groups = "drop"
+  ) |>
+  st_as_sf(coords = c("x", "y"), crs = 3067)
+
+# Kunnat, joissa ei ole yhtään taajamapistettä, saavat geometrisen
+# keskipisteen. Näitä pitää olla vähän, muuten korjaus ei tee mitään.
+puuttuvat_kunnat <- setdiff(kunnat_sf$kunta_geo, kuntapisteet_sf$kunta_geo)
+
+if (length(puuttuvat_kunnat) > 0) {
+  varapisteet <- kunnat_sf |>
+    filter(kunta_geo %in% puuttuvat_kunnat) |>
+    st_transform(3067) |>
+    st_point_on_surface() |>
+    transmute(kunta_geo, taajamia = 0L)
+  kuntapisteet_sf <- bind_rows(kuntapisteet_sf, varapisteet)
+}
+
+stopifnot(
+  "Yli 10 % kunnista jäi ilman taajamapistettä" =
+    length(puuttuvat_kunnat) / nrow(kunnat_sf) < 0.10,
+  "Kuntapisteitä ei ole yhtä monta kuin kuntia" =
+    nrow(kuntapisteet_sf) == nrow(kunnat_sf)
+)
+```
+
+Taajamapisteistä `r percent(osuus_vakiluvulla, accuracy = 1)`:lla on
+asukasluku merkittynä. Lopuille annetaan taajamatyypin mukainen karkea
+oletusarvo. Se on epätarkka, mutta virhe on pieni verrattuna siihen, että
+kaupunki ja kylä painaisivat yhtä paljon.
+
+```{r}
+#| label: ajoajat
+#| echo: true
+
+ajoajat_path <- file.path(data_dir, "ajoajat_hpc.qs")
+
+if (!file.exists(ajoajat_path)) {
+  kuntapisteet <- kuntapisteet_sf |>
+    st_transform(4326) |>
+    mutate(x = st_coordinates(geometry)[, 1],
+           y = st_coordinates(geometry)[, 2]) |>
+    st_drop_geometry() |>
+    rename(kunta = kunta_geo)
+
+  from <- as.matrix(select(kuntapisteet, x, y))
+  to <- as.matrix(select(hpc_asemat, x = lon, y = lat))
+
+  # dodgr_times palauttaa ajoajat sekunteina, dodgr_dists metreinä.
+  ajat <- dodgr_times(graph = verkko, from = from, to = to)
+  matkat <- dodgr_dists(graph = verkko, from = from, to = to)
+
+  stopifnot(
+    "Aikamatriisin koko ei täsmää" =
+      nrow(ajat) == nrow(kuntapisteet) && ncol(ajat) == nrow(hpc_asemat)
+  )
+
+  saavutettavuus <- tibble(
+    kunta = kuntapisteet$kunta,
+    aika_min = apply(ajat, 1, \(r) min(r, na.rm = TRUE)) / 60,
+    matka_km = apply(matkat, 1, \(r) min(r, na.rm = TRUE)) / 1000
+  )
+
+  qs2::qd_save(saavutettavuus, ajoajat_path)
+} else {
+  saavutettavuus <- qs2::qd_read(ajoajat_path)
+}
+
+# Ääretön arvo tarkoittaa, ettei reittiä löytynyt. Se on eri asia kuin
+# pitkä matka, ja se on käsiteltävä erikseen eikä jätettävä lukuun.
+n_saavuttamaton <- sum(!is.finite(saavutettavuus$aika_min))
+
+stopifnot(
+  "Yli 5 % kunnista jäi saavuttamattomiin" =
+    n_saavuttamaton / nrow(saavutettavuus) < 0.05
+)
+
+saavutettavuus <- saavutettavuus |> filter(is.finite(aika_min))
+
+# Järkevyystarkistus: kunnassa, jossa on suurteholaturi, ajoajan pitäisi
+# olla lyhyt. Jos ei ole, lähtöpiste on väärässä paikassa.
+hpc_kunnat <- hpc_asemat |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+  st_transform(3067) |>
+  st_join(st_transform(kunnat_sf, 3067), join = st_within) |>
+  st_drop_geometry() |>
+  distinct(kunta_geo) |>
+  pull(kunta_geo)
+
+tarkistus_hpc <- saavutettavuus |>
+  filter(kunta %in% hpc_kunnat) |>
+  summarise(mediaani = median(aika_min), yli_20min = mean(aika_min > 20))
+
+stopifnot(
+  "Latausaseman sisältävissä kunnissa ajoaika on epäuskottavan pitkä" =
+    tarkistus_hpc$yli_20min < 0.25
+)
+```
+
+Viimeinen tarkistus on tässä olennainen. Kunnassa, jossa on suurteholaturi,
+ajoajan siihen pitäisi olla lyhyt. Jos se ei ole, lähtöpiste on väärässä
+paikassa — ja juuri se virhe olisi mennyt läpi huomaamatta ilman tarkistusta.
+
+
+### Linnuntie vastaan tieverkko
+
+Ensin verrataan kahta mittaustapaa keskenään.
+
+```{r}
+#| label: linnuntie
+#| echo: true
+
+hpc_sf <- hpc_asemat |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+  st_transform(3067)
+
+# Lyhin suora etäisyys jokaisesta kunnasta lähimpään suurtehulaturiin.
+# Lähtöpiste on sama väestöpainotettu piste kuin ajoaikalaskennassa,
+# jotta vertailu mittaa mittaustapaa eikä lähtöpisteen valintaa.
+suorat <- st_distance(kuntapisteet_sf, hpc_sf) |>
+  apply(1, min) |>
+  (\(x) x / 1000)()
+
+vertailu_etaisyys <- tibble(
+  kunta = kuntapisteet_sf$kunta_geo,
+  linnuntie_km = suorat
+) |>
+  inner_join(saavutettavuus, by = "kunta") |>
+  mutate(kiertokerroin = matka_km / pmax(linnuntie_km, 0.1)) |>
+  filter(is.finite(kiertokerroin), linnuntie_km > 1)
+
+kierto <- vertailu_etaisyys |>
+  summarise(
+    mediaani = median(kiertokerroin),
+    q90 = quantile(kiertokerroin, 0.9),
+    maksimi = max(kiertokerroin)
+  )
+```
+
+```{r}
+#| label: kuva-kierto
+#| fig-cap: "Todellisen ajomatkan ja linnuntien suhde kunnittain."
+
+vertailu_etaisyys |>
+  ggplot(aes(linnuntie_km, matka_km)) +
+  geom_abline(slope = 1, intercept = 0, colour = "grey55", linetype = 2) +
+  geom_point(colour = pal["turkoosi"], alpha = 0.55, size = 1.8) +
+  annotate("text", x = 60, y = 66, label = "linnuntie = ajomatka",
+           colour = "grey65", size = 3.2, angle = 32) +
+  labs(x = "Etäisyys linnuntietä (km)", y = "Todellinen ajomatka (km)",
+       title = "Tie kiertää aina, ja Suomessa usein paljon",
+       subtitle = paste0("Mediaanikunnassa ajomatka on ",
+                         format(round(kierto$mediaani, 2), decimal.mark = ","),
+                         "-kertainen linnuntiehen verrattuna"))
+```
+
+**Miten kuvaa luetaan.** Jokainen piste on kunta. Vaaka-akselilla on etäisyys
+lähimpään suurtehulaturiin suorana viivana mitattuna, pystyakselilla sama
+matka teitä pitkin ajettuna.
+
+Katkoviiva kuvaa tilannetta, jossa nämä olisivat yhtä suuret — eli tie kulkisi
+täsmälleen suoraan. Kaikki pisteet ovat viivan yläpuolella, koska tie ei
+koskaan ole suora. Mitä kauempana pisteestä viivasta, sitä enemmän tie kiertää.
+
+Mediaanikunnassa ajomatka on
+`r format(round(kierto$mediaani, 2), decimal.mark = ",")`-kertainen
+linnuntiehen verrattuna. Kymmenesosassa kunnista kerroin on yli
+`r format(round(kierto$q90, 2), decimal.mark = ",")`, ja pahimmillaan yli
+`r format(round(kierto$maksimi, 1), decimal.mark = ",")`.
+
+Tämä on suoraan mitattava vastaus siihen, miksi suoraan viivaan perustuva
+kattavuusarvio ei riitä. Jos asetuksessa vaaditaan latauspiste kuudenkymmenen
+kilometrin välein linnuntietä, todellinen ajomatka voi olla lähes sata
+kilometriä — ja talvella se on eri asia kuin kesällä.
+
+## Kartta: kuinka kaukana lähin pikalaturi on
+
+```{r}
+#| label: kuva-kartta
+#| fig-cap: "Ajoaika kunnan keskipisteestä lähimmälle vähintään 150 kW:n latausasemalle."
+#| fig-height: 9
+#| fig-width: 7
+
+kartta_data <- kunnat_sf |>
+  left_join(saavutettavuus, by = c("kunta_geo" = "kunta")) |>
+  filter(!is.na(aika_min))
+
+ggplot(kartta_data) +
+  geom_sf(aes(fill = aika_min), colour = "grey25", linewidth = 0.05) +
+  geom_sf(data = hpc_sf, colour = "white", size = 0.5, alpha = 0.7) +
+  scale_fill_gradientn(
+    colours = c(unname(pal["turkoosi"]), unname(pal["oranssi"]),
+                unname(pal["punainen"])),
+    values = scales::rescale(c(0, 30, 120)),
+    breaks = c(15, 30, 60, 90, 120),
+    labels = c("15 min", "30 min", "1 h", "1,5 h", "2 h"),
+    name = "Ajoaika",
+    guide = guide_colourbar(
+      barwidth = unit(11, "cm"), barheight = unit(0.4, "cm"),
+      title.position = "top",
+      label.theme = element_text(angle = 45, hjust = 1, size = 8,
+                                 colour = "grey85")
+    )
+  ) +
+  labs(title = "Missä pikalaturi on kaukana",
+       subtitle = "Valkoiset pisteet: vähintään 150 kW:n latausasemat",
+       caption = "Aineisto: OpenStreetMap, Fintraffic AFIR") +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "bottom")
+```
+
+**Miten karttaa luetaan.** Jokainen kunta on väritetty sen mukaan, kuinka kauan
+kestää ajaa sen keskipisteestä lähimmälle suurtehulaturille. Turkoosi tarkoittaa
+lyhyttä matkaa, punainen pitkää. Valkoiset pisteet ovat itse latausasemia.
+
+Kartta ei kuvaa yksittäisen asukkaan tilannetta. Kunnan keskipiste voi olla
+kaukana sen asutuskeskuksesta, ja suuressa kunnassa toinen laita voi olla
+tunnin lähempänä kuin toinen. Kartta kertoo kokonaiskuvan, ei yksittäistapausta.
+
+```{r}
+#| label: tunnusluvut
+#| echo: true
+
+tunnusluvut <- saavutettavuus |>
+  summarise(
+    mediaani = median(aika_min),
+    q90 = quantile(aika_min, 0.9),
+    maksimi = max(aika_min),
+    yli_tunnin = mean(aika_min > 60),
+    yli_kaksi = mean(aika_min > 120)
+  )
+```
+
+Mediaanikunnasta lähimmälle suurtehulaturille on
+`r round(tunnusluvut$mediaani)` minuutin ajomatka. Kunnista
+`r percent(tunnusluvut$yli_tunnin, accuracy = 0.1)` on yli tunnin päässä ja
+`r percent(tunnusluvut$yli_kaksi, accuracy = 0.1)` yli kahden tunnin.
+
+::: {.callout-note}
+## Faktalaatikko: kuinka pitkälle sähköauto todella pääsee?
+
+Ajoajan tulkinta riippuu siitä, kuinka pitkälle auto pääsee yhdellä
+latauksella. Valmistajan ilmoittama WLTP-lukema mitataan noin 23 asteen
+lämpötilassa, eikä se kuvaa suomalaista talvea.
+
+Kylmän vaikutus sähköauton kantamaan on tutkittu ilmiö. Vaikutus syntyy
+kahdesta erillisestä syystä: akun kemiallinen suorituskyky heikkenee kylmässä,
+ja matkustamon lämmitys kuluttaa energiaa, jota polttomoottoriautossa saadaan
+hukkalämpönä ilmaiseksi. Jälkimmäinen on merkittävämpi, minkä vuoksi
+lämpöpumpulla varustetut mallit pärjäävät selvästi paremmin.
+
+Julkaistujen kylmätestien perusteella kantaman menetys pakkasella on
+tyypillisesti kolmanneksen luokkaa, ja se vaihtelee malleittain merkittävästi.
+Yksittäisiin testeihin ei kannata nojata, koska mittausolosuhteet vaihtelevat;
+useiden testien yhteistulos on luotettavampi kuin tarkin yksittäinen mittaus.
+
+**Mitä tästä seuraa tälle analyysille.** Tässä osassa lasketut ajoajat ovat
+riippumattomia kantamasta — ne kertovat matkan pituuden, eivät sitä riittääkö
+akku. Kesällä sadan kilometrin väli latureiden välillä on merkityksetön;
+talvella se voi olla ratkaiseva, jos auto on lähtenyt liikkeelle vajaalla
+akulla.
+
+Tämä on syy siihen, miksi latausverkon riittävyyttä ei voi arvioida
+vuosikeskiarvona. Verkko, joka riittää heinäkuussa, ei välttämättä riitä
+tammikuussa — eikä ero ole muutama prosentti.
+:::
+
+## Kuka on katveessa?
+
+Kuntien laskeminen ei riitä. Kunnat ovat erikokoisia, ja pieni kunta pitkän
+matkan päässä on eri asia kuin suuri kaupunki.
+
+```{r}
+#| label: vaesto
+#| echo: true
+
+# Osan 3 kuntakohtainen sähköautokanta
+kanta_path <- file.path(data_dir, "autokanta.qs")
+stopifnot("Autokanta puuttuu – aja osa 3 ensin" = file.exists(kanta_path))
+
+autokanta <- qs2::qd_read(kanta_path)
+sar <- names(autokanta)
+arvo_sar <- setdiff(sar, c("Alue", "Merkki", "Käyttöönottovuosi", "Käyttövoima"))
+
+sahkoautot <- autokanta |>
+  rename(alue = Alue, merkki = Merkki, voima = Käyttövoima,
+         n = all_of(arvo_sar)) |>
+  filter(merkki == "Henkilöautot yhteensä", voima == "Sähkö",
+         !str_detect(alue, "MANNER-SUOMI|Ulkomaat|Tuntematon")) |>
+  select(kunta = alue, sahkoautoja = n) |>
+  mutate(sahkoautoja = replace_na(sahkoautoja, 0))
+
+# Sama kuntaliitoskäsittely kuin aiemmin: geometria on vuodelta 2021,
+# autokanta vuodelta 2026.
+kuntaliitokset <- tibble::tribble(
+  ~vanha,      ~uusi,
+  "Honkajoki", "Kankaanpää",
+  "Pertunmaa", "Mäntyharju"
+)
+
+saavutettavuus_vaesto <- saavutettavuus |>
+  left_join(kuntaliitokset, by = c("kunta" = "vanha")) |>
+  mutate(kunta = coalesce(uusi, kunta)) |>
+  select(-uusi) |>
+  group_by(kunta) |>
+  summarise(aika_min = min(aika_min), matka_km = min(matka_km),
+            .groups = "drop") |>
+  inner_join(sahkoautot, by = "kunta")
+
+stopifnot(
+  "Sähköautokannan liitos hukkasi liikaa kuntia" =
+    nrow(saavutettavuus_vaesto) > 250
+)
+
+# Autopainotetut tunnusluvut: jokainen sähköauto painaa saman verran,
+# ei jokainen kunta. Kysymys on autoilijan tilanteesta.
+w_kvantiili <- function(x, w, p) {
+  o <- order(x); x <- x[o]; w <- w[o]
+  x[which(cumsum(w) / sum(w) >= p)[1]]
+}
+
+auto_tunnusluvut <- saavutettavuus_vaesto |>
+  summarise(
+    mediaani_auto = w_kvantiili(aika_min, sahkoautoja, 0.5),
+    q90_auto = w_kvantiili(aika_min, sahkoautoja, 0.9),
+    osuus_yli_tunnin = sum(sahkoautoja[aika_min > 60]) / sum(sahkoautoja),
+    autoja_yli_tunnin = sum(sahkoautoja[aika_min > 60])
+  )
+```
+
+Kun jokainen sähköauto painaa saman verran, kuva muuttuu. Mediaanisähköauton
+kunnasta on `r round(auto_tunnusluvut$mediaani_auto)` minuutin matka lähimmälle
+suurtehulaturille — selvästi vähemmän kuin kuntien mediaani
+`r round(tunnusluvut$mediaani)` minuuttia.
+
+Ero kertoo sen, mitä osassa 3 nähtiin: sähköautot ovat siellä, missä laturitkin
+ovat. Mutta se ei tarkoita, ettei katvetta olisi.
+`r format(auto_tunnusluvut$autoja_yli_tunnin, big.mark = " ")` sähköautoa eli
+`r percent(auto_tunnusluvut$osuus_yli_tunnin, accuracy = 0.1)` kannasta on
+kunnassa, josta lähimmälle suurtehulaturille on yli tunnin ajomatka.
+
+```{r}
+#| label: kuva-kumulatiivinen
+#| fig-cap: "Kuinka suuri osa sähköautoista on kuinka kaukana lähimmästä suurtehulaturista."
+
+saavutettavuus_vaesto |>
+  arrange(aika_min) |>
+  mutate(
+    kum_autot = cumsum(sahkoautoja) / sum(sahkoautoja),
+    kum_kunnat = row_number() / n()
+  ) |>
+  select(aika_min, Sähköautoista = kum_autot, Kunnista = kum_kunnat) |>
+  pivot_longer(-aika_min, names_to = "mitta", values_to = "osuus") |>
+  ggplot(aes(aika_min, osuus, colour = mitta)) +
+  geom_step(linewidth = 0.9) +
+  geom_vline(xintercept = 60, colour = "grey55", linetype = 2) +
+  annotate("text", x = 60, y = 0.15, label = " tunti", hjust = 0,
+           colour = "grey65", size = 3.2) +
+  scale_colour_manual(values = c("Sähköautoista" = unname(pal["turkoosi"]),
+                                 "Kunnista" = unname(pal["oranssi"]))) +
+  scale_y_continuous(labels = percent) +
+  labs(x = "Ajoaika lähimmälle suurtehulaturille (min)",
+       y = "Kertyvä osuus", colour = NULL,
+       title = "Autot ovat lähempänä latureita kuin kunnat",
+       subtitle = "Sama verkko näyttää erilaiselta riippuen siitä, mitä lasketaan")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on ajoaika lähimmälle
+suurtehulaturille. Pystyakselilta luetaan, kuinka suuri osuus on tuota aikaa
+lähempänä.
+
+Turkoosi käyrä laskee sähköautojen osuutta, oranssi kuntien. Turkoosi nousee
+jyrkemmin, koska sähköautoja on siellä missä latureitakin. Oranssi kertoo
+maantieteellisen kattavuuden, turkoosi autoilijan kokemuksen.
+
+Kumpikaan ei ole väärä. Ne vastaavat eri kysymykseen, ja niiden sekoittaminen
+on tavallinen tapa väittää mitä tahansa: verkko on kattava tai puutteellinen
+sen mukaan, kumpaa käyrää katsoo.
+
+## Tilastollinen testi: kasautuuko katve alueellisesti?
+
+Osassa 3 jouduin toteamaan, ettei kuntien välistä riippuvuutta voi mitata ilman
+kuntien geometriaa. Nyt geometria on käytössä, joten kysymykseen voi vastata.
+
+Kysymys on tämä: ovatko huonosti saavutettavat kunnat satunnaisesti hajallaan
+pitkin maata, vai muodostavatko ne yhtenäisiä alueita? Ero on
+politiikkarelevantti. Hajallaan olevat yksittäistapaukset ovat eri ongelma kuin
+kokonainen maakunta katveessa.
+
+```{r}
+#| label: moran
+#| echo: true
+
+moran_data <- kunnat_sf |>
+  inner_join(saavutettavuus, by = c("kunta_geo" = "kunta")) |>
+  filter(is.finite(aika_min))
+
+# Naapuruus: kunnat ovat naapureita jos niillä on yhteinen raja.
+naapurit <- poly2nb(moran_data, queen = TRUE)
+
+# Saarilla ei ole naapureita; ne on käsiteltävä erikseen
+n_ilman_naapureita <- sum(card(naapurit) == 0)
+
+stopifnot(
+  "Liian moni kunta ilman naapureita" =
+    n_ilman_naapureita / nrow(moran_data) < 0.05
+)
+
+painot <- nb2listw(naapurit, style = "W", zero.policy = TRUE)
+
+moran <- moran.test(moran_data$aika_min, painot, zero.policy = TRUE)
+moran_mc <- moran.mc(moran_data$aika_min, painot, nsim = 999,
+                     zero.policy = TRUE)
+```
+
+Moranin I saa arvon
+`r format(round(unname(moran$estimate[1]), 3), decimal.mark = ",")`, ja
+permutaatiotestin p-arvo on
+`r if (moran_mc$p.value < 0.001) "alle 0,001" else format(round(moran_mc$p.value, 4), decimal.mark = ",")`.
+
+**Mitä Moranin I tarkoittaa.** Se on luku suunnilleen välillä −1 ja 1, joka
+kertoo, muistuttavatko naapurit toisiaan. Arvo lähellä nollaa tarkoittaa, että
+kuntien arvot ovat satunnaisesti hajallaan. Positiivinen arvo tarkoittaa, että
+samanlaiset kunnat ovat vierekkäin — hyvin saavutettavat lähellä toisiaan ja
+huonosti saavutettavat lähellä toisiaan. Negatiivinen arvo tarkoittaisi
+shakkilautamaista kuviota, mikä on maantieteessä harvinaista.
+
+**Miksi permutaatiotesti.** Moranin I:n teoreettinen jakauma nojaa oletuksiin,
+jotka eivät aina päde. Permutaatiotestissä kuntien arvot sekoitetaan
+satunnaisesti tuhat kertaa ja katsotaan, kuinka usein sattuma tuottaa yhtä
+suuren arvon. Menetelmä ei oleta jakaumasta mitään.
+
+Tulos vahvistaa sen, mikä kartalta näkyy: **katve ei ole hajallaan vaan
+kasautuu.** Tällä on suora seuraus. Jos huono saavutettavuus olisi
+satunnaisesti hajallaan, sen korjaaminen vaatisi yksittäisiä latureita siellä
+täällä. Kun se kasautuu, kyse on alueista — ja alueen kattaminen vaatii
+useamman laturin ketjun, ei yhtä hyvin sijoitettua asemaa.
+
+Tämä myös vahvistaa osassa 3 esitetyn varauksen: kunnat eivät ole toisistaan
+riippumattomia havaintoja, ja tavanomaiset tilastolliset testit yliarvioivat
+varmuutta. Nyt tiedän ilmiön suuruuden enkä vain sen olemassaolon.
+
+## Vaihtoehtoiset skenaariot: mitä yksi asema muuttaisi?
+
+Verkostoanalyysin vahvuus on siinä, että se sallii kysyä mitä-jos-kysymyksiä
+suoraan. Lasken, kuinka paljon saavutettavuus paranisi, jos yksi uusi
+suurteholaturi rakennettaisiin.
+
+```{r}
+#| label: counterfactual
+#| echo: true
+
+cf_path <- file.path(data_dir, "counterfactual_sijainnit.qs")
+
+if (!file.exists(cf_path)) {
+  # Ehdokassijainnit: kuntien keskipisteet niissä kunnissa, joissa
+  # saavutettavuus on nyt huonoin. Ehdokkaat tulevat siis datasta,
+  # eivät keksityistä koordinaateista.
+  ehdokkaat <- saavutettavuus_vaesto |>
+    slice_max(aika_min, n = 30) |>
+    pull(kunta)
+
+  ehdokas_sf <- kuntapisteet_sf |>
+    filter(kunta_geo %in% ehdokkaat) |>
+    st_transform(4326)
+
+  ehdokas_koord <- st_coordinates(ehdokas_sf) |>
+    as_tibble() |> setNames(c("x", "y")) |>
+    mutate(kunta = ehdokas_sf$kunta_geo)
+
+  kuntapisteet <- kuntapisteet_sf |>
+    st_transform(4326) |>
+    mutate(x = st_coordinates(geometry)[, 1],
+           y = st_coordinates(geometry)[, 2]) |>
+    st_drop_geometry() |>
+    rename(kunta = kunta_geo)
+
+  from <- as.matrix(select(kuntapisteet, x, y))
+
+  # Ajoajat jokaisesta kunnasta jokaiseen ehdokassijaintiin
+  ajat_ehdokkaat <- dodgr_times(
+    graph = verkko, from = from,
+    to = as.matrix(select(ehdokas_koord, x, y))
+  ) / 60
+
+  nykyiset_ajat <- saavutettavuus$aika_min[
+    match(kuntapisteet$kunta, saavutettavuus$kunta)]
+
+  autot <- sahkoautot$sahkoautoja[match(kuntapisteet$kunta, sahkoautot$kunta)]
+  autot[is.na(autot)] <- 0
+
+  # Jokaiselle ehdokkaalle lasketaan kaksi lukua erikseen: kuinka moni
+  # auto hyötyy ja kuinka paljon ne hyötyvät. Koko maan yli laskettu
+  # keskiarvo laimentaisi paikallisen hyödyn merkityksettömäksi.
+  hyoty <- map_dfr(seq_len(ncol(ajat_ehdokkaat)), function(j) {
+    uudet <- pmin(nykyiset_ajat, ajat_ehdokkaat[, j], na.rm = TRUE)
+    kelpo <- is.finite(uudet) & is.finite(nykyiset_ajat) & autot > 0
+    paranee <- kelpo & uudet < nykyiset_ajat - 0.5
+
+    saasto <- nykyiset_ajat[paranee] - uudet[paranee]
+    painot <- autot[paranee]
+
+    tibble(
+      kunta = ehdokas_koord$kunta[j],
+      autoja_hyotyy = sum(painot),
+      saasto_hyotyvat = if (length(saasto) > 0)
+        weighted.mean(saasto, painot) else 0,
+      # Kynnysmittari: kuinka moni auto siirtyy yli puolen tunnin
+      # matkalta sen alle. Tunnin kynnys osoittautui liian karkeaksi,
+      # koska useimmat ehdokaskunnat ovat jo sen sisällä.
+      alle_30min_uutta = sum(autot[kelpo & nykyiset_ajat > 30 & uudet <= 30]),
+      # Kokonaisvaikutus: säästetyt ajominuutit yhtä latauskertaa kohti
+      autominuutteja = sum(saasto * painot)
+    )
+  })
+
+  qs2::qd_save(hyoty, cf_path)
+} else {
+  hyoty <- qs2::qd_read(cf_path)
+}
+
+paras_kokonais <- hyoty |> slice_max(autominuutteja, n = 1)
+paras_yksilo <- hyoty |> slice_max(saasto_hyotyvat, n = 1)
+
+# Mittari, joka on kaikilla nolla, ei kerro mitään. Se on helppo
+# julkaista huomaamatta, koska tyhjä palkkikuva näyttää siistiltä.
+stopifnot(
+  "Kynnysmittari on nolla kaikilla ehdokkailla – valitse toinen kynnys" =
+    sum(hyoty$alle_30min_uutta) > 0
+)
+```
+
+```{r}
+#| label: kuva-hyoty
+#| fig-cap: "Yhden uuden suurteholaturin vaikutus: kuinka moni auto hyötyy ja kuinka paljon."
+#| fig-height: 6.5
+
+hyoty |>
+  filter(autoja_hyotyy > 0) |>
+  ggplot(aes(autoja_hyotyy, saasto_hyotyvat)) +
+  geom_point(aes(size = autominuutteja), colour = pal["turkoosi"],
+             alpha = 0.6) +
+  ggrepel::geom_text_repel(aes(label = kunta), colour = "grey80",
+                           size = 3, max.overlaps = 12, seed = 42) +
+  scale_x_log10(labels = label_number(big.mark = " ")) +
+  scale_size_continuous(range = c(2, 10), guide = "none") +
+  labs(x = "Hyötyviä sähköautoja (logaritminen asteikko)",
+       y = "Ajoajan säästö hyötyville autoille (min)",
+       title = "Sama laturi, hyvin erilainen vaikutus",
+       subtitle = paste("Pallon koko: kokonaisvaikutus, eli hyötyvien autojen",
+                        "määrä kerrottuna säästöllä"))
+```
+
+**Miten kuvaa luetaan.** Jokainen pallo on yksi ehdokassijainti uudelle
+suurteholaturille.
+
+Vaaka-akselilta luetaan, kuinka monen sähköauton matka lyhenisi. Akseli on
+logaritminen, koska määrät vaihtelevat kymmenistä satoihin.
+Pystyakselilta luetaan, kuinka monta minuuttia matka lyhenisi niillä autoilla,
+joita asema hyödyttää. Pallon koko kertoo näiden tulon eli kokonaisvaikutuksen.
+
+Oikea yläkulma olisi paras mahdollinen sijainti: paljon hyötyjiä ja iso hyöty
+kullekin. Vasen yläkulma tarkoittaa sijaintia, joka auttaa harvoja mutta paljon
+— Savukoski on tästä ääriesimerkki, sillä siellä säästö olisi yli tunti mutta
+hyötyjiä vain kourallinen. Oikea alakulma auttaa monia mutta vähän.
+
+Kuva ei kerro, kumpi on oikea valinta. Se on arvovalinta: painotetaanko
+kokonaishyötyä vai sitä, ettei ketään jätetä kohtuuttoman matkan päähän.
+Analyysin tehtävä on tehdä valinta näkyväksi, ei tehdä sitä lukijan puolesta.
+
+**Miksi mittari on tämä eikä keskiarvo.** Jos laskisin keskimääräisen säästön
+koko maan sähköautokannan yli, jokainen luku olisi alle minuutin — koska
+valtaosa Suomen sähköautoista on pääkaupunkiseudulla eikä hyödy Kainuuseen
+rakennetusta laturista lainkaan. Luku olisi teknisesti oikein ja täysin
+harhaanjohtava.
+
+Sama virhe toistuu julkisessa keskustelussa jatkuvasti: hanke, joka auttaa
+kymmentätuhatta ihmistä paljon, näyttää mitättömältä jos hyöty jaetaan koko
+väestölle. Kysymys ei ole keskiarvosta vaan siitä, kenelle vaikutus kohdistuu.
+
+```{r}
+#| label: kuva-hyoty-tarkeys
+#| fig-cap: "Kokonaisvaikutus ja katveesta poistuvien autojen määrä."
+
+hyoty |>
+  slice_max(autominuutteja, n = 12) |>
+  mutate(kunta = fct_reorder(kunta, autominuutteja)) |>
+  select(kunta,
+         `Kokonaisvaikutus (autominuuttia)` = autominuutteja,
+         `Autoja alle 30 min päähän` = alle_30min_uutta) |>
+  pivot_longer(-kunta) |>
+  ggplot(aes(value, kunta)) +
+  geom_col(fill = pal["oranssi"], width = 0.65) +
+  facet_wrap(~name, scales = "free_x") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.08)),
+                     labels = label_number(big.mark = " ")) +
+  labs(x = NULL, y = NULL,
+       title = "Kaksi tapaa mitata saman aseman arvoa",
+       subtitle = "Kunnat järjestetty kokonaisvaikutuksen mukaan")
+```
+
+Vasen paneeli kertoo kokonaisvaikutuksen: hyötyvien autojen määrä kerrottuna
+säästetyillä minuuteilla. Se on hyötyjen summa, ja se painottaa väkirikkaita
+alueita.
+
+Oikea paneeli on kynnysmittari. Se kertoo, kuinka monta sähköautoa siirtyisi yli
+puolen tunnin ajomatkan päästä sen alle. Kynnysmittari ei mittaa keskimääräistä
+parannusta vaan sitä, kuinka moni siirtyy huonosta luokasta parempaan.
+
+Paneelien järjestys eroaa toisistaan, ja se on koko kuvan pointti. Asema, joka
+tuottaa suurimman kokonaishyödyn, ei ole sama kuin asema, joka nostaa eniten
+autoja pois katveesta. Kumpi valitaan, riippuu siitä mitä politiikalla
+tavoitellaan — ja se on päätös, ei laskutoimitus.
+
+Erot ehdokkaiden välillä ovat kummallakin mittarilla suuria. Se on analyysin
+ydinviesti: **sijainnin valinta ratkaisee moninkertaisesti enemmän kuin
+asemien lukumäärä.** Sama raha tuottaa hyvin erilaisen tuloksen sen mukaan,
+mihin se käytetään — ja ero on laskettavissa etukäteen.
+
+::: {.callout-note}
+## Faktalaatikko: verkoston kriittisyys ei ole sama kuin käyttöaste
+
+Latausasemien merkitystä arvioidaan yleensä käyttöasteella: kuinka monta
+latausta asemalla tehdään. Se on liiketoiminnan kannalta oikea mittari.
+Verkoston toimivuuden kannalta se on harhaanjohtava.
+
+Vilkkaimmat asemat ovat kaupungeissa, joissa vaihtoehtoja on runsaasti. Jos
+sellainen asema menee epäkuntoon, käyttäjä ajaa seuraavalle muutaman
+kilometrin päähän. Harvaan asutun alueen asema voi olla lähes tyhjä ja silti
+korvaamaton, koska sen puuttuessa lähin vaihtoehto on sadan kilometrin päässä.
+
+Verkostoteoriassa tätä eroa kuvataan keskeisyyden käsitteillä. Solmun
+merkitys ei ole sen oma liikenne vaan se, kuinka moni reitti sen kautta
+kulkee ja mitä tapahtuu, jos se poistetaan.
+
+**Mitä tästä seuraa päättäjälle.** Jos julkista tukea kohdennetaan
+käyttöasteen perusteella, se valuu sinne missä markkina toimii jo valmiiksi.
+Jos sitä kohdennetaan verkoston kriittisyyden perusteella, se osuu sinne
+missä markkinaehtoinen rakentaminen ei kannata mutta verkoston toimivuus
+sitä vaatii. Nämä ovat eri kohteita, ja ero on mitattavissa.
+:::
+
+## Mitä jää käteen
+
+**Lähtöpisteen valinta on menetelmävalinta.** Kunnan geometrinen keskipiste
+näyttää neutraalilta valinnalta, mutta se sijaitsee laajoissa kunnissa
+kymmenien kilometrien päässä asutuksesta. Väestöpainotettu piste vastaa eri
+kysymykseen — ja oikeaan.
+
+**Linnuntie on väärä mittari.** Todellinen ajomatka on Suomessa
+mediaanikunnassa selvästi pidempi kuin suora etäisyys, ja pahimmillaan
+moninkertainen. Suoraan viivaan perustuva kattavuusarvio on
+järjestelmällisesti liian optimistinen.
+
+**Kuntien ja autojen laskeminen antavat eri vastauksen.** Kumpikaan ei ole
+väärä, mutta ne vastaavat eri kysymykseen. Maantieteellinen kattavuus ja
+autoilijan kokemus ovat eri asioita.
+
+**Katve kasautuu alueellisesti.** Huonosti saavutettavat kunnat eivät ole
+hajallaan vaan muodostavat yhtenäisiä alueita. Yksittäinen laturi ei siis
+korjaa aluetta.
+
+**Sijainti ratkaisee enemmän kuin lukumäärä.** Yhden aseman vaikutus vaihtelee
+sijainnin mukaan moninkertaisesti, ja ero on laskettavissa ennen rakentamista.
+
+Seuraavassa osassa siirryn siitä, missä asemat ovat, siihen mitä tapahtuu kun
+ne katoavat. Verkoston kestävyys ei näy siitä, miten se toimii normaalisti,
+vaan siitä miten se hajoaa.
+
+---
+
+## Mitä tästä on hyötyä yrityksellesi
+
+**Kysy, edustaako aggregoitu piste sitä mitä luulet.** Kun asiakkaita,
+toimipisteitä tai tapahtumia niputetaan alueiksi, alue täytyy tiivistää yhdeksi
+pisteeksi jotta etäisyyksiä voi laskea. Se piste valitaan yleensä ajattelematta,
+ja valinta on usein väärä: alueen maantieteellinen keskipiste ei ole siellä
+missä toiminta on.
+
+Tässä osassa geometrinen keskipiste olisi luokitellut Joensuun katvealueeksi,
+vaikka kaupungissa on yhdeksän suurtehulatauspaikkaa. Virhe olisi ollut
+näkymätön ilman tarkistusta, joka vertaa tulosta siihen mitä aineistosta
+tiedetään erikseen. Rakenna aina tällainen tarkistus: jos analyysi väittää
+jotain, minkä tiedät toisin, se on kiinni jäänyt virhe eikä uusi löytö.
+
+**Älä jaa hyötyä niille, jotka eivät hyödy.** Tämän osan laskennassa yhden
+laturin vaikutus näytti ensin 18 sekunnilta, koska keskiarvo laskettiin koko
+maan sähköautokannan yli — mukaan lukien 190 000 autoa, joita Kainuun laturi ei
+kosketa lainkaan. Sama luku hyötyjille laskettuna oli kymmeniä minuutteja.
+
+Tämä on yleisin tapa, jolla hyvä hanke saadaan näyttämään merkityksettömältä
+liiketoimintaperusteluissa. Kun laskennan nimittäjä on koko asiakaskunta, koko
+henkilöstö tai koko markkina, mikä tahansa kohdennettu toimenpide laimenee
+mitättömäksi. Kysy aina: kuka hyötyy, kuinka moni heitä on, ja kuinka paljon he
+hyötyvät. Kolme lukua kertoo sen, mitä yksi keskiarvo peittää.
+
+**Mittaa etäisyys niin kuin se koetaan, älä niin kuin se on helppo laskea.**
+Linnuntie-etäisyys on nopea laskea ja lähes aina väärä. Sama pätee kaikkeen
+saavutettavuuteen: asiakkaan matka myymälään, huoltomiehen matka kohteeseen,
+toimituksen matka varastosta. Jos optimoit suoria etäisyyksiä, optimoit väärää
+suuretta — ja virhe on systemaattinen eikä satunnainen, eli se ei tasoitu
+keskiarvoissa.
+
+**Verkostoanalyysi ei vaadi verkkoyhtiötä.** Toimitusketju on verkko.
+Organisaation osaaminen on verkko. Järjestelmäriippuvuudet ovat verkko. Kun
+nämä mallintaa graafina, voi kysyä kysymyksiä joihin taulukkolaskenta ei
+vastaa: mikä on kriittisin solmu, mitä tapahtuu jos se poistuu, missä on
+pullonkaula. Työkalut ovat avoimia ja ilmaisia.
+
+**Laske sijoitteluvaihtoehdot ennen kuin päätät.** Tässä osassa laskin
+kolmellekymmenelle ehdokassijainnille, kuinka paljon kukin parantaisi
+tilannetta. Laskenta kesti minuutteja. Vastaava laskenta uuden toimipisteen,
+varaston tai huoltopisteen sijainnista on täysin sama ongelma, ja sen tekemättä
+jättäminen on yleensä tapa, jolla miljoonan euron päätös tehdään
+mutuntuntumalla.
+
+**Erota käyttöaste ja kriittisyys.** Eniten käytetty ei ole tärkein.
+Järjestelmä, jota käytetään harvoin mutta jota ilman mikään ei toimi, on
+kriittisempi kuin päivittäin käytetty järjestelmä, jolle on vaihtoehto. Jos
+priorisoit ylläpitoa, varautumista tai investointeja käyttömäärän perusteella,
+priorisoit väärin — ja huomaat sen vasta kun jotain hajoaa.
+
+**Ja kysy aina, mitä painotetaan.** Sama aineisto antoi tässä kaksi eri
+vastausta sen mukaan, painotettiinko kuntia vai autoja. Kumpikaan luku ei ollut
+väärä. Kun seuraavan kerran näet tunnusluvun, kysy mikä on painoyksikkö —
+asiakas, euro, tapahtuma vai toimipiste. Vastaus muuttaa tulosta usein enemmän
+kuin mikään menetelmävalinta.
+
+Jos organisaatiossasi tehdään sijoittelu- tai priorisointipäätöksiä ilman että
+vaihtoehtoja on laskettu, tai jos etäisyyksiä mitataan suorina viivoina, siinä
+on työtä odottamassa. Teen tätä vuokrattavana Head of Datana ja
+projektikohtaisesti — hinnasto ja yhteystiedot löytyvät
+[sivustolta](https://kristianvepsalainen.com).
+
+---
+
+*Aineistot: OpenStreetMap (© OpenStreetMap-osallistujat, ODbL 1.0), Fintraffic
+AFIR / Digitraffic, Traficomin tilastotietokanta, Eurostat GISCO. Koodi on
+kokonaisuudessaan tässä postauksessa. Maailma on jakauma.*

@@ -149,7 +149,8 @@ jobs:
             "tidybayes",
             "osmextract",
             "dodgr",
-            "lwgeom"
+            "lwgeom", 
+            "spdep" 
           ))
 
         shell: Rscript {0}

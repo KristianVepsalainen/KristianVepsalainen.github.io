@@ -46,7 +46,7 @@ vaski_docs <- vaski_raw |>
   transmute(
     id = Id,
     tyyppi  = str_extract(Eduskuntatunnus, "^[A-Za-zÄÖ]+"),
-    vpvuosi = as.integer(str_extract(Eduskuntatunnus, "\\d{4}")),
+    vpvuosi = as.integer(str_extract(Eduskuntatunnus, "(?<=/)\\d{4}")),
     created = suppressWarnings(as.Date(str_sub(Created, 1, 10))),
     status  = Status,
     tunnus  = Eduskuntatunnus) |>

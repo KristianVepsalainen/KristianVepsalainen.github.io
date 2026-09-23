@@ -1,0 +1,132 @@
+---
+title: "Kuka kysyy, ja keneltä? Kirjalliset kysymykset ministereille"
+subtitle: "Eduskunta jakaumana, osa 13: kysymysten kohdentuminen"
+description: >
+  Kirjallinen kysymys osoitetaan tietylle ministerille. Kuka saa eniten kysymyksiä,
+  mitkä hallinnonalat kuormittuvat, ja miten kysymysten paine jakautuu? Poliittisen
+  paineen mittari datana.
+date: 2026-09-23
+author: "Kristian Vepsäläinen"
+traf: TRUE
+categories: [eduskunta, avoin data, jakaumat, kirjalliset kysymykset]
+format:
+  html:
+    toc: true
+    toc-title: "Sisällys"
+    code-fold: true
+    code-summary: "Näytä koodi"
+execute: { warning: false, message: false, echo: true }
+---
+
+## Uutiskoukku: kenen pöydälle kysymykset kasautuvat?
+
+Kirjallinen kysymys on opposition (ja hallituksenkin) väline vaatia ministeriltä
+vastaus. Se osoitetaan aina tietylle ministerille. Kun katsomme, kenelle kysymykset
+kohdistuvat, näemme, mihin poliittinen paine keskittyy — ja miten se seuraa
+päivänpolttavia aiheita.
+
+```{r setup}
+#| cache: false
+library(tidyverse); library(here); library(qs2); library(ggdist); library(scales)
+select <- dplyr::select; filter <- dplyr::filter
+set.seed(20270418)
+pal <- c(punainen="#e63946", turkoosi="#2a9d8f", oranssi="#f4a261",
+         laivasto="#1d3557", sininen="#457b9d")
+theme_set(theme_minimal(base_size = 13) +
+  theme(plot.title = element_text(face="bold"), panel.grid.minor = element_blank()))
+DATA <- here("data", "eduskunta")
+init <- qs2::qd_read(file.path(DATA, "vaski_init.qs"))
+```
+
+
+## Kysymysten aihepaine (toimii jo nyt)
+
+```{r aiheet}
+kk_aiheet <- init |> filter(tyyppi == "KK") |>
+  select(vpvuosi, aiheet) |> unnest(aiheet) |>
+  filter(!is.na(aiheet), aiheet != "") |>
+  mutate(aihe = str_squish(str_to_lower(aiheet)))
+stopifnot("KK-aiheita ei löytynyt" = nrow(kk_aiheet) > 500)
+
+top <- kk_aiheet |> count(aihe, sort = TRUE) |> slice_head(n = 15)
+ggplot(top, aes(x = n, y = fct_reorder(aihe, n))) +
+  geom_col(fill = pal[["punainen"]]) +
+  labs(title = "Mihin aiheisiin kirjalliset kysymykset kohdistuvat",
+       subtitle = "Poliittisen paineen kartta aihetunnisteilla",
+       x = "Kysymyksiä", y = NULL)
+```
+
+## Kohde ministereittäin (verifioinnin jälkeen)
+
+```{r ministerit}
+#| eval: false
+# Kytketään, kun vastaanottaja-rooli on varmistettu (ks. prep, kohta C).
+kk_min <- qs2::qd_read(file.path(DATA, "kk_ministerit.qs"))  # id, vpvuosi, ministeri, hallinnonala
+
+per_min <- kk_min |> filter(!is.na(hallinnonala)) |> count(hallinnonala, sort = TRUE) |> slice_head(n = 25) 
+ggplot(per_min, aes(x = n, y = fct_reorder(hallinnonala, n))) +
+  geom_col(fill = pal[["laivasto"]]) +
+  labs(title = "Kirjalliset kysymykset hallinnonaloittain",
+       x = "Kysymyksiä", y = NULL)
+```
+
+## Paineen kohdentuminen ajassa
+
+```{r ajassa}
+#| eval: false
+ministerio <- function(asema) {
+  a <- str_to_lower(asema)
+  case_when(
+    str_detect(a, "sosiaali|terveys|perhe|peruspalvelu|sosiaaliturva")     ~ "STM",
+    str_detect(a, "sisä")                                                  ~ "SM",
+    str_detect(a, "valtiovarain|kunta- ja|omistajaohjaus")                 ~ "VM",
+    str_detect(a, "oikeus")                                                ~ "OM",
+    str_detect(a, "opetus|tiede|kulttuuri|korkeakoulu")                    ~ "OKM",
+    str_detect(a, "maatalous|metsä|maa- ja")                               ~ "MMM",
+    str_detect(a, "liikenne|viestintä")                                    ~ "LVM",
+    str_detect(a, "työ|elinkeino|työllisyys")                              ~ "TEM",
+    str_detect(a, "ympärist|asunto|ilmasto")                               ~ "YM",
+    str_detect(a, "ulko|kehitys|ulkomaankauppa|eurooppa")                  ~ "UM",
+    str_detect(a, "puolustus")                                             ~ "PLM",
+    str_detect(a, "pääministeri|valtioneuvoston kanslia")                  ~ "VNK",
+    TRUE ~ "Muu")
+}
+
+paine <- kk_ministerit |> filter(vastattu, between(vpvuosi, 2016, 2025)) |>
+  mutate(min_ala = ministerio(hallinnonala)) |>
+  count(vpvuosi, min_ala, name = "n") |>
+  group_by(vpvuosi) |> mutate(osuus = n/sum(n)) |> ungroup()
+
+top6 <- paine |> count(min_ala, wt = n, sort = TRUE) |> slice_head(n = 6) |> pull(min_ala)
+
+ggplot(filter(paine, min_ala %in% top6), aes(vpvuosi, osuus, color = min_ala)) +
+  geom_line(linewidth = 1) + geom_point(size = 1.4) +
+  scale_x_continuous(breaks = scales::breaks_width(2)) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  scale_color_manual(values = grDevices::colorRampPalette(unname(pal))(6)) +
+  labs(title = "Kysymyspaine ministeriöittäin",
+       subtitle = "Osuus vuoden kirjallisista kysymyksistä, täydet valtiopäivävuodet 2016–2025",
+       x = NULL, y = "Osuus vuoden kysymyksistä", color = NULL)
+```
+
+::: {.callout-note title="Mittari mittaa painetta, ei suoritusta"}
+Paljon kysymyksiä saava ministeri ei ole huono — hän voi hoitaa kiistanalaista
+hallinnonalaa. Kysymysmäärä mittaa poliittista huomiota ja painetta, ei ministerin
+onnistumista. Tämä ero on pidettävä selvänä.
+:::
+
+## Mitä tämä tarkoittaa päättäjälle
+
+- **Kysymykset ovat painemittari.** Niiden kohdentuminen paljastaa, mihin poliittinen
+  huomio keskittyy ja miten se liikkuu.
+- **Volyymi ei ole arvosana.** Paljon huomiota ei tarkoita huonoa hoitoa — mittarin
+  tulkinta vaatii kontekstin.
+
+---
+
+::: {.callout-tip title="Tehdäänkö teidän datallenne sama?"}
+Huomion ja paineen kohdentumisen analyysi — kysymyksistä, palautteista tai
+tiketeistä. **kristianvepsalainen.com**
+:::
+
+*Datalähde: Eduskunnan avoin data, VaskiData (CC BY 4.0).*

@@ -7,7 +7,6 @@ description: |
   todelliset ajoajat lähimmälle pikalaturille ja katsomme, kuka jää katveeseen.
 date: 2026-09-22
 categories: [avoin data, verkostoanalyysi, latausverkko, saavutettavuus, OpenStreetMap]
-draft: true
 ---
 
 ```{r}

@@ -1,0 +1,928 @@
+---
+title: "Mitkä latausasemat pitävät verkon kasassa?"
+subtitle: "Latausverkko jakaumana, osa 5: keskeisyys, kantaman vaikutus ja verkoston solmukohdat"
+description: |
+  Latausasemaa arvioidaan yleensä sen omalla käyttöasteella. Verkoston
+  kannalta merkitys syntyy toisin: siitä, kuinka moni reitti kulkee aseman
+  kautta. Rakennamme asemista graafin ja etsimme sen solmukohdat.
+date: 2026-09-28
+draft: TRUE
+categories: [avoin data, verkostoanalyysi, latausverkko, keskeisyys, graafiteoria]
+draft: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+#| cache: false
+
+library(here)
+library(tidyverse)
+library(sf)
+library(dodgr)
+library(igraph)
+library(ggraph)
+library(ggrepel)
+library(patchwork)
+library(qs2)
+library(scales)
+
+select <- dplyr::select
+filter <- dplyr::filter
+count <- dplyr::count
+
+source(here("R", "theme_kristian.R"))
+
+knitr::opts_chunk$set(
+  echo = FALSE, warning = FALSE, message = FALSE,
+  fig.width = 9, fig.height = 5.5, dpi = 150
+)
+
+theme_set(theme_kristian())
+
+pal <- c(punainen = "#e63946", turkoosi = "#2a9d8f", oranssi = "#f4a261",
+         navy = "#1d3557", sininen = "#457b9d")
+
+data_dir <- here("data", "latausverkko")
+set.seed(42)
+
+asemat    <- qs2::qd_read(file.path(data_dir, "asemat.qs"))
+liitokset <- qs2::qd_read(file.path(data_dir, "liitokset.qs"))
+kunnat_sf <- qs2::qs_read(file.path(data_dir, "kunnat_lau.qs"))
+verkko    <- qs2::qs_read(file.path(data_dir, "tieverkko.qs"))
+
+stopifnot(
+  "Tieverkko puuttuu" = nrow(verkko) > 0,
+  "Komponenttitieto puuttuu" = "component" %in% names(verkko)
+)
+
+verkko <- verkko[verkko$component == 1, ]
+```
+
+## Vilkkain ei ole tärkein
+
+Latausaseman merkitystä mitataan yleensä sillä, kuinka paljon sitä käytetään.
+Se on operaattorille oikea mittari: käyttöaste ratkaisee, kannattaako asema.
+
+Verkoston kannalta se on harhaanjohtava, ja syy on yksinkertainen. Kaupungin
+vilkkaimman aseman ympärillä on kymmenen muuta asemaa. Jos se menee epäkuntoon,
+autoilija ajaa kilometrin päähän eikä huomaa mitään. Pohjoisen tien varressa
+oleva asema voi olla lähes tyhjä ja silti korvaamaton, koska sen puuttuessa
+lähin vaihtoehto on sadan kilometrin päässä — ja sinne on päästävä sillä
+akulla, joka autossa nyt on.
+
+Tässä osassa rakennan latausasemista verkoston, jossa asemat ovat solmuja ja
+kaari yhdistää kaksi asemaa, jos niiden välin voi ajaa yhdellä latauksella.
+Sen jälkeen etsin ne asemat, joiden kautta kulkee eniten reittejä.
+
+Lopputulos on lista asemista, jotka pitävät Suomen latausverkon kasassa — ja
+joista useimmat eivät ole vilkkaimpia.
+
+## Verkosto, jossa kaari tarkoittaa "tänne pääsee"
+
+Osassa 4 verkosto oli tieverkko: solmut risteyksiä, kaaret tieosuuksia. Nyt
+verkosto on toisenlainen, ja ero on tärkeä ymmärtää.
+
+**Solmu on latausasema.** Vain suurtehulaturit, joiden teho on vähintään 150
+kilowattia, koska matkalla pysähdytään vain sellaisiin.
+
+**Kaari yhdistää kaksi asemaa, jotka ovat toistensa naapureita.** Kaari ei ole
+tie vaan mahdollisuus: siitä asemasta pääsee tuohon asemaan ilman että akku
+loppuu. Kaari vaatii lisäksi, ettei asemien välissä ole kolmatta asemaa —
+muuten verkosta tulisi liian tiheä ja epärealistinen. Palaan tähän tarkemmin
+seuraavassa luvussa, koska valinta osoittautui ratkaisevaksi.
+
+Tämä tekee verkosta riippuvaisen yhdestä oletuksesta — kuinka pitkälle auto
+pääsee. Se ei ole vakio, ja siksi laskenta tehdään useilla eri arvoilla.
+
+```{r}
+#| label: hpc
+#| echo: true
+
+hpc <- liitokset |>
+  filter(teho_kw >= 150) |>
+  group_by(avain) |>
+  summarise(max_kw = max(teho_kw), pistokkeita = n(), .groups = "drop") |>
+  left_join(asemat, by = "avain") |>
+  filter(!is.na(lat), !is.na(lon))
+
+stopifnot(
+  "Suurtehulatureita liian vähän verkostoanalyysiin" = nrow(hpc) >= 50,
+  "Koordinaatit Suomen ulkopuolella" =
+    all(between(hpc$lat, 59.4, 70.2) & between(hpc$lon, 18.9, 31.7))
+)
+
+n_hpc <- nrow(hpc)
+```
+
+Verkostossa on `r n_hpc` suurtehulatausasemaa.
+
+```{r}
+#| label: matriisi
+#| echo: true
+
+matriisi_path <- file.path(data_dir, "matkamatriisi.qs")
+
+if (!file.exists(matriisi_path)) {
+  koord <- as.matrix(select(hpc, x = lon, y = lat))
+
+  # Asemien välinen matka- ja aikamatriisi. Tämä on sarjan raskain
+  # yksittäinen laskenta, joten se tehdään kerran ja tallennetaan.
+  matkat <- dodgr_dists(graph = verkko, from = koord, to = koord) / 1000
+  ajat   <- dodgr_times(graph = verkko, from = koord, to = koord) / 60
+
+  stopifnot(
+    "Matriisi ei ole neliö" = nrow(matkat) == ncol(matkat),
+    "Matriisin koko ei täsmää asemamäärään" = nrow(matkat) == nrow(hpc)
+  )
+
+  dimnames(matkat) <- list(hpc$avain, hpc$avain)
+  dimnames(ajat)   <- list(hpc$avain, hpc$avain)
+
+  qs2::qs_save(list(matkat = matkat, ajat = ajat), matriisi_path)
+} else {
+  m <- qs2::qs_read(matriisi_path)
+  matkat <- m$matkat
+  ajat   <- m$ajat
+}
+
+# Matriisi on epäsymmetrinen tavalla, joka ei johdu maantieteestä.
+# Osa asemista sijaitsee kauppakeskusten pysäköintialueilla, joiden
+# lähin tieverkon solmu on yksisuuntaisen rampin päässä: asemalle
+# pääsee, mutta sieltä ei lähde yhtään kaarta pois. Matka A:sta B:hen
+# on käytännössä sama kuin B:stä A:han, joten puuttuva suunta
+# täytetään vastakkaisella.
+symmetrisoi <- function(m) {
+  tulos <- pmin(m, t(m), na.rm = TRUE)
+  tulos[!is.finite(tulos)] <- Inf
+  tulos
+}
+
+puute_ennen <- mean(!is.finite(matkat))
+matkat <- symmetrisoi(matkat)
+ajat   <- symmetrisoi(ajat)
+osuus_saavuttamaton <- mean(!is.finite(matkat))
+
+stopifnot(
+  "Symmetrisointi ei vähentänyt puutteita – syy on muualla" =
+    osuus_saavuttamaton <= puute_ennen,
+  "Yli 5 % asemapareista on saavuttamattomia" = osuus_saavuttamaton < 0.05,
+  "Diagonaalilla on nollasta poikkeavia arvoja" =
+    all(diag(matkat) < 1, na.rm = TRUE)
+)
+```
+
+### Miksi matriisi ei ollut symmetrinen
+
+Asemien välinen matka pitäisi olla sama molempiin suuntiin. Laskennassa se ei
+ollut, ja syy on paljastava.
+
+Noin kaksikymmentäviisi asemaa osoittautui sellaisiksi, että niille pääsee
+mutta niiltä ei pääse pois. Kaikki ne sijaitsevat kauppakeskusten,
+markettien tai liikenneasemien pysäköintialueilla — Prisma Ylivieska, S-market
+Karhula, Verkkokauppa.com Raisio, Recharge McDonald's Turku.
+
+Kyse ei ole siitä, etteikö niiltä pääsisi ajamaan pois. Kyse on siitä, että
+laskennassa asema kiinnitetään lähimpään tieverkon risteykseen, ja
+kauppakeskuksen kohdalla se sattuu usein olemaan yksisuuntaisen liittymärampin
+pää. Rampille tullaan mutta siltä ei lähdetä mihinkään suuntaan, jota verkko
+tuntee.
+
+Korjaan tämän täyttämällä puuttuvan suunnan vastakkaisella. Se on turvallista,
+koska kahden latausaseman välinen ajomatka on käytännössä sama kummin päin
+tahansa.
+
+Yksi asema jäi silti irralleen molempiin suuntiin: Kulosaaren kenttä
+Helsingissä. Se on saarella, jonne johtaa moottoritie, ja aseman koordinaatti
+osuu ilmeisesti verkon kannalta väärälle puolelle. Yksi asema kolmestasadasta ei
+muuta tuloksia, mutta kerron sen, koska poisjätetty havainto on aina
+kerrottava.
+
+**Miksi tämä kannattaa lukea, vaikka se on tekninen yksityiskohta.** Ilman
+tarkistusta laskenta olisi mennyt läpi ja tuottanut tuloksia, joissa parikymmentä
+asemaa olisi näyttänyt eristyneiltä. Ne olisivat saaneet keskeisyysarvon nolla ja
+kadonneet analyysistä täysin huomaamatta — eivätkä ne ole mitä tahansa asemia
+vaan isojen kaupunkien kauppakeskusasemia, siis niitä joita käytetään eniten.
+
+::: {.callout-note}
+## Faktalaatikko: kuinka pitkälle sähköauto todella pääsee?
+
+Verkon rakenne riippuu täysin siitä, kuinka pitkä väli asemien välillä
+hyväksytään. Se ei ole tekninen yksityiskohta vaan koko analyysin herkin
+oletus, joten se ansaitsee perustelun.
+
+Valmistajan ilmoittama WLTP-kantama mitataan noin 23 asteen lämpötilassa
+vakioidulla ajosyklillä. Se ei kuvaa moottoritieajoa eikä suomalaista talvea.
+
+Kolme tekijää lyhentää todellista kantamaa. Nopeus: ilmanvastus kasvaa nopeuden
+neliössä, joten 120 kilometrin tuntinopeudella kuluu selvästi enemmän kuin
+WLTP-syklin keskinopeudella. Kylmyys: akun kemiallinen suorituskyky heikkenee,
+ja matkustamon lämmitys kuluttaa energiaa, jota polttomoottoriautossa saadaan
+hukkalämpönä ilmaiseksi. Ja käyttötapa: akkua ei ajeta tyhjäksi eikä ladata
+täyteen, koska molemmat päät ovat hitaita ja kuluttavat akkua.
+
+Julkaistujen kylmätestien perusteella talvinen kantaman menetys on tyypillisesti
+kolmanneksen luokkaa, ja hajonta mallien välillä on suurta — lämpöpumpulla
+varustetut autot pärjäävät selvästi paremmin. Yksittäisiin testeihin ei kannata
+nojata, koska mittausolosuhteet vaihtelevat; useiden testien yhteistulos on
+luotettavampi kuin tarkin yksittäinen mittaus.
+
+**Miten tämä on otettu huomioon.** En valitse yhtä kantamaa vaan lasken verkon
+neljällä eri arvolla: 150, 200, 300 ja 400 kilometriä asemien välillä. Nämä
+vastaavat karkeasti talvista pienen akun autoa, talvista keskikokoista,
+kesäistä keskikokoista ja kesäistä suuren akun autoa.
+
+Kirjoitin tämän laatikon ennen kuin näin tulokset, ja oletin kantaman olevan
+ratkaiseva. Se ei ollut. Jätän laatikon silti tähän, koska oletuksen
+perusteleminen etukäteen on osa menetelmää — ja koska tulos "tällä ei ollut
+väliä" on arvokas vain jos kerrotaan, mitä odotettiin.
+:::
+
+## Millainen kaari on mielekäs?
+
+Ensimmäinen yritykseni oli suoraviivainen: kaari kahden aseman välille, jos
+niiden väli on alle kantaman. Se tuottaa verkon, joka on käyttökelvoton.
+
+Syy on siinä, että Etelä-Suomessa asemia on tiheässä. Kolmensadan kilometrin
+kantamalla lähes jokainen asema on lähes jokaisen muun ulottuvilla, ja verkosta
+tulee melkein täydellinen — jokainen yhteydessä jokaiseen. Sellaisessa verkossa
+ei ole solmukohtia, koska mistään ei tarvitse kulkea minkään kautta.
+
+Malli on myös epärealistinen. Helsingistä Tampereelle ajava ei hyppää suoraan
+kaupungista toiseen ohittaen kaikki välillä olevat asemat. Hän pysähtyy
+matkan varrella olevalle asemalle, jos tarvitsee.
+
+Käytän siksi **relatiivista naapuruusgraafia**. Sen sääntö on: kaari asemien A
+ja B välille vain, jos ei ole kolmatta asemaa C, joka on lähempänä sekä A:ta
+että B:tä kuin ne ovat toisiaan. Toisin sanoen kaari yhdistää vain asemat, jotka
+ovat toistensa aitoja naapureita — niiden välissä ei ole mitään.
+
+Tämä tuottaa verkon, joka muistuttaa todellista reitistöä: ketjuja pitkin teitä
+ja risteyskohtia siellä, missä tiet kohtaavat.
+
+```{r}
+#| label: verkot
+#| echo: true
+
+kantamat <- c(150, 200, 300, 400)
+
+# Relatiivinen naapuruusgraafi: kaari (i,j) säilyy vain jos yksikään
+# asema k ei ole lähempänä molempia kuin i ja j ovat toisiaan.
+# Toteutus on vektorisoitu, koska silmukka olisi liian hidas.
+rng_matriisi <- function(D, raja) {
+  n <- nrow(D)
+  A <- (D <= raja) & is.finite(D)
+  diag(A) <- FALSE
+
+  for (k in seq_len(n)) {
+    # M[i,j] = suurempi etäisyyksistä i->k ja k->j
+    M <- pmax(matrix(D[, k], n, n), matrix(D[k, ], n, n, byrow = TRUE))
+    # Jos molemmat välietäisyydet ovat lyhyempiä kuin suora, poista kaari
+    A[is.finite(M) & M < D] <- FALSE
+  }
+  diag(A) <- FALSE
+  A
+}
+
+rakenna_verkko <- function(raja_km) {
+  A <- rng_matriisi(matkat, raja_km)
+  g <- graph_from_adjacency_matrix(A, mode = "undirected")
+  V(g)$avain <- hpc$avain
+  g
+}
+
+verkot <- map(kantamat, rakenna_verkko) |> setNames(paste0(kantamat, " km"))
+
+rakennetiedot <- imap_dfr(verkot, \(g, nimi) {
+  komp <- components(g)
+  tibble(
+    kantama = nimi,
+    kaaria = gsize(g),
+    komponentteja = komp$no,
+    suurin_komponentti = max(komp$csize),
+    osuus_suurimmassa = max(komp$csize) / gorder(g),
+    keskiaste = mean(degree(g)),
+    eristyneita = sum(degree(g) == 0),
+    halkaisija = diameter(g, unconnected = TRUE)
+  )
+})
+
+stopifnot(
+  "Verkko on liian tiheä keskeisyysanalyysiin" =
+    all(rakennetiedot$keskiaste < 15),
+  "Verkko hajosi liikaa" = all(rakennetiedot$osuus_suurimmassa > 0.5)
+)
+```
+
+```{r}
+#| label: valit
+#| echo: true
+
+# Naapuruusgraafin kaaret ovat peräkkäisten asemien välejä. Niiden
+# pituusjakauma kertoo, milloin kantama alkaa rajoittaa liikkumista.
+g_taysi <- rakenna_verkko(Inf)
+
+valit <- as_data_frame(g_taysi, what = "edges") |>
+  as_tibble() |>
+  mutate(
+    i = match(from, hpc$avain),
+    j = match(to, hpc$avain),
+    pituus_km = matkat[cbind(i, j)]
+  ) |>
+  filter(is.finite(pituus_km))
+
+stopifnot(
+  "Kaarien pituuksia ei saatu poimittua" = nrow(valit) > 100,
+  "Negatiivisia välejä" = all(valit$pituus_km >= 0)
+)
+
+vali_tunnusluvut <- valit |>
+  summarise(
+    mediaani = median(pituus_km),
+    q90 = quantile(pituus_km, 0.9),
+    q99 = quantile(pituus_km, 0.99),
+    pisin = max(pituus_km),
+    yli_150 = mean(pituus_km > 150),
+    yli_200 = mean(pituus_km > 200)
+  )
+```
+
+```{r}
+#| label: kuva-valit
+#| fig-cap: "Peräkkäisten suurtehulatausasemien välien pituusjakauma."
+
+valit |>
+  ggplot(aes(pituus_km)) +
+  geom_histogram(bins = 50, fill = pal["navy"], colour = NA) +
+  geom_vline(xintercept = kantamat, colour = pal["punainen"],
+             linetype = 2, linewidth = 0.5) +
+  annotate("text", x = kantamat, y = Inf, label = paste0(kantamat, " km"),
+           angle = 90, hjust = 1.15, vjust = -0.4,
+           colour = pal["punainen"], size = 3) +
+  scale_x_continuous(breaks = seq(0, 400, 50)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.10))) +
+  labs(x = "Peräkkäisten asemien väli (km)", y = "Välejä",
+       title = "Lähes kaikki välit mahtuvat pienimmänkin akun ulottuville",
+       subtitle = "Katkoviivat: tarkastellut kantamaoletukset")
+```
+
+**Miten kuvaa luetaan.** Jokainen väli on yhteys kahden peräkkäisen
+suurtehulatausaseman välillä — siis sellaisen parin, jonka välissä ei ole
+kolmatta asemaa. Vaaka-akselilla on välin pituus kilometreinä, pystyakselilta
+luetaan kuinka monta väliä osuu kullekin pituudelle.
+
+Punaiset katkoviivat merkitsevät tarkasteltuja kantamaoletuksia. Viivan
+oikealla puolella olevat välit ovat sellaisia, joita ei kyseisellä kantamalla
+pysty ajamaan pysähtymättä.
+
+Jakauma on voimakkaasti vasemmalle painottunut. Mediaaniväli on
+`r round(vali_tunnusluvut$mediaani)` kilometriä, ja
+`r percent(vali_tunnusluvut$yli_150, accuracy = 0.1)` väleistä ylittää 150
+kilometriä. Pisin yksittäinen väli on
+`r round(vali_tunnusluvut$pisin)` kilometriä.
+
+**Tämä on osan yllättävin tulos, ja se on hyvä uutinen.** Suurtehulatureiden
+verkko on Suomessa niin tiheä, että peräkkäisten asemien välit eivät käytännössä
+rajoita liikkumista edes talviolosuhteissa pienen akun autolla. Kantamaoletuksen
+muuttaminen 400 kilometristä 150:een ei juuri muuta verkon rakennetta, koska
+lähes kaikki välit mahtuvat jo pienimmänkin ulottuville.
+
+Ongelma ei siis ole asemien välinen etäisyys valtateiden varrella. Ongelma on
+toisaalla: siinä, pääseekö tien varteen ylipäätään, ja siinä mitä tapahtuu kun
+asema on epäkunnossa tai varattu. Ensimmäistä käsiteltiin edellisessä osassa,
+jälkimmäistä käsitellään myöhemmin.
+
+```{r}
+#| label: kuva-pisimmat
+#| fig-cap: "Pisimmät välit peräkkäisten suurtehulatausasemien välillä."
+
+valit |>
+  slice_max(pituus_km, n = 12) |>
+  mutate(
+    a = hpc$kunta[i], b = hpc$kunta[j],
+    label = paste(a, "–", b),
+    label = fct_reorder(label, pituus_km)
+  ) |>
+  ggplot(aes(pituus_km, label)) +
+  geom_col(fill = pal["oranssi"], width = 0.65) +
+  geom_vline(xintercept = 150, colour = pal["punainen"], linetype = 2) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Välin pituus (km)", y = NULL,
+       title = "Missä välit ovat pisimmät",
+       subtitle = "Punainen katkoviiva: 150 km eli talvinen pienen akun kantama") +
+  theme(axis.text.y = element_text(size = 7.5))
+```
+
+Nämä ovat ne kohdat, joissa kantamalla on merkitystä. Ne ovat myös ne kohdat,
+joissa yhden aseman poistuminen käytöstä tarkoittaa aidosti pitkää kiertotietä
+— ja siihen palataan seuraavassa osassa.
+
+## Keskeisyys: kenen kautta kuljetaan?
+
+Nyt voidaan kysyä, mitkä asemat ovat verkoston kannalta tärkeimpiä. Käytän
+kolmea eri mittaria, koska ne vastaavat eri kysymykseen.
+
+**Välillisyyskeskeisyys** (*betweenness*) mittaa, kuinka moni lyhin reitti
+kulkee aseman kautta. Korkea arvo tarkoittaa, että asema on solmukohta: jos se
+poistuu, moni reitti pitenee tai katkeaa. Tämä on silta kahden alueen välillä.
+
+**Läheisyyskeskeisyys** (*closeness*) mittaa, kuinka lähellä asema on kaikkia
+muita. Korkea arvo tarkoittaa keskeistä sijaintia verkossa.
+
+**Ominaisvektorikeskeisyys** (*eigenvector*) mittaa, onko asema tärkeiden
+asemien naapuri. Se palkitsee hyvistä yhteyksistä, ei pelkästä määrästä.
+
+```{r}
+#| label: keskeisyys
+#| echo: true
+
+laske_keskeisyys <- function(g, kantama_nimi) {
+  komp <- components(g)
+  tibble(
+    avain = V(g)$avain,
+    kantama = kantama_nimi,
+    valillisyys = betweenness(g, normalized = TRUE),
+    laheisyys = closeness(g, normalized = TRUE),
+    ominaisvektori = eigen_centrality(g)$vector,
+    aste = degree(g),
+    komponentti = komp$membership,
+    komponentin_koko = komp$csize[komp$membership]
+  )
+}
+
+keskeisyydet <- imap_dfr(verkot, laske_keskeisyys) |>
+  left_join(select(hpc, avain, nimi, kunta, op_nimi, max_kw, lat, lon),
+            by = "avain")
+
+stopifnot(
+  "Keskeisyyslaskenta tuotti puuttuvia arvoja" =
+    !any(is.na(keskeisyydet$valillisyys)),
+  "Välillisyys ei ole välillä 0–1" =
+    all(between(keskeisyydet$valillisyys, 0, 1))
+)
+
+# Keskeisyyden jakauma: onko verkko tasainen vai muutaman solmun varassa?
+gini <- function(x) {
+  x <- sort(x[!is.na(x)]); n <- length(x)
+  if (n < 2 || sum(x) == 0) return(NA_real_)
+  sum((2 * seq_len(n) - n - 1) * x) / (n * sum(x))
+}
+
+jakauman_muoto <- keskeisyydet |>
+  group_by(kantama) |>
+  summarise(
+    gini_valillisyys = gini(valillisyys),
+    top10_osuus = sum(sort(valillisyys, decreasing = TRUE)[1:10]) /
+      sum(valillisyys),
+    nollia = mean(valillisyys < 1e-9),
+    .groups = "drop"
+  )
+```
+
+```{r}
+#| label: kuva-jakauma
+#| fig-cap: "Välillisyyskeskeisyyden jakauma. Valtaosalla asemista se on lähellä nollaa."
+
+keskeisyydet |>
+  filter(kantama == "300 km") |>
+  ggplot(aes(valillisyys)) +
+  geom_histogram(bins = 50, fill = pal["turkoosi"], colour = NA) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Välillisyyskeskeisyys", y = "Asemia",
+       title = "Muutama asema kantaa verkkoa, valtaosa ei",
+       subtitle = "Kantamaoletus 300 km. Nollan lähellä oleva asema ei ole minkään reitin varrella.")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on välillisyyskeskeisyys eli se,
+kuinka suuri osuus verkoston lyhimmistä reiteistä kulkee aseman kautta.
+Pystyakselilta luetaan, kuinka moni asema saa kunkin arvon.
+
+Jakauma on voimakkaasti oikealle vino: valtaosa asemista on nollan tuntumassa
+ja muutama saa korkean arvon. Tämä on tyypillinen kuva
+infrastruktuuriverkoista, eikä se ole huono uutinen sinänsä. Se tarkoittaa
+kuitenkin, että verkon toimivuus nojaa harvoihin solmuihin — ja niiden
+tunnistaminen on hyödyllisempää kuin kaikkien asemien tasapuolinen seuranta.
+
+```{r}
+#| label: kuva-kartta-keskeisyys
+#| fig-cap: "Latausasemat välillisyyskeskeisyyden mukaan väritettynä."
+#| fig-height: 9
+#| fig-width: 7
+
+kartta_pisteet <- keskeisyydet |>
+  filter(kantama == "300 km") |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+  st_transform(3067)
+
+ggplot() +
+  geom_sf(data = st_transform(kunnat_sf, 3067),
+          fill = "grey12", colour = "grey20", linewidth = 0.05) +
+  geom_sf(data = kartta_pisteet,
+          aes(colour = valillisyys, size = valillisyys), alpha = 0.85) +
+  scale_colour_gradientn(
+    colours = c(unname(pal["sininen"]), unname(pal["oranssi"]),
+                unname(pal["punainen"])),
+    name = "Välillisyys"
+  ) +
+  scale_size_continuous(range = c(0.7, 6), guide = "none") +
+  labs(title = "Verkoston solmukohdat",
+       subtitle = "Punaiset asemat ovat siltoja, joiden kautta kulkee moni reitti",
+       caption = "Kantamaoletus 300 km. Aineisto: OpenStreetMap, Fintraffic AFIR") +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(), legend.position = "bottom")
+```
+
+```{r}
+#| label: karkilista
+#| echo: true
+
+karki <- keskeisyydet |>
+  filter(kantama == "300 km") |>
+  slice_max(valillisyys, n = 12) |>
+  select(nimi, kunta, op_nimi, max_kw, valillisyys, aste)
+```
+
+```{r}
+#| label: kuva-karki
+#| fig-cap: "Välillisyyskeskeisyydeltään suurimmat asemat."
+
+karki |>
+  mutate(label = paste0(str_trunc(nimi, 28), "\n", kunta),
+         label = fct_reorder(label, valillisyys)) |>
+  ggplot(aes(valillisyys, label)) +
+  geom_col(fill = pal["punainen"], width = 0.65) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Välillisyyskeskeisyys", y = NULL,
+       title = "Asemat, joiden kautta kulkee eniten reittejä",
+       subtitle = "Kantamaoletus 300 km") +
+  theme(axis.text.y = element_text(size = 7))
+```
+
+## Kolme mittaria, kolme eri listaa
+
+Keskeisyysmittarit eivät anna samaa vastausta, ja ero on olennainen.
+
+```{r}
+#| label: mittarivertailu
+#| echo: true
+
+vertailu <- keskeisyydet |>
+  filter(kantama == "300 km") |>
+  mutate(
+    sija_val = rank(-valillisyys, ties.method = "min"),
+    sija_lah = rank(-laheisyys, ties.method = "min"),
+    sija_omi = rank(-ominaisvektori, ties.method = "min")
+  )
+
+# Kuinka paljon listat eroavat? Spearmanin järjestyskorrelaatio
+# vertaa sijalukuja, ei arvoja, mikä on tässä oikea valinta koska
+# mittareiden asteikot eivät ole vertailukelpoisia.
+kor_val_lah <- cor(vertailu$valillisyys, vertailu$laheisyys,
+                   method = "spearman", use = "complete.obs")
+kor_val_omi <- cor(vertailu$valillisyys, vertailu$ominaisvektori,
+                   method = "spearman", use = "complete.obs")
+kor_lah_omi <- cor(vertailu$laheisyys, vertailu$ominaisvektori,
+                   method = "spearman", use = "complete.obs")
+
+# Kuinka moni top-20:stä on sama molemmilla mittareilla?
+top_val <- vertailu |> slice_max(valillisyys, n = 20) |> pull(avain)
+top_omi <- vertailu |> slice_max(ominaisvektori, n = 20) |> pull(avain)
+paallekkaisyys <- length(intersect(top_val, top_omi))
+```
+
+Välillisyyden ja ominaisvektorikeskeisyyden järjestyskorrelaatio on
+`r format(round(kor_val_omi, 2), decimal.mark = ",")`, ja kahdenkymmenen
+kärjestä yhteisiä on `r paallekkaisyys`.
+
+**Mitä järjestyskorrelaatio tarkoittaa.** Se on luku välillä −1 ja 1, joka
+kertoo kuinka samanlaiseen järjestykseen kaksi mittaria asemat asettaa. Ykkönen
+tarkoittaisi täsmälleen samaa järjestystä, nolla ei mitään yhteyttä.
+
+Käytän järjestyskorrelaatiota tavallisen korrelaation sijaan, koska mittareiden
+asteikot eivät ole vertailukelpoisia — välillisyys ja ominaisvektorikeskeisyys
+lasketaan täysin eri tavoin. Vertailukelpoista on vain se, missä järjestyksessä
+asemat ovat.
+
+```{r}
+#| label: kuva-mittarit
+#| fig-cap: "Välillisyys ja ominaisvektorikeskeisyys asemittain."
+
+vertailu |>
+  ggplot(aes(ominaisvektori, valillisyys)) +
+  geom_point(colour = pal["turkoosi"], alpha = 0.6, size = 2) +
+  geom_text_repel(
+    data = \(d) d |> filter(sija_val <= 6 | sija_omi <= 6),
+    aes(label = paste0(str_trunc(nimi, 20), " (", kunta, ")")),
+    colour = "grey80", size = 2.8, max.overlaps = 15, seed = 42
+  ) +
+  labs(x = "Ominaisvektorikeskeisyys (tärkeiden asemien naapuri)",
+       y = "Välillisyyskeskeisyys (silta kahden alueen välillä)",
+       title = "Kaksi eri tapaa olla tärkeä",
+       subtitle = "Vasemmalla ylhäällä: yksinäinen silta. Oikealla alhaalla: keskellä tiheää verkkoa.")
+```
+
+**Miten kuvaa luetaan.** Jokainen piste on latausasema.
+
+Vasemmassa yläkulmassa ovat asemat, joilla on korkea välillisyys mutta matala
+ominaisvektorikeskeisyys. Ne ovat yksinäisiä siltoja: harvassa verkossa, mutta
+niiden kautta on pakko kulkea. Nämä ovat verkoston haavoittuvimmat kohdat.
+
+Oikeassa alakulmassa ovat asemat, jotka ovat tiheän verkon keskellä. Niillä on
+paljon hyviä naapureita, mutta juuri siksi niiden kautta ei ole pakko kulkea —
+vaihtoehtoja on.
+
+Jos verkoston kestävyyttä halutaan parantaa, huomio kuuluu vasempaan
+yläkulmaan. Jos halutaan maksimoida käyttöaste, oikeaan alakulmaan. Nämä ovat
+eri asemia, ja siksi mittarin valinta on politiikkavalinta eikä tekninen
+yksityiskohta.
+
+## Tilastollinen testi: onko keskeisyys eri asia kuin teho?
+
+Ilmeinen vastaväite on, että keskeiset asemat ovat vain isoja asemia. Jos niin
+olisi, koko verkostoanalyysi olisi turha — riittäisi katsoa asemien kokoa.
+
+```{r}
+#| label: testi
+#| echo: true
+
+testidata <- keskeisyydet |>
+  filter(kantama == "300 km", is.finite(valillisyys))
+
+# Onko keskeisyys yhteydessä aseman tehoon tai pistokemäärään?
+kor_teho <- cor.test(testidata$valillisyys, testidata$max_kw,
+                     method = "spearman", exact = FALSE)
+
+# Operaattorivertailu: onko jonkin operaattorin asemat
+# systemaattisesti keskeisempiä?
+isot_op <- testidata |> count(op_nimi) |> filter(n >= 8) |> pull(op_nimi)
+op_data <- testidata |> filter(op_nimi %in% isot_op)
+
+kw_testi <- kruskal.test(valillisyys ~ op_nimi, data = op_data)
+n_tot <- nrow(op_data)
+epsilon2 <- unname(kw_testi$statistic) / ((n_tot^2 - 1) / (n_tot + 1))
+```
+
+Keskeisyyden ja tehon järjestyskorrelaatio on
+`r format(round(unname(kor_teho$estimate), 3), decimal.mark = ",")`
+(p-arvo `r if (kor_teho$p.value < 0.001) "alle 0,001" else format(round(kor_teho$p.value, 3), decimal.mark = ",")`).
+
+Operaattorien välisessä vertailussa Kruskal–Wallis-testi antaa p-arvoksi
+`r if (kw_testi$p.value < 0.001) "alle 0,001" else format(round(kw_testi$p.value, 4), decimal.mark = ",")`
+ja efektikooksi `r format(round(epsilon2, 3), decimal.mark = ",")`.
+
+**Miksi järjestyskorrelaatio eikä tavallinen.** Välillisyysjakauma on erittäin
+vino: valtaosa asemista on nollan tuntumassa ja muutama kaukana ylhäällä.
+Tavallinen korrelaatiokerroin olettaa suunnilleen symmetrisen jakauman ja
+reagoi voimakkaasti yksittäisiin ääriarvoihin. Järjestyskorrelaatio käyttää vain
+sijalukuja eikä oleta jakauman muodosta mitään.
+
+**Miksi efektikoko p-arvon rinnalla.** Aineistossa on satoja asemia, ja niin
+suuressa joukossa myös mitätön ero tuottaa pienen p-arvon. Efektikoko kertoo,
+kuinka suuri osa vaihtelusta selittyy operaattorilla. Jos se on pieni, ero on
+olemassa mutta merkityksetön.
+
+::: {.callout-important}
+## Mitä testit eivät kerro
+
+Nämä testit kuvaavat aineistoa, eivät syy-yhteyttä. Vaikka keskeisyys ja teho
+eivät korreloisi, siitä ei seuraa että ne olisivat toisistaan riippumattomia
+missään syvemmässä mielessä.
+
+Lisäksi asemat eivät ole toisistaan riippumattomia havaintoja. Keskeisyys on
+laskettu verkosta, jossa jokaisen aseman arvo riippuu kaikkien muiden
+sijainnista. Tämä rikkoo tilastollisten testien perusoletuksen, ja p-arvot ovat
+siksi suuntaa antavia eivätkä tarkkoja.
+
+Kerron ne silti, koska efektikoot ovat informatiivisia ja koska vaihtoehto —
+esittää järjestyslistoja ilman mitään arviota siitä, ovatko erot systemaattisia
+— olisi huonompi. Mutta lukijan on syytä tietää, mitä luku ei tarkoita.
+:::
+
+## Vaihtoehtoiset skenaariot: kun yksi operaattori putoaa pois
+
+Kantamaoletuksen vaikutusta tarkasteltiin edellä, ja tulos oli selvä: sillä ei
+ole merkitystä, koska välit ovat lyhyitä. Keskeisyysjärjestys on käytännössä
+identtinen kaikilla neljällä oletuksella.
+
+Mielekkäämpi skenaario on toinen. Latausasemat eivät katoa yksitellen vaan
+ryhmissä, ja ryhmän määrittää operaattori. Maksujärjestelmän häiriö,
+roaming-yhteyden katkeaminen tai taustajärjestelmän vika vie kerralla yhden
+toimijan koko verkon — ei yhtä asemaa.
+
+Tämä on sarjan aiemman havainnon suora jatko. Latausrekisteristä paljastui, että
+osa näennäisesti erillisistä toimijoista julkaisee tietonsa saman
+alustatoimittajan kautta. Jos sama riippuvuus koskee maksuliikennettä tai
+ohjausjärjestelmiä, yhden alustan häiriö vie mukanaan useamman brändin asemat
+yhtä aikaa.
+
+```{r}
+#| label: counterfactual
+#| echo: true
+
+g <- verkot[["300 km"]]
+perus_komp <- components(g)
+perus_suurin <- max(perus_komp$csize) / gorder(g)
+
+# Jokaiselle operaattorille: mitä tapahtuu jos sen kaikki asemat
+# poistuvat käytöstä yhtä aikaa?
+operaattorit <- hpc |> count(op_id, op_nimi, sort = TRUE) |> filter(n >= 3)
+
+poisto_vaikutus <- map_dfr(seq_len(nrow(operaattorit)), function(k) {
+  poistettavat <- which(hpc$op_id == operaattorit$op_id[k])
+  g2 <- delete_vertices(g, poistettavat)
+
+  komp <- components(g2)
+  # Keskimääräinen etäisyys jäljelle jäävässä verkossa: kuinka monta
+  # latauspysähdystä tarvitaan asemasta toiseen
+  d <- distances(g2)
+  d[!is.finite(d)] <- NA
+
+  tibble(
+    op_nimi = operaattorit$op_nimi[k],
+    asemia = operaattorit$n[k],
+    jaljella = gorder(g2),
+    osuus_suurimmassa = max(komp$csize) / gorder(g2),
+    komponentteja = komp$no,
+    keskietaisyys = mean(d, na.rm = TRUE),
+    katkenneita_pareja = mean(is.na(d))
+  )
+})
+
+stopifnot(
+  "Poistolaskenta epäonnistui" = nrow(poisto_vaikutus) > 0,
+  "Osuudet eivät ole välillä 0–1" =
+    all(between(poisto_vaikutus$osuus_suurimmassa, 0, 1))
+)
+```
+
+```{r}
+#| label: kuva-operaattoripoisto
+#| fig-cap: "Verkon tila, kun yhden operaattorin kaikki asemat poistuvat käytöstä."
+
+poisto_vaikutus |>
+  mutate(
+    op_nimi = fct_reorder(op_nimi, katkenneita_pareja),
+    label = paste0(op_nimi, " (", asemia, " asemaa)"),
+    label = fct_reorder(label, katkenneita_pareja)
+  ) |>
+  ggplot(aes(katkenneita_pareja, label)) +
+  geom_col(fill = pal["punainen"], width = 0.65) +
+  geom_text(aes(label = percent(katkenneita_pareja, accuracy = 0.1)),
+            hjust = -0.15, colour = "grey85", size = 3.2) +
+  scale_x_continuous(labels = percent,
+                     expand = expansion(mult = c(0, 0.18))) +
+  labs(x = "Osuus asemapareista, joiden välinen yhteys katkeaa", y = NULL,
+       title = "Yhden operaattorin häiriö ei kohtele verkkoa tasaisesti",
+       subtitle = "Vaikutus ei seuraa asemamäärää vaan sijaintia") +
+  theme(axis.text.y = element_text(size = 8))
+```
+
+**Miten kuvaa luetaan.** Jokainen palkki kuvaa tilannetta, jossa yhden
+operaattorin kaikki suurtehulaturit ovat yhtä aikaa poissa käytöstä. Palkin
+pituus kertoo, kuinka suuri osuus asemapareista menettää yhteyden toisiinsa —
+eli niiden välillä ei enää pääse kulkemaan latausasemalta toiselle.
+
+Suluissa on operaattorin asemamäärä. Jos vaikutus seuraisi pelkkää
+asemamäärää, palkit olisivat samassa järjestyksessä kuin asemamäärät. Ne eivät
+ole.
+
+```{r}
+#| label: kuva-poisto-hajonta
+#| fig-cap: "Asemamäärä ja häiriön vaikutus."
+
+poisto_vaikutus |>
+  ggplot(aes(asemia, katkenneita_pareja)) +
+  geom_point(colour = pal["turkoosi"], size = 3, alpha = 0.7) +
+  geom_text_repel(aes(label = op_nimi), colour = "grey80", size = 3,
+                  max.overlaps = 12, seed = 42) +
+  scale_y_continuous(labels = percent) +
+  labs(x = "Operaattorin suurtehulatureiden määrä",
+       y = "Katkenneiden asemaparien osuus",
+       title = "Koko ei ratkaise, sijainti ratkaisee",
+       subtitle = "Pieni operaattori voi olla verkon kannalta kriittisempi kuin suuri")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on operaattorin asemamäärä,
+pystyakselilla häiriön vaikutus verkkoon. Jos vaikutus riippuisi pelkästään
+koosta, pisteet asettuisivat nousevalle suoralle.
+
+Poikkeamat suorasta ovat kiinnostavimmat. Piste selvästi suoran yläpuolella
+tarkoittaa operaattoria, jonka asemat ovat verkon kannalta strategisissa
+paikoissa: harvassa mutta oikeissa kohdissa. Piste suoran alapuolella
+tarkoittaa operaattoria, jonka asemat ovat siellä missä on jo runsaasti muita.
+
+Päättäjän kannalta tämä on toimittajariskin kartoitusta. Jos julkinen valta
+haluaa varmistaa, että latausverkko toimii häiriötilanteessa, huomio kuuluu
+suoran yläpuolelle — ei suurimpiin toimijoihin.
+
+::: {.callout-important}
+## Mitä skenaario ei ota huomioon
+
+Tarkastelu olettaa, että operaattorin kaikki asemat poistuvat yhtä aikaa. Se on
+äärimmäinen skenaario mutta ei mahdoton: keskitetty taustajärjestelmä on juuri
+sellainen yhteinen vikapiste, joka kaataa koko verkon kerralla.
+
+Todennäköisempi häiriö on osittainen. Yksittäinen asema on epäkunnossa, jono on
+pitkä, tai maksupääte ei toimi. Näiden vaikutusta ei voi laskea pelkästä
+rakenteesta, koska se riippuu käyttöasteesta ja ajoituksesta.
+
+Lisäksi tarkastelu koskee vain suurtehulatureita. Häiriötilanteessa autoilija
+voi käyttää hitaampaa laturia, jos aikaa on. Verkon katkeaminen tässä
+mallissa tarkoittaa siis pikalatausverkon katkeamista, ei sitä että liikkuminen
+kävisi mahdottomaksi.
+:::
+
+## Mitä jää käteen
+
+**Kaaren määritelmä ratkaisee, näkyykö analyysissä mitään.** Kantamaan
+perustuva yhteys tuotti verkon, jossa kaikki olivat yhteydessä kaikkiin.
+Vasta naapuruusehto teki rakenteen näkyväksi.
+
+**Asemien väliset etäisyydet eivät ole ongelma.** Peräkkäisten
+suurtehulatureiden välit ovat lähes kaikki alle sadanviidenkymmenen kilometrin,
+eli talvisen pienen akun ulottuvilla. Tämä oli yllättävin tulos ja se on hyvä
+uutinen — mutta se tarkoittaa myös, että ongelma on muualla kuin siinä mistä
+yleensä puhutaan.
+
+**Vilkkain ei ole tärkein.** Verkoston kannalta aseman merkitys syntyy siitä,
+kuinka moni reitti kulkee sen kautta, ei siitä kuinka moni siellä lataa.
+
+**Verkko on eri verkko eri olosuhteissa — mutta ei tällä kertaa.** Tarkistin
+neljä kantamaoletusta, eikä niillä ollut vaikutusta keskeisyysjärjestykseen.
+Se on tulos siinä missä muutkin: oletus, jonka luulin ratkaisevaksi,
+osoittautui merkityksettömäksi.
+
+**Häiriö ei kohtele verkkoa tasaisesti.** Yhden operaattorin asemien
+poistuminen vaikuttaa verkkoon eri tavoin sen mukaan, missä ne sijaitsevat.
+Pieni toimija voi olla kriittisempi kuin suuri.
+
+**Keskeisyysmittarit eivät ole vaihdettavissa keskenään.** Silta kahden alueen
+välillä ja tiheän verkon keskus ovat eri asioita, ja mittarin valinta ratkaisee
+kumpi löytyy.
+
+**Muutama asema kantaa verkkoa.** Välillisyysjakauma on jyrkästi vino, mikä
+tarkoittaa että kestävyyden kannalta olennaisia asemia on vähän. Se on hyvä
+uutinen valvonnan kannalta ja huono uutinen haavoittuvuuden kannalta.
+
+Seuraavassa osassa siirryn siitä, mitkä asemat ovat tärkeitä, siihen mitä
+tapahtuu kun ne katoavat. Keskeisyys kertoo verkoston rakenteesta; kestävyys
+selviää vasta poistamalla asemia yksi kerrallaan ja katsomalla mitä jää.
+
+---
+
+## Mitä tästä on hyötyä yrityksellesi
+
+**Verkon määrittely on analyysi, ei tekninen valinta.** Ensimmäinen versio
+tästä osasta yhdisti kaksi asemaa aina kun niiden väli oli alle kantaman. Tulos
+oli verkko, jossa lähes kaikki olivat yhteydessä kaikkiin — ja jossa
+keskeisyysluvut olivat käytännössä tyhjiä, koska mistään ei tarvinnut kulkea
+minkään kautta.
+
+Sama ansa on jokaisessa verkkomallissa. Jos yhdistät asiakkaat, jotka ostavat
+samaa tuotetta, tai työntekijät, jotka ovat samassa palaverissa, saat verkon
+jossa kaikki liittyvät kaikkiin eikä rakennetta ole. Kaaren määritelmä ratkaisee,
+näkyykö analyysissä mitään — ja se on sisällöllinen päätös, joka pitää
+perustella.
+
+**Kartoita kriittisyys, älä volyymiä.** Tämä on osan tärkein siirrettävä
+oivallus. Eniten käytetty järjestelmä, toimittaja tai osaaja ei ole kriittisin.
+Kriittisin on se, jolle ei ole vaihtoehtoa. Ero näkyy vasta kun asiat
+mallinnetaan verkkona ja kysytään, mitä tapahtuu jos yksi solmu poistuu.
+
+DORA ja NIS2 edellyttävät juuri tätä: kriittisten toimintojen tunnistamista.
+Useimmissa organisaatioissa se tehdään kysymällä, mikä on tärkeää. Verkkona
+mallinnettuna sen voi laskea.
+
+**Yksi toimittaja voi olla monta riippuvuutta.** Osan 1 löydös alustatoimittajasta
+näkyy tässäkin: jos useat näennäisesti erilliset toimijat käyttävät samaa
+alustaa, ne eivät ole toisistaan riippumattomia. Toimittajariskiä kartoitettaessa
+kannattaa kysyä, kenen infrastruktuurilla toimittajasi toimii.
+
+**Tee herkkyysanalyysi keskeisimmästä oletuksesta.** Tässä osassa koko verkon
+rakenne riippui yhdestä luvusta: kuinka pitkälle auto pääsee. En valinnut yhtä
+arvoa vaan laskin neljällä ja näytin, miten tulos muuttuu. Kysy omista
+malleistasi sama: mikä on se yksi oletus, jonka muuttaminen kääntäisi
+johtopäätöksen? Laske se auki ennen kuin joku muu tekee sen puolestasi.
+
+**Älä mittaa järjestelmää olosuhteissa, joissa se toimii.** Kapasiteetti,
+palautumisaika ja varautuminen mitataan yleensä normaalitilanteessa. Se on kuin
+mittaisi latausverkon riittävyyden heinäkuussa. Mittaa huippukuormassa,
+häiriötilanteessa ja silloin kun puolet henkilöstöstä on lomalla — muuten
+mittaus kertoo vain, että asiat ovat kunnossa silloin kun ne ovat kunnossa.
+
+**Ja kysy, mitä mittarisi palkitsee.** Jos investointeja ohjataan käyttöasteen
+perusteella, raha valuu sinne missä on jo kapasiteettia. Jos niitä ohjataan
+kriittisyyden perusteella, raha menee sinne missä puute tuntuisi eniten. Nämä
+ovat eri kohteita, ja valinta tehdään mittarin valinnalla — usein huomaamatta.
+
+Jos organisaatiossasi ei tiedetä, mikä hajoaa ensin ja mitä siitä seuraa, tai
+jos kriittisyys on määritelty kokouksessa eikä laskettu, siinä on työtä
+odottamassa. Teen tätä vuokrattavana Head of Datana ja projektikohtaisesti —
+hinnasto ja yhteystiedot löytyvät
+[sivustolta](https://kristianvepsalainen.com).
+
+---
+
+*Aineistot: OpenStreetMap (© OpenStreetMap-osallistujat, ODbL 1.0), Fintraffic
+AFIR / Digitraffic, Eurostat GISCO. Koodi on kokonaisuudessaan tässä
+postauksessa. Maailma on jakauma.*

@@ -8,7 +8,6 @@ description: |
 date: 2026-09-28
 draft: TRUE
 categories: [avoin data, verkostoanalyysi, latausverkko, keskeisyys, graafiteoria]
-draft: true
 ---
 
 ```{r}

@@ -6,7 +6,6 @@ description: |
   kannalta merkitys syntyy toisin: siitä, kuinka moni reitti kulkee aseman
   kautta. Rakennamme asemista graafin ja etsimme sen solmukohdat.
 date: 2026-09-28
-draft: TRUE
 categories: [avoin data, verkostoanalyysi, latausverkko, keskeisyys, graafiteoria]
 ---
 

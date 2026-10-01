@@ -6,7 +6,7 @@ description: >
   teksti on jakauma teemoja. Haemme lain finlex-paketilla pykälittäin, luokittelemme
   jokaisen pykälän, ja vertaamme tulosta tekoälytyökalun (Skimle) teemoitukseen —
   epävarmuus näkyvissä.
-date: 2026-09-24
+date: 2026-10-01
 author: "Kristian Vepsäläinen"
 categories: [avoin data, finlex, jakaumat, bayes, lainsäädäntö]
 format:

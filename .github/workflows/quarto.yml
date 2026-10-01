@@ -150,7 +150,8 @@ jobs:
             "osmextract",
             "dodgr",
             "lwgeom", 
-            "spdep" 
+            "spdep", 
+            "finlex" 
           ))
 
         shell: Rscript {0}

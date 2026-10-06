@@ -6,9 +6,8 @@ description: |
   olettaa, että kaikki autot tarvitsevat julkista laturia. Omakotitalossa
   asuva ei tarvitse. Lasketaan uudelleen niin, että kotilatausmahdollisuus
   otetaan huomioon.
-date: 2026-09-15
+date: 2026-10-06
 categories: [avoin data, latausverkko, saavutettavuus, Paavo, eriarvoisuus]
-draft: true
 ---
 
 ```{r}

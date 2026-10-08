@@ -1,0 +1,1155 @@
+---
+title: "Taitoa vai tuuria? KHO:n vedonlyöntipäätös, pokeri ja sattuman matematiikka"
+description: "Korkein hallinto-oikeus totesi, että sattuma ei estä vedonlyöntiä olemasta tulonhankkimistoimintaa. Mittasin avoimella kerroindatalla, kuinka paljon sattumaa vedonlyönnissä on, miten se eroaa pokerista – ja mitä sama logiikka tarkoittaa jokaiselle yritykselle."
+author: "Kristian Vepsäläinen"
+date: "2026-10-08"
+categories: [sattuma, vedonlyönti, pokeri, bayes, counterfactual, verotus, ennustemallit]
+draft: true
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+execute:
+  warning: false
+  message: false
+---
+
+## Lyhyesti
+
+Korkein hallinto-oikeus (KHO) antoi lokakuun alussa 2026 ennakkopäätöksen, jossa ammattimaisen vedonlyöjän kaikki pelipanokset – myös hävittyjen vetojen – saatiin vähentää verotuksessa. Ratkaisun ydin on tilastollinen: **se, että yksittäiseen vetoon liittyy sattumaa, ei tarkoita, että koko toiminta olisi sattumaa.**
+
+Tämä on täsmälleen sama ajatus kuin blogini sloganissa *maailma on jakauma*. Yksi veto, yksi kauppa, yksi rekrytointi tai yksi neljännesvuosi on yksittäinen arvonta jakaumasta. Taito ei näy yksittäisessä tuloksessa, vaan siinä, mihin kohtaan jakauma on asettunut – ja sen näkeminen vaatii riittävästi toistoja.
+
+Tässä kirjoituksessa:
+
+1. mittaan avoimella datalla, kuinka paljon vedonvälittäjät ottavat "välistä" Veikkausliigan otteluissa ja millaisia tuottoja yksinkertaiset pelistrategiat olisivat tuottaneet,
+2. testaan ennustemallilla, pystyykö julkisista tuloksista rakennettu malli voittamaan vedonlyöntimarkkinan,
+3. arvioin bayeslaisella mallilla, kuinka todennäköisesti KHO:n tapauksen vedonlyöjän tulos selittyy taidolla eikä tuurilla,
+4. ennustan, mitä samalla taidolla olisi tapahtunut seuraavana vuonna,
+5. vertaan vedonlyöntiä pokeriin: kummassa taito paljastuu nopeammin,
+6. lasken vaihtoehtoiset verotusmallit (counterfactual-skenaariot) ja näytän, miksi KHO:n syksyn kahden päätöksen käsite *pelirupeama* on tilastollisesti ratkaiseva,
+7. ja lopuksi kerron, miten sama ajattelu siirtyy yritykseen.
+
+::: {.callout-tip title="Mitä tarkoittaa counterfactual?"}
+Counterfactual eli *vastatosiasiallinen skenaario* vastaa kysymykseen "mitä olisi tapahtunut, jos jokin olisi ollut toisin?". Esimerkiksi: mitä olisi tapahtunut, jos sama vedonlyöjä olisi lyönyt vetonsa täysin ilman taitoa? Tai: paljonko veroa olisi määrätty, jos Verohallinnon tulkinta olisi jäänyt voimaan? Koska samaa vuotta ei voi elää kahdesti, vaihtoehtoinen maailma rakennetaan mallilla, jonka osat on kalibroitu oikeaan dataan.
+:::
+
+## Tapaus: mitä KHO päätti
+
+[Taloustaidon uutisen](https://www.taloustaito.fi/Vero/2026/kho-linjasi-ammattimaisen-vedonlyojan-verotuksesta--myos-havittyjen-vetojen-panokset-sai-vahentaa/) mukaan henkilö oli vuonna 2020 lyönyt ETA-alueen ulkopuolella järjestetyissä vedonlyönneissä 2 145 vetoa. Panoksia kertyi 365 606 euroa ja palautuksia 406 713 euroa, eli voittoa noin 41 100 euroa. Hän oli elättänyt itsensä ja perheensä vedonlyönnillä vuosina 2010–2020, keskittynyt suomalaiseen jalkapalloon ja käyttänyt viikossa 30–100 tuntia tiedonhankintaan ja analyysiin etsiessään vedonvälittäjien kertoimista hinnoitteluvirheitä.
+
+Verohallinto oli hyväksynyt vähennykseksi vain voittaneisiin vetoihin käytetyt panokset ja lisännyt hänen ansiotuloihinsa jälkikäteen yli 112 000 euroa. KHO katsoi, että toiminta ei ollut elinkeinotoimintaa, mutta se oli tuloverolain tarkoittamaa tulonhankkimistoimintaa: menestys perustui sattuman lisäksi tiedonhankintaan ja markkinoiden tuntemukseen, ja toiminta oli laajaa ja suunnitelmallista. Siksi kaikki panokset saatiin vähentää.
+
+Elokuussa 2026 KHO oli jo [linjannut nettikasinopelaamisesta](https://www.taloustaito.fi/Rahat/kho-linjasi-nettipelaajien-verotusta--myos-havittyjen-pelien-panoksia-voi-vahentaa-rajatusti/) äänin 3–2, että hävittyjen pelien panoksia voi vähentää, jos ne kuuluvat samaan *pelirupeamaan*. Pelirupeaman rajoja ei ole vielä tarkasti määritelty. Palaan tähän, koska tilastollisesti juuri rupeaman pituus ratkaisee, paljonko sattuma verottaa.
+
+::: {.callout-note title="Faktalaatikko 1: Rahapelijärjestelmä muuttuu vuonna 2027"}
+Eduskunta hyväksyi uuden rahapelilain 16.12.2025. Veikkauksen yksinoikeus päättyy vedonlyönnissä sekä verkon raha-automaatti- ja kasinopeleissä. Lisenssihaku avautui 1.3.2026, ja lisensoitu toiminta alkaa 1.7.2027 ([Veikkauksen tiedote, STT Info](https://www.sttinfo.fi/tiedote/71694276/rahapelijarjestelman-uudistus-on-veikkaukselle-historiallinen-muutos)). Arpajaiset, raaputusarvat ja fyysiset pelit jäävät Veikkauksen yksinoikeudeksi.
+
+**Miksi tämä liittyy aiheeseen:** Suomeen tulee kesällä 2027 kokonainen uusi toimiala, jonka ydinosaamista on sattuman hinnoittelu: kertoimien laskenta, riskienhallinta ja ongelmapelaamisen tunnistaminen datasta.
+
+**Counterfactual:** Jos markkina ei avautuisi, kaikki tässä kirjoituksessa kuvatut kysymykset jäisivät pääosin ETA-alueen ulkopuolisten toimijoiden ja niiden asiakkaiden verotuksen ongelmaksi. Avautuva markkina tuo ne kotimaisen valvonnan, kotimaisten yritysten ja kotimaisten työpaikkojen piiriin.
+:::
+
+## Data ja menetelmät
+
+### Mistä data tulee
+
+Käytän [Football-Data.co.uk](https://www.football-data.co.uk/)-palvelun avointa Veikkausliiga-aineistoa. Se sisältää jokaisesta ottelusta vuodesta 2012 alkaen lopputuloksen sekä **sulkeutumiskertoimet** eli kertoimet juuri ennen ottelun alkua:
+
+- **Pinnacle**: vedonvälittäjä, joka tunnetaan pienestä katteesta ja siitä, että se sallii myös voittavat asiakkaat. Sen kertoimia pidetään alan tutkimuksessa usein parhaana arviona "todellisesta" todennäköisyydestä.
+- **Markkinoiden keskiarvo**: monen vedonvälittäjän kertoimien keskiarvo – tavallisen pelaajan tyypillinen hinta.
+- **Paras saatavilla oleva kerroin**: korkein kerroin, jonka jokin seuratuista vedonvälittäjistä tarjosi. Tähän pääsee vain, jos pelaajalla on tilit monessa paikassa ja hän vertailee hintoja.
+
+KHO:n tapauksen luvut ovat julkisesta uutisesta. Pokerin ja liiketoiminnan osalta nojaan vertaisarvioituun tutkimukseen.
+
+::: {.callout-tip title="Mikä on kerroin?"}
+Kerroin kertoo, paljonko saat takaisin yhtä panoseuroa kohden, jos veto osuu. Kertoimella 2,50 kymmenen euron panos palauttaa 25 euroa (15 euroa voittoa). Jos veto ei osu, menetät 10 euroa.
+
+Kertoimesta saa *implisiittisen todennäköisyyden* jakamalla yhden kertoimella: 1 / 2,50 = 0,40 eli 40 %. Jos kaikkien kolmen lopputuloksen (kotivoitto, tasapeli, vierasvoitto) todennäköisyydet lasketaan yhteen, summa on aina hieman yli 100 %. Ylimenevä osa on vedonvälittäjän **kate** eli marginaali – hinta, jonka pelaaja maksaa siitä, että saa lyödä vetoa.
+:::
+
+```{r}
+#| label: setup
+#| code-fold: true
+suppressPackageStartupMessages({
+  library(tidyverse)   # sisältää myös lubridaten
+  library(here)
+  library(qs2)
+  library(ggdist)
+  library(patchwork)
+  library(brms)
+})
+
+# Estetään pakettien välinen funktioiden peittyminen (esim. MASS peittää selectin)
+select <- dplyr::select
+filter <- dplyr::filter
+
+set.seed(20261013)
+proj     <- "sattuma"
+data_dir <- here("data", proj)
+dir.create(data_dir, recursive = TRUE, showWarnings = FALSE)
+
+theme_set(theme_minimal(base_size = 12))
+
+# Apufunktiot suomenkieliseen lukuasuun
+pct <- function(x, d = 1) unname(ifelse(is.na(x), "–", paste0(formatC(100 * x, format = "f", digits = d, decimal.mark = ","), " %")))
+num <- function(x, d = 0) unname(ifelse(is.na(x), "–", formatC(x, format = "f", digits = d, big.mark = " ", decimal.mark = ",")))
+```
+
+```{r}
+#| label: data-haku
+raw_path  <- here("data", proj, "FIN.csv")
+tidy_path <- here("data", proj, "veikkausliiga_vedot.qs2")
+
+if (!file.exists(raw_path)) {
+  download.file("https://www.football-data.co.uk/new/FIN.csv", raw_path, mode = "wb")
+}
+
+raw <- readr::read_csv(raw_path, show_col_types = FALSE, guess_max = 1e6)
+names(raw) <- sub("^﻿", "", names(raw))   # varmuuden vuoksi BOM pois
+
+# --- Tarkistus 1: tarvittavat sarakkeet löytyvät
+pakolliset <- c("League", "Season", "Date", "Home", "Away", "HG", "AG", "Res",
+                "PSCH", "PSCD", "PSCA", "MaxCH", "MaxCD", "MaxCA",
+                "AvgCH", "AvgCD", "AvgCA")
+puuttuu <- setdiff(pakolliset, names(raw))
+if (length(puuttuu) > 0) stop("Puuttuvat sarakkeet: ", paste(puuttuu, collapse = ", "))
+
+kerroin_sar <- grep("^(PSC|MaxC|AvgC|BFEC|B365C)[HDA]$", names(raw), value = TRUE)
+
+ottelut <- raw |>
+  filter(League == "Veikkausliiga", !is.na(Res), Res %in% c("H", "D", "A")) |>
+  mutate(across(all_of(kerroin_sar), as.numeric)) |>
+  transmute(
+    kausi        = as.integer(Season),
+    pvm          = lubridate::dmy(Date),
+    koti         = Home,
+    vieras       = Away,
+    kotimaalit   = as.integer(HG),
+    vierasmaalit = as.integer(AG),
+    tulos        = factor(Res, levels = c("A", "D", "H")),
+    across(all_of(kerroin_sar))
+  ) |>
+  arrange(pvm, koti) |>
+  mutate(ottelu_id = row_number(), .before = 1)
+
+# --- Tarkistus 2: päivämäärät, kaudet ja tulokset järkeviä
+stopifnot(
+  !anyNA(ottelut$pvm),
+  all(ottelut$kausi >= 2012),
+  all(lubridate::year(ottelut$pvm) == ottelut$kausi),
+  !anyNA(ottelut$tulos)
+)
+
+# --- Tarkistus 3: lopputulos vastaa maaleja
+tulos_maaleista <- with(ottelut, case_when(
+  kotimaalit > vierasmaalit ~ "H",
+  kotimaalit < vierasmaalit ~ "A",
+  TRUE ~ "D"
+))
+stopifnot(all(tulos_maaleista == as.character(ottelut$tulos)))
+
+# --- Tarkistus 4: tuplarivit
+tupla <- duplicated(ottelut[c("pvm", "koti", "vieras")])
+if (any(tupla)) {
+  warning(sum(tupla), " tuplariviä poistettu")
+  ottelut <- ottelut[!tupla, ]
+}
+
+# --- Tarkistus 5: analyysissa käytettävät kertoimet ovat yli 1 aina kun ne on annettu
+ydin_sar <- grep("^(PSC|MaxC|AvgC)[HDA]$", kerroin_sar, value = TRUE)
+stopifnot(length(ydin_sar) == 9, all(unlist(ottelut[ydin_sar]) > 1, na.rm = TRUE))
+
+# Pitkä muoto: yksi rivi = yksi ottelu x yksi lopputulos (koti/tasan/vieras)
+vedot <- ottelut |>
+  pivot_longer(all_of(kerroin_sar),
+               names_to = c("kirja", "kohde"),
+               names_pattern = "^(PSC|MaxC|AvgC|BFEC|B365C)([HDA])$",
+               values_to = "kerroin") |>
+  pivot_wider(names_from = kirja, values_from = kerroin) |>
+  mutate(voitti = as.character(tulos) == kohde)
+
+# Analyysiaineisto: ottelut, joissa kaikki kolme vertailtavaa kerrointa on olemassa
+vedot_t <- vedot |>
+  group_by(ottelu_id) |>
+  filter(all(!is.na(PSC) & !is.na(AvgC) & !is.na(MaxC))) |>
+  mutate(
+    p_psc    = (1 / PSC) / sum(1 / PSC),           # katteesta puhdistettu todennäköisyys
+    suosikki = rank(PSC, ties.method = "first") == 1
+  ) |>
+  ungroup()
+
+# --- Tarkistus 6: jokaisessa ottelussa kolme kohdetta, yksi voittaja, todennäköisyydet summautuvat yhteen
+tark <- vedot_t |>
+  group_by(ottelu_id) |>
+  summarise(n = n(), voittajia = sum(voitti), p_summa = sum(p_psc), .groups = "drop")
+stopifnot(all(tark$n == 3), all(tark$voittajia == 1), all(abs(tark$p_summa - 1) < 1e-9))
+
+# --- Tarkistus 7: paras kerroin ei voi olla keskiarvoa pienempi (sallitaan pyöristysvirhe)
+virheet_max <- sum(vedot_t$MaxC < vedot_t$AvgC - 0.01)
+if (virheet_max > 0) warning(virheet_max, " riviä, joissa paras kerroin < keskiarvo")
+
+qd_save(vedot_t, tidy_path)
+
+n_ottelut <- n_distinct(vedot_t$ottelu_id)
+kaudet    <- range(vedot_t$kausi)
+```
+
+Analyysiaineistossa on `r num(n_ottelut)` Veikkausliigan ottelua kausilta `r kaudet[1]`–`r kaudet[2]`, joista jokaisesta tunnetaan lopputulos ja kaikki kolme vertailtavaa kerrointa. Koodi tarkistaa ennen analyysia muun muassa, että lopputulos vastaa maalimääriä, että jokaisessa ottelussa on täsmälleen yksi voittanut kohde ja että kertoimet ovat järkeviä.
+
+## Osa 1: Paljonko talo ottaa välistä?
+
+```{r}
+#| label: marginaalit
+marginaalit_t <- vedot_t |>
+  group_by(ottelu_id, kausi) |>
+  summarise(across(c(PSC, AvgC, MaxC), \(o) sum(1 / o)), .groups = "drop")
+
+stopifnot(nrow(marginaalit_t) == n_ottelut)
+
+kirja_nimet <- c(AvgC = "Markkinoiden keskiarvo",
+                 PSC  = "Pinnacle",
+                 MaxC = "Paras saatavilla oleva")
+
+marg_long <- marginaalit_t |>
+  pivot_longer(c(PSC, AvgC, MaxC), names_to = "kirja", values_to = "summa") |>
+  mutate(marginaali = (summa - 1) * 100,
+         kirja = factor(kirja_nimet[kirja], levels = kirja_nimet))
+
+m_avg <- median(marginaalit_t$AvgC) - 1
+m_psc <- median(marginaalit_t$PSC) - 1
+m_max <- median(marginaalit_t$MaxC) - 1
+osuus_arb <- mean(marginaalit_t$MaxC < 1)
+```
+
+```{r}
+#| label: fig-marginaalit
+#| fig-cap: "Vedonvälittäjän kate Veikkausliigan otteluissa. Jokainen 'pilvi' on jakauma kaikista otteluista. Musta piste on mediaani, paksu viiva kattaa puolet otteluista ja ohut viiva 95 %. Pystyviiva kohdassa 0 on reilu peli, jossa kumpikaan osapuoli ei saa etua."
+#| fig-height: 4.5
+ggplot(marg_long, aes(x = marginaali, y = kirja)) +
+  stat_halfeye(.width = c(0.5, 0.95), fill = "grey75") +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(x = "Kate prosentteina (todennäköisyyksien summa miinus 100 %)", y = NULL,
+       title = "Mitä vedonlyönti maksaa pelaajalle?",
+       subtitle = "Veikkausliiga, sulkeutumiskertoimet")
+```
+
+**Näin luet kuvan:** Vaaka-akselilla on kate. Jos kate on 5 %, pelaaja maksaa keskimäärin viisi senttiä jokaisesta panoseurosta – riippumatta siitä, voittaako hän yksittäisen vedon vai ei. Jokainen vaakarivi on yksi tapa lyödä vetoa. Mitä enemmän pilvi on oikealla, sitä kalliimpaa pelaaminen on.
+
+Tulokset:
+
+- Markkinoiden keskiarvokertoimilla tyypillinen kate on `r pct(m_avg)`.
+- Pinnaclella kate on `r pct(m_psc)`.
+- Kun pelaaja valitsee jokaiseen lopputulokseen parhaan saatavilla olevan kertoimen, tyypillinen kate on `r pct(m_max)`, ja `r pct(osuus_arb)` otteluista kate menee jopa negatiiviseksi. Silloin kaikkiin kolmeen lopputulokseen eri vedonvälittäjillä lyömällä voittaisi lopputuloksesta riippumatta (ns. *arbitraasi*). Käytännössä nämä tilanteet ovat lyhytkestoisia, ja vedonvälittäjät rajoittavat niitä hyödyntäviä asiakkaita.
+
+Tämä on kirjoituksen ensimmäinen tärkeä havainto: **vedonlyönnissä sattuma ei ole neutraali.** Satunnaisesti pelaava ei päädy nollaan vaan katteen verran miinukselle. Taitavan pelaajan on ensin voitettava kate ja vasta sen jälkeen hän voi ansaita.
+
+```{r}
+#| label: fig-marginaali-kausittain
+#| fig-cap: "Katteen mediaani kausittain. Viiva näyttää, miten tyypillinen kate on muuttunut vuosien varrella kullakin hintatasolla."
+#| fig-height: 4
+marg_long |>
+  group_by(kausi, kirja) |>
+  summarise(mediaani = median(marginaali), .groups = "drop") |>
+  ggplot(aes(kausi, mediaani, colour = kirja)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_line(linewidth = 1) + geom_point() +
+  scale_x_continuous(breaks = scales::breaks_pretty()) +
+  labs(x = "Kausi", y = "Katteen mediaani (%)", colour = NULL,
+       title = "Katteen kehitys kausittain") +
+  theme(legend.position = "bottom")
+```
+
+**Näin luet kuvan:** Jokainen viiva on yksi hintataso. Pisteet ovat kunkin kauden tyypillisiä (mediaani) katteita. Jos viiva laskee, pelaaminen on halventunut.
+
+## Osa 2: Kuusi yksinkertaista strategiaa ja niiden tuottojakaumat
+
+Seuraavaksi kysyn: mitä olisi tapahtunut, jos joku olisi lyönyt jokaisessa Veikkausliigan ottelussa saman yksinkertaisen säännön mukaan yhden euron vedon? Tutkin kuutta sääntöä:
+
+- **Kaikki kohteet**: jokaiseen lopputulokseen yksi euro. Tämä on "sattuman" vertailukohta.
+- **Aina kotivoitto**, **aina tasapeli**, **aina vierasvoitto**.
+- **Suosikki**: aina se lopputulos, jolla on matalin kerroin.
+- **Altavastaaja**: vain lopputulokset, joiden kerroin on vähintään 4.
+
+Jokaista sääntöä pelataan kolmella hintatasolla. Tämä on counterfactual-asetelma puhtaimmillaan: **täsmälleen samat vedot, samat ottelut, vain hinta muuttuu.**
+
+### Miksi bayeslainen bootstrap?
+
+Haluan tietää jokaisesta strategiasta tuoton (ROI, *return on investment*: voitto jaettuna panoksilla) **jakauman**, en vain yhtä lukua. Käytän *bayeslaista bootstrapia*. Se toimii näin: kuvitellaan, että havaitut vedot ovat otos kaikista mahdollisista vedoista. Annetaan jokaiselle vedolle satunnainen paino ja lasketaan painotettu tuotto. Kun tämä toistetaan 4 000 kertaa, saadaan 4 000 mahdollista tuottoa, joiden hajonta kertoo epävarmuuden. Menetelmä ei oleta, että tuotot noudattavat kellokäyrää. Se on tärkeää, koska vedonlyönnin tuotot ovat vinoja: suurin osa vedoista häviää koko panoksen (–1) ja pieni osa voittaa paljon.
+
+```{r}
+#| label: strategiat
+tuotto <- function(kerroin, voitti) {
+  stopifnot(length(kerroin) == length(voitti), all(kerroin > 1))
+  ifelse(voitti, kerroin - 1, -1)
+}
+
+bayes_bootstrap_mean <- function(x, B = 4000, chunk = 500) {
+  stopifnot(is.numeric(x), length(x) > 1, !anyNA(x))
+  out <- numeric(0)
+  for (b in seq(1, B, by = chunk)) {
+    nb <- min(chunk, B - b + 1)
+    w  <- matrix(rexp(nb * length(x)), nrow = nb)   # Dirichlet(1,...,1)-painot
+    out <- c(out, as.vector((w %*% x) / rowSums(w)))
+  }
+  out
+}
+
+strategia_fun <- list(
+  `Kaikki kohteet`             = \(d) rep(TRUE, nrow(d)),
+  `Aina kotivoitto`            = \(d) d$kohde == "H",
+  `Aina tasapeli`              = \(d) d$kohde == "D",
+  `Aina vierasvoitto`          = \(d) d$kohde == "A",
+  `Suosikki`                   = \(d) d$suosikki,
+  `Altavastaaja (kerroin ≥ 4)` = \(d) d$PSC >= 4
+)
+kirjat <- c("AvgC", "PSC", "MaxC")
+
+strat_tuotot <- imap(strategia_fun, \(f, nimi) {
+  valittu <- vedot_t[f(vedot_t), ]
+  map(kirjat, \(k) tibble(
+    strategia = nimi, kirja = k,
+    ottelu_id = valittu$ottelu_id,
+    tuotto    = tuotto(valittu[[k]], valittu$voitti)
+  )) |> list_rbind()
+}) |> list_rbind()
+
+# Tarkistus: jokaisella hintatasolla sama määrä vetoja samassa strategiassa
+vetomaarat <- strat_tuotot |> count(strategia, kirja) |>
+  group_by(strategia) |> summarise(eri_maaria = n_distinct(n), .groups = "drop")
+stopifnot(all(vetomaarat$eri_maaria == 1))
+
+strat_draws <- strat_tuotot |>
+  group_by(strategia, kirja) |>
+  reframe(roi = bayes_bootstrap_mean(tuotto)) |>
+  mutate(kirja = factor(kirja_nimet[kirja], levels = kirja_nimet),
+         strategia = factor(strategia, levels = names(strategia_fun)))
+
+strat_yht <- strat_tuotot |>
+  group_by(strategia, kirja) |>
+  summarise(vetoja = n(), roi = mean(tuotto),
+            p_t = t.test(tuotto, mu = 0)$p.value, .groups = "drop") |>
+  mutate(kirja = factor(kirja_nimet[kirja], levels = kirja_nimet),
+         strategia = factor(strategia, levels = names(strategia_fun))) |>
+  left_join(strat_draws |>
+              group_by(strategia, kirja) |>
+              summarise(ala = quantile(roi, 0.025), yla = quantile(roi, 0.975),
+                        p_pos = mean(roi > 0), .groups = "drop"),
+            by = c("strategia", "kirja")) |>
+  mutate(p_holm = p.adjust(p_t, method = "holm"))
+```
+
+```{r}
+#| label: fig-strategiat
+#| fig-cap: "Kuuden yksinkertaisen strategian tuottojakaumat kolmella hintatasolla. Jokainen pilvi kertoo, millaisia tuottoja strategia olisi epävarmuus huomioiden voinut tuottaa. Pystyviiva nollassa erottaa voiton tappiosta."
+#| fig-height: 7
+ggplot(strat_draws, aes(x = 100 * roi, y = strategia, fill = kirja)) +
+  stat_halfeye(.width = c(0.5, 0.95), alpha = 0.7, position = position_dodge(width = 0.7)) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(x = "Tuotto prosentteina panoksista (ROI)", y = NULL, fill = NULL,
+       title = "Sama veto, eri hinta: tuottojakaumat",
+       subtitle = "Bayeslainen bootstrap, 4 000 toistoa") +
+  theme(legend.position = "bottom")
+```
+
+**Näin luet kuvan:** Jokainen vaakarivi on yksi pelisääntö, ja sen kolme väriä ovat kolme hintatasoa. Pilven kohta vaaka-akselilla kertoo tuoton: –5 tarkoittaa, että sadasta panoseurosta menetettiin keskimäärin viisi. Pilven leveys kertoo epävarmuuden. Jos pilvi on kokonaan nollaviivan vasemmalla puolella, strategia on lähes varmasti tappiollinen.
+
+```{r}
+#| label: tbl-strategiat
+#| tbl-cap: "Strategioiden tuotot. 'Väli' on 95 %:n epävarmuusväli bayeslaisesta bootstrapista. 'P(voitto)' on todennäköisyys, että strategian todellinen tuotto on positiivinen. p-arvot ovat t-testistä (onko keskimääräinen tuotto nollasta poikkeava) ja Holmin menetelmällä korjattuja, koska testejä tehdään 18."
+strat_yht |>
+  arrange(strategia, kirja) |>
+  transmute(Strategia = strategia, Hinta = kirja, Vetoja = num(vetoja),
+            ROI = pct(roi), `Väli` = paste0(pct(ala), " … ", pct(yla)),
+            `P(voitto)` = pct(p_pos, 0),
+            `p (Holm)` = formatC(p_holm, format = "g", digits = 2)) |>
+  knitr::kable()
+```
+
+**Miksi juuri nämä testit?** Kysymys "tuottaako strategia voittoa vai tappiota" on kysymys siitä, poikkeaako keskimääräinen tuotto nollasta. Siihen sopii t-testi, koska vetoja on satoja tai tuhansia: suuressa otoksessa keskiarvon jakauma muistuttaa kellokäyrää, vaikka yksittäiset tuotot eivät sitä muistuttaisi (*keskeinen raja-arvolause*). Koska teen 18 testiä, osa niistä näyttäisi "merkitsevältä" pelkästä sattumasta. Holmin korjaus estää tämän tiukentamalla rajaa sitä enemmän, mitä useampi testi tehdään. Rinnalla raportoin bayeslaisen todennäköisyyden P(voitto), joka vastaa suoremmin päättäjän kysymykseen: *kuinka todennäköisesti tämä kannattaa?*
+
+### Testi 1: paljonko hinnalla on väliä?
+
+```{r}
+#| label: testi-hinta
+# Ottelutason ero: samat kolme vetoa, eri hinta. Ottelut ovat toisistaan riippumattomia yksiköitä.
+hinta_erot <- vedot_t |>
+  mutate(r_avg = tuotto(AvgC, voitti), r_psc = tuotto(PSC, voitti), r_max = tuotto(MaxC, voitti)) |>
+  group_by(ottelu_id) |>
+  summarise(max_vs_avg = mean(r_max - r_avg), psc_vs_avg = mean(r_psc - r_avg), .groups = "drop")
+
+t_max <- t.test(hinta_erot$max_vs_avg)
+t_psc <- t.test(hinta_erot$psc_vs_avg)
+```
+
+Kun samat vedot lyödään parhaalla saatavilla olevalla kertoimella keskiarvokertoimen sijaan, tuotto paranee keskimäärin `r num(100 * t_max$estimate, 2)` prosenttiyksikköä (95 %:n luottamusväli `r num(100 * t_max$conf.int[1], 2)`–`r num(100 * t_max$conf.int[2], 2)`, p `r ifelse(t_max$p.value < 0.001, "< 0,001", paste("=", num(t_max$p.value, 3)))`). Pinnaclen kertoimilla vastaava parannus on `r num(100 * t_psc$estimate, 2)` prosenttiyksikköä.
+
+Käytin *parittaista* t-testiä ottelutasolla: jokainen ottelu verrataan itseensä, joten joukkueiden, sään tai kauden vaihtelu ei sotke vertailua. Yksikkönä on ottelu eikä yksittäinen veto, koska saman ottelun kolme vetoa riippuvat toisistaan (vain yksi voi voittaa).
+
+**Käytännön opetus:** Hinta on se osa, johon pelaaja voi vaikuttaa varmasti. Sama logiikka pätee yrityksen ostoihin: hankinnan hinta ratkaisee kannattavuuden yhtä varmasti kuin myyntitaito.
+
+### Testi 2: suosikki vai altavastaaja?
+
+Vedonlyöntitutkimuksessa tunnetaan ilmiö nimeltä **suosikki–altavastaaja-vinouma** (*favourite–longshot bias*): pitkillä kertoimilla pelaajat maksavat suhteessa enemmän kuin lyhyillä. Testaan, näkyykö ilmiö Veikkausliigassa.
+
+```{r}
+#| label: testi-suosikki
+block_boot_diff <- function(id, r, ryhma, B = 4000) {
+  stopifnot(length(id) == length(r), length(r) == length(ryhma), all(ryhma %in% c("A", "B")))
+  rivit <- split(seq_along(id), id)
+  replicate(B, {
+    s  <- sample(names(rivit), replace = TRUE)
+    ix <- unlist(rivit[s], use.names = FALSE)
+    mean(r[ix][ryhma[ix] == "A"]) - mean(r[ix][ryhma[ix] == "B"])
+  })
+}
+
+sa_testit <- map(c("PSC", "MaxC"), \(k) {
+  d <- strat_tuotot |>
+    filter(kirja == k, strategia %in% c("Suosikki", "Altavastaaja (kerroin ≥ 4)")) |>
+    mutate(ryhma = if_else(strategia == "Suosikki", "A", "B"))
+  ero  <- mean(d$tuotto[d$ryhma == "A"]) - mean(d$tuotto[d$ryhma == "B"])
+  boot <- block_boot_diff(d$ottelu_id, d$tuotto, d$ryhma)
+  tibble(kirja = kirja_nimet[k], ero = ero,
+         ala = quantile(boot, 0.025), yla = quantile(boot, 0.975),
+         p = min(1, 2 * min(mean(boot <= 0), mean(boot >= 0))))
+}) |> list_rbind()
+```
+
+```{r}
+#| label: tbl-suosikki
+#| tbl-cap: "Suosikkistrategian tuotto miinus altavastaajastrategian tuotto (prosenttiyksikköä). Positiivinen luku tarkoittaa, että suosikeilla pelaaminen oli kannattavampaa."
+sa_testit |>
+  transmute(Hinta = kirja, `Ero (%-yks.)` = num(100 * ero, 1),
+            `95 % väli` = paste0(num(100 * ala, 1), " … ", num(100 * yla, 1)),
+            p = formatC(p, format = "g", digits = 2)) |>
+  knitr::kable()
+```
+
+**Miksi tämä testi?** Suosikki- ja altavastaajavedot tulevat osin samoista otteluista, eivätkä ne siksi ole toisistaan riippumattomia. Tavallinen kahden ryhmän t-testi olettaisi riippumattomuuden ja antaisi liian varman tuloksen. Käytin siksi *ottelutason ryväsbootstrapia*: arvon otteluita (en yksittäisiä vetoja) takaisinpanolla ja lasken eron uudelleen 4 000 kertaa. Näin ottelun sisäinen riippuvuus säilyy jokaisessa toistossa.
+
+Tulos `r ifelse(all(sa_testit$p < 0.05), "on tilastollisesti merkitsevä molemmilla hintatasoilla", ifelse(any(sa_testit$p < 0.05), "on tilastollisesti merkitsevä vain toisella hintatasolla", "ei ole tilastollisesti merkitsevä kummallakaan hintatasolla"))`. `r ifelse(all(sa_testit$p >= 0.05), "Veikkausliigan aineisto on liian pieni erottamaan mahdollista vinoumaa sattumasta – mikä on itsessään hyvä esimerkki siitä, kuinka paljon dataa sattuman voittaminen vaatii.", "Altavastaajien pelaaminen on siis ollut systemaattisesti kalliimpaa, ja juuri tällaisia hinnoittelun epäsymmetrioita ammattilainen etsii.")`
+
+::: {.callout-note title="Faktalaatikko 2: Ovatko vedonlyöntimarkkinat tehokkaita?"}
+En löytänyt vedonlyöntimarkkinoiden tehokkuudesta varsinaista meta-analyysia, joten nojaan laajimpaan vertailututkimukseen. Angelini ja De Angelis ([2019, *International Journal of Forecasting*](https://ideas.repec.org/a/eee/intfor/v35y2019i2p712-721.html)) tutkivat 41 vedonvälittäjän kertoimia 11 eurooppalaisessa pääsarjassa 11 vuoden ajalta. Kun pelaaja valitsi parhaan saatavilla olevan kertoimen, kahdeksan markkinaa osoittautui tehokkaiksi ja kolmessa löytyi tehottomuutta, joka mahdollisti voitot.
+
+Tehokkuus tarkoittaa, että kertoimiin on jo hinnoiteltu kaikki julkinen tieto. Silloin taito ei voi perustua julkiseen tietoon vaan vain parempaan tai nopeampaan tietoon.
+
+**Counterfactual:** Jos markkinat olisivat täysin tehokkaita, KHO:n tapauksen kaltainen pitkäaikainen voitto olisi mahdoton ilman sisäpiiritietoa. Se, että pienemmissä sarjoissa (kuten Veikkausliiga) on vähemmän seuraajia ja siksi todennäköisemmin hinnoitteluvirheitä, on johdonmukaista sen kanssa, että vedonlyöjä keskittyi juuri suomalaiseen jalkapalloon.
+:::
+
+## Osa 3: Ennustaako markkina oikein?
+
+Kertoimet ovat ennusteita. Jos Pinnacle antaa kotivoitolle 50 %:n todennäköisyyden, kotijoukkueen pitäisi voittaa noin puolet tällaisista otteluista. Tätä kutsutaan **kalibraatioksi**.
+
+Testaan kalibraation bayeslaisella logistisella regressiolla. Malli kysyy: kun markkinan todennäköisyys muuttuu, muuttuuko toteutunut voittotodennäköisyys samassa suhteessa? Täydellisessä markkinassa mallin **kulmakerroin on 1** ja **vakiotermi 0**. Jos kulmakerroin on yli 1, markkina on liian varovainen: suosikit voittavat useammin ja altavastaajat harvemmin kuin kertoimet antavat ymmärtää.
+
+Valitsin bayeslaisen mallin, koska se antaa kulmakertoimelle jakauman, josta voi lukea suoraan "kuinka todennäköisesti markkina on liian varovainen". Priorijakaumat ovat väljiä (normaalijakauma, keskihajonta 2), joten tulos määräytyy datasta.
+
+```{r}
+#| label: kalibraatio-malli
+kal_data <- vedot_t |>
+  mutate(x = qlogis(p_psc), y = as.integer(voitti),
+         kohde = factor(kohde, levels = c("H", "D", "A")))
+
+kal_path <- here("data", proj, "kalibraatio_brms.qs2")   # poista tiedosto, jos malli muuttuu
+if (!file.exists(kal_path)) {
+  kal_malli <- brm(
+    y ~ 0 + kohde + kohde:x, data = kal_data, family = bernoulli(),
+    prior = prior(normal(0, 2), class = b),
+    chains = 4, iter = 2000, cores = 4, seed = 2026, refresh = 0
+  )
+  qs_save(kal_malli, kal_path)
+} else {
+  kal_malli <- qs_read(kal_path)
+}
+
+stopifnot(all(brms::rhat(kal_malli) < 1.01, na.rm = TRUE))
+
+kal_draws <- as_draws_df(kal_malli) |>
+  as_tibble() |>
+  select(starts_with("b_")) |>
+  pivot_longer(everything(), names_to = "par", values_to = "arvo") |>
+  mutate(kohde = str_extract(par, "(?<=kohde)[HDA]"),
+         tyyppi = if_else(str_detect(par, ":x$"), "Kulmakerroin", "Vakiotermi"),
+         kohde = factor(c(H = "Kotivoitto", D = "Tasapeli", A = "Vierasvoitto")[kohde],
+                        levels = c("Kotivoitto", "Tasapeli", "Vierasvoitto")))
+
+kulma <- kal_draws |> filter(tyyppi == "Kulmakerroin") |>
+  group_by(kohde) |>
+  summarise(med = median(arvo), ala = quantile(arvo, .025), yla = quantile(arvo, .975),
+            p_yli1 = mean(arvo > 1), .groups = "drop")
+```
+
+```{r}
+#| label: fig-kalibraatio
+#| fig-cap: "Vasemmalla: markkinan ennustama todennäköisyys (vaaka) ja toteutunut osuus (pysty) kymmenessä yhtä suuressa ryhmässä. Pisteiden pitäisi osua katkoviivalle, jos markkina on oikeassa. Pystyviivat ovat 95 %:n luottamusvälejä. Oikealla: kulmakertoimen jakauma. Arvo 1 tarkoittaa täydellistä kalibraatiota."
+#| fig-height: 5
+#| fig-width: 10
+kal_binit <- kal_data |>
+  group_by(kohde) |>
+  mutate(bin = ntile(p_psc, 10)) |>
+  group_by(kohde, bin) |>
+  summarise(p_ennuste = mean(p_psc), voitot = sum(y), n = n(), .groups = "drop") |>
+  mutate(osuus = voitot / n,
+         ala = qbeta(0.025, voitot + 0.5, n - voitot + 0.5),
+         yla = qbeta(0.975, voitot + 0.5, n - voitot + 0.5),
+         kohde = factor(c(H = "Kotivoitto", D = "Tasapeli", A = "Vierasvoitto")[as.character(kohde)],
+                        levels = c("Kotivoitto", "Tasapeli", "Vierasvoitto")))
+
+p1 <- ggplot(kal_binit, aes(p_ennuste, osuus, colour = kohde)) +
+  geom_abline(linetype = 2) +
+  geom_pointrange(aes(ymin = ala, ymax = yla), size = 0.3) +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(x = "Markkinan todennäköisyys", y = "Toteutunut osuus", colour = NULL) +
+  theme(legend.position = "bottom")
+
+p2 <- kal_draws |> filter(tyyppi == "Kulmakerroin") |>
+  ggplot(aes(arvo, kohde)) +
+  stat_halfeye(.width = c(.5, .95), fill = "grey75") +
+  geom_vline(xintercept = 1, linetype = 2) +
+  labs(x = "Kulmakerroin", y = NULL)
+
+p1 + p2 + plot_annotation(title = "Pinnaclen sulkeutumiskertoimien kalibraatio")
+```
+
+**Näin luet kuvan:** Vasemmassa kuvassa ottelut on jaettu kymmeneen ryhmään sen mukaan, kuinka todennäköisenä markkina lopputulosta piti. Jos piste on katkoviivan yläpuolella, lopputulos toteutui useammin kuin markkina ennusti. Oikeassa kuvassa näkyy, millaisia arvoja kulmakerroin voi saada epävarmuus huomioiden.
+
+Kotivoiton kulmakertoimen mediaani on `r num(kulma$med[kulma$kohde == "Kotivoitto"], 2)` (95 %:n väli `r num(kulma$ala[kulma$kohde == "Kotivoitto"], 2)`–`r num(kulma$yla[kulma$kohde == "Kotivoitto"], 2)`), tasapelin `r num(kulma$med[kulma$kohde == "Tasapeli"], 2)` ja vierasvoiton `r num(kulma$med[kulma$kohde == "Vierasvoitto"], 2)`. Mitä lähempänä ykköstä väli on, sitä paremmin markkina hinnoittelee sattuman. Huomaa, että tasapelin kulmakerroin on aina epävarmin: tasapelin todennäköisyys vaihtelee otteluiden välillä vähän (yleensä 20–30 %), joten aineistossa on vähän vaihtelua, josta kulmakerrointa voisi arvioida.
+
+### Ennustemalli: voiko julkisilla tuloksilla voittaa markkinan?
+
+Rakensin oman ennustemallin, joka käyttää vain julkisia ottelutuloksia. Se perustuu **Elo-lukuun**, joka on alun perin shakista tuttu vahvuusluku. Jokainen joukkue saa vahvuusluvun, joka nousee voitoista ja laskee tappioista – sitä enemmän, mitä yllättävämpi tulos oli. Kotijoukkue saa lisäpisteitä kotiedusta, ja kauden vaihtuessa luvut palautuvat osittain kohti keskiarvoa. Sarjaan nousevat joukkueet aloittavat hieman keskiarvon alapuolelta.
+
+Elo-erotus muutetaan kolmen lopputuloksen todennäköisyyksiksi *järjestysasteikollisella logistisella regressiolla* (vierasvoitto < tasapeli < kotivoitto). Mallin säätöarvot valitaan kausien 2012–2017 perusteella ja tarkistetaan kausilla 2018–2020. **Lopullinen testi tehdään kausilla 2021 eteenpäin, joita malli ei ole nähnyt.** Tämä on tärkeää: malli, joka testataan samalla datalla, jolla se rakennettiin, näyttää aina liian hyvältä.
+
+Ennusteiden hyvyyttä mittaan **RPS-luvulla** (*ranked probability score*). Se on ennustevirhe, joka huomioi, että tasapeli on vierasvoiton ja kotivoiton "välissä": jos ennustit vahvaa kotivoittoa ja tuli tasapeli, virhe on pienempi kuin jos tuli vierasvoitto. Pienempi luku on parempi.
+
+```{r}
+#| label: elo
+rps3 <- function(pA, pD, tulos) {
+  stopifnot(length(pA) == length(tulos), all(abs(pA + pD) <= 1 + 1e-9))
+  oA <- as.numeric(tulos == "A"); oD <- as.numeric(tulos == "D")
+  0.5 * ((pA - oA)^2 + (pA + pD - oA - oD)^2)
+}
+
+elo_aja <- function(df, k, kotietu, siirto = 0.75, uusi = 1450) {
+  stopifnot(!is.unsorted(df$pvm), k > 0)
+  r <- numeric(0); kausi_ed <- NA_integer_
+  ero <- numeric(nrow(df))
+  for (i in seq_len(nrow(df))) {
+    if (!identical(df$kausi[i], kausi_ed)) {        # kauden vaihtuessa luvut kohti keskiarvoa
+      r <- 1500 + siirto * (r - 1500); kausi_ed <- df$kausi[i]
+    }
+    h <- df$koti[i]; a <- df$vieras[i]
+    if (is.na(r[h])) r[h] <- uusi
+    if (is.na(r[a])) r[a] <- uusi
+    d <- r[[h]] + kotietu - r[[a]]
+    ero[i] <- d                                      # tallennetaan ENNEN ottelua (ei vuotoa)
+    e <- 1 / (1 + 10^(-d / 400))
+    s <- switch(as.character(df$tulos[i]), H = 1, D = 0.5, A = 0)
+    r[h] <- r[[h]] + k * (s - e)
+    r[a] <- r[[a]] - k * (s - e)
+  }
+  ero
+}
+
+ottelut_e <- ottelut |>
+  arrange(pvm, ottelu_id) |>
+  mutate(tulos_o = factor(tulos, levels = c("A", "D", "H"), ordered = TRUE))
+
+saato_kaudet  <- 2012:2017
+valid_kaudet  <- 2018:2020
+opetus_kaudet <- 2012:2020
+testi_kaudet  <- 2021:max(ottelut_e$kausi)
+
+elo_grid <- expand_grid(k = c(10, 15, 20, 30, 40), kotietu = c(0, 30, 60, 90)) |>
+  mutate(rps = map2_dbl(k, kotietu, \(kk, hh) {
+    d  <- ottelut_e |> mutate(ero = elo_aja(ottelut_e, kk, hh))
+    tr <- d |> filter(kausi %in% saato_kaudet)
+    va <- d |> filter(kausi %in% valid_kaudet)
+    m  <- MASS::polr(tulos_o ~ ero, data = tr, Hess = TRUE)
+    p  <- predict(m, newdata = va, type = "probs")
+    mean(rps3(p[, "A"], p[, "D"], va$tulos))
+  }))
+
+paras <- elo_grid |> slice_min(rps, n = 1, with_ties = FALSE)
+
+ottelut_e <- ottelut_e |> mutate(ero = elo_aja(ottelut_e, paras$k, paras$kotietu))
+elo_polr  <- MASS::polr(tulos_o ~ ero, data = filter(ottelut_e, kausi %in% opetus_kaudet), Hess = TRUE)
+
+perustaso <- ottelut_e |> filter(kausi %in% opetus_kaudet) |> count(tulos) |>
+  mutate(p = n / sum(n)) |> select(tulos, p) |> deframe()
+
+p_wide <- vedot_t |>
+  select(ottelu_id, kohde, p_psc) |>
+  pivot_wider(names_from = kohde, values_from = p_psc, names_prefix = "psc_")
+
+testi <- ottelut_e |>
+  filter(kausi %in% testi_kaudet) |>
+  inner_join(p_wide, by = "ottelu_id")
+
+p_elo <- predict(elo_polr, newdata = testi, type = "probs")
+testi <- testi |>
+  mutate(elo_A = p_elo[, "A"], elo_D = p_elo[, "D"], elo_H = p_elo[, "H"],
+         rps_elo   = rps3(elo_A, elo_D, tulos),
+         rps_psc   = rps3(psc_A, psc_D, tulos),
+         rps_naivi = rps3(rep(perustaso[["A"]], n()), rep(perustaso[["D"]], n()), tulos))
+
+stopifnot(nrow(testi) > 100, all(abs(testi$elo_A + testi$elo_D + testi$elo_H - 1) < 1e-6))
+
+ero_elo_psc   <- testi$rps_elo - testi$rps_psc
+ero_naivi_elo <- testi$rps_naivi - testi$rps_elo
+t_ep <- t.test(ero_elo_psc)
+w_ep <- wilcox.test(ero_elo_psc, exact = FALSE)
+t_ne <- t.test(ero_naivi_elo)
+```
+
+```{r}
+#| label: tbl-ennusteet
+#| tbl-cap: "Ennustemallien keskimääräinen virhe (RPS) testikausilla, joita mallit eivät nähneet rakennusvaiheessa. Pienempi on parempi. 'Naiivi' ennustaa jokaiseen otteluun saman, historiallisen perustason."
+tibble(
+  Malli = c("Naiivi perustaso", "Elo-malli (julkiset tulokset)", "Pinnacle (vedonlyöntimarkkina)"),
+  RPS   = num(c(mean(testi$rps_naivi), mean(testi$rps_elo), mean(testi$rps_psc)), 4)
+) |> knitr::kable()
+```
+
+Testikausilla on `r num(nrow(testi))` ottelua. Elo-malli on `r ifelse(unname(t_ne$estimate) > 0, "parempi", "huonompi")` kuin naiivi perustaso (p `r ifelse(t_ne$p.value < 0.001, "< 0,001", paste("=", num(t_ne$p.value, 3)))`), mutta verrattuna vedonlyöntimarkkinaan sen virhe on keskimäärin `r num(t_ep$estimate, 4)` yksikköä `r ifelse(unname(t_ep$estimate) > 0, "suurempi", "pienempi")` (parittainen t-testi p `r ifelse(t_ep$p.value < 0.001, "< 0,001", paste("=", num(t_ep$p.value, 3)))`; Wilcoxonin merkittyjen sijalukujen testi p `r ifelse(w_ep$p.value < 0.001, "< 0,001", paste("=", num(w_ep$p.value, 3)))`).
+
+**Miksi kaksi testiä?** Vertaan samojen otteluiden ennustevirheitä pareittain, joten käytän parittaisia testejä. T-testi vertaa keskiarvoja ja on herkkä muutamalle suurelle virheelle. Wilcoxonin testi vertaa järjestyksiä eikä välitä yksittäisistä ääriarvoista. Jos molemmat kertovat saman tarinan, tulos ei johdu muutamasta poikkeuksellisesta ottelusta. Tämä on ennusteiden vertailussa vakiintunut ajatus (ns. Diebold–Mariano-testin perusidea).
+
+### Counterfactual: entä jos Elo-mallilla olisi lyöty vetoa?
+
+Ennustetarkkuus on yksi asia, raha toinen. Kysyn: mitä olisi tapahtunut, jos testikausilla olisi lyöty euron veto aina, kun malli piti parasta saatavilla olevaa kerrointa liian korkeana? Säännön kynnys on 0 %, 5 % tai 10 % arvioitua etua. Vertailukohtana on sama sääntö, jossa Elo-mallin tilalla käytetään Pinnaclen todennäköisyyksiä. Jälkimmäinen on oikeassa elämässä käytetty strategia: *pelaa muualla, kun hinta on parempi kuin tarkimman markkinan hinta.*
+
+```{r}
+#| label: arvovedot
+elo_long <- testi |>
+  select(ottelu_id, elo_A, elo_D, elo_H) |>
+  pivot_longer(-ottelu_id, names_to = "kohde", names_prefix = "elo_", values_to = "p_elo")
+
+arvo <- vedot_t |>
+  filter(ottelu_id %in% testi$ottelu_id) |>
+  left_join(elo_long, by = c("ottelu_id", "kohde"))
+stopifnot(!anyNA(arvo$p_elo))
+
+arvo_tulos <- expand_grid(malli = c("Elo-malli", "Pinnacle"), kynnys = c(0, 0.05, 0.10)) |>
+  mutate(tiedot = map2(malli, kynnys, \(m, ky) {
+    p <- if (m == "Elo-malli") arvo$p_elo else arvo$p_psc
+    valinta <- p * arvo$MaxC > 1 + ky
+    r <- tuotto(arvo$MaxC[valinta], arvo$voitti[valinta])
+    if (length(r) < 2) return(tibble(vetoja = length(r), roi = NA_real_, ala = NA_real_, yla = NA_real_, p_pos = NA_real_))
+    bb <- bayes_bootstrap_mean(r)
+    tibble(vetoja = length(r), roi = mean(r), ala = quantile(bb, .025),
+           yla = quantile(bb, .975), p_pos = mean(bb > 0))
+  })) |>
+  unnest(tiedot)
+
+elo_voittaa <- any(arvo_tulos$malli == "Elo-malli" & arvo_tulos$p_pos > 0.95, na.rm = TRUE)
+```
+
+```{r}
+#| label: tbl-arvovedot
+#| tbl-cap: "Arvovetostrategiat testikausilla parhaalla saatavilla olevalla kertoimella. 'Kynnys' on vaadittu arvioitu etu ennen kuin veto lyödään."
+arvo_tulos |>
+  transmute(Malli = malli, Kynnys = pct(kynnys, 0), Vetoja = num(vetoja),
+            ROI = pct(roi), `95 % väli` = if_else(is.na(ala), "–", paste0(pct(ala), " … ", pct(yla))),
+            `P(voitto)` = pct(p_pos, 0)) |>
+  knitr::kable()
+```
+
+`r ifelse(elo_voittaa, "Elo-malli tuotti yhdellä kynnyksellä yli 95 %:n todennäköisyydellä voittoa. Tulos on kiinnostava mutta kannattaa lukea varoen: kokeilin kolmea kynnystä, ja yksikin onnekas kynnys voi syntyä sattumalta. Lisäksi parhaan kertoimen sarake on optimistinen (ks. alla).", "Elo-malli ei yhdelläkään kynnyksellä tuottanut voittoa uskottavasti (P(voitto) jäi alle 95 %:n).")`
+
+**Opetus:** Tämä kertoo, miksi KHO painotti tiedonhankintaa. Julkisista tuloksista laskettu malli tietää korkeintaan sen, minkä markkina jo tietää – ja markkina tietää enemmän (loukkaantumiset, kokoonpanot, motivaatio, sää). Etua ei synny siitä, että käsittelee samaa julkista tietoa kuin kaikki muut, vaan siitä, että tietää jotain, mitä hinta ei vielä sisällä. Pinnacle-vertailukohdan tulos kannattaa lukea varoen: parhaan kertoimen sarakkeessa on mukana yksittäisiä hetkellisiä tai virheellisiä kertoimia, joihin ei käytännössä pääse käsiksi, ja vedonvälittäjät rajoittavat nopeasti asiakkaita, jotka hyödyntävät tällaisia eroja.
+
+## Osa 4: Oliko KHO:n vedonlyöjä taitava vai onnekas?
+
+Nyt päästään tapauksen ytimeen. Vedonlyöjä teki vuonna 2020 noin `r pct(41107 / 365606)` tuoton. Onko se taitoa vai tuuria?
+
+### Mitä uutisen luvuista voi päätellä
+
+Uutisessa on yksi yllättävän paljastava luku: Verohallinto lisäsi ansiotuloihin "yli 112 000 euroa", kun se hyväksyi vähennykseksi vain voittaneiden vetojen panokset. Tästä voi laskea, että voittaneisiin vetoihin oli käytetty enintään 406 713 – 112 000 ≈ 294 700 euroa. Panoseuroista noin `r pct(294713 / 365606, 0)` meni siis voittaneisiin vetoihin, ja voittaneiden vetojen keskimääräinen kerroin oli noin 406 713 / 294 713 ≈ 1,38.
+
+Tämä on päättely eikä tieto. Palautuksiin voi sisältyä esimerkiksi mitätöityjä vetoja, joissa panos palautetaan, tai aasialaisen tasoitusvedonlyönnin puolivoittoja. Siksi teen analyysin kahdella skenaariolla:
+
+- **Skenaario A, "matalat kertoimet":** kaikki vedot kertoimella 1,38, kuten uutisen luvuista voi päätellä.
+- **Skenaario B, "Veikkausliigan kerroinjakauma":** vedot jakautuvat kertoimiltaan samoin kuin kaikki Veikkausliigan 1X2-vedot aineistossa. Tässä skenaariossa pitkien kertoimien vuoksi sattumaa on paljon enemmän.
+
+Jos johtopäätös pitää molemmissa, se on luotettava.
+
+```{r}
+#| label: kho-luvut
+kho <- list(vetoja = 2145L, panokset = 365606, palautukset = 406713, lisatty_tulo = 112000)
+kho$voitto      <- kho$palautukset - kho$panokset
+kho$roi         <- kho$voitto / kho$panokset
+kho$keskipanos  <- kho$panokset / kho$vetoja
+kho$voitt_panos <- kho$palautukset - kho$lisatty_tulo
+kho$kerroin_A   <- kho$palautukset / kho$voitt_panos
+
+# Tarkistukset uutisen lukuja vasten
+stopifnot(
+  abs(kho$voitto - 41107) < 1,
+  kho$roi > 0.112, kho$roi < 0.113,
+  kho$kerroin_A > 1.37, kho$kerroin_A < 1.39
+)
+
+kertoimet_B <- vedot_t$PSC
+stopifnot(length(kertoimet_B) > 1000, all(is.finite(kertoimet_B)), all(kertoimet_B > 1))
+
+# Yhden vedon tuoton keskihajonta, kun etu (odotettu tuotto) on e
+sigma_A <- function(e, o = kho$kerroin_A) {
+  p <- pmin((1 + e) / o, 0.9999)
+  o * sqrt(p * (1 - p))
+}
+sigma_B <- function(e) {
+  map_dbl(e, \(ee) {
+    p <- pmin((1 + ee) / kertoimet_B, 0.9999)
+    sqrt(mean(kertoimet_B^2 * p * (1 - p)))
+  })
+}
+```
+
+### Bayeslainen malli taidolle
+
+Malli kysyy: kun tiedämme, että 2 145 vedosta saatiin `r pct(kho$roi)` tuotto, mikä on vedonlyöjän *todellinen* etu – se, jonka hän saisi keskimäärin, jos hän pelaisi samalla tavalla loputtomasti? Tätä kutsutaan **eduksi** tai *odotusarvoksi*.
+
+Bayeslainen malli yhdistää kaksi asiaa:
+
+1. **Priorin**, eli sen, mitä tiedämme ennen tämän pelaajan tulosta. Käytän *skeptistä* prioria: lähtöoletus on, että tyypillinen pelaaja häviää katteen verran (`r pct(m_avg)`, laskettu yllä datasta), ja hajonta on 3 prosenttiyksikköä. Tällainen priori pitää yli 3 %:n etua harvinaisena, mikä vastaa tutkimuksen kuvaa lähes tehokkaista markkinoista. Vertailun vuoksi ajan mallin myös *tasaisella* priorilla, joka ei suosi mitään arvoa.
+2. **Uskottavuuden**, eli sen, kuinka todennäköinen havaittu tulos on kullakin mahdollisella edulla. Tuhansien vetojen keskiarvo noudattaa hyvin tarkasti kellokäyrää, jonka leveys riippuu kertoimista.
+
+Koska vedonlyöjän panokset vaihtelivat, todellinen "tehollinen" vetomäärä on alle 2 145 (isot vedot painavat enemmän). Siksi ajan mallin sekä 2 145:llä että konservatiivisesti 1 000 tehollisella vedolla.
+
+```{r}
+#| label: kho-posteriori
+posteriori <- function(sigma_fun, n_eff, priori = c("Skeptinen", "Tasainen")) {
+  priori <- match.arg(priori)
+  e  <- seq(-0.15, 0.35, by = 0.0005)
+  ll <- dnorm(kho$roi, mean = e, sd = sigma_fun(e) / sqrt(n_eff), log = TRUE)
+  lp <- if (priori == "Skeptinen") dnorm(e, mean = -m_avg, sd = 0.03, log = TRUE) else 0
+  w  <- exp(ll + lp - max(ll + lp))
+  tibble(e = e, w = w / sum(w))
+}
+
+post_yht <- function(df) {
+  cdf <- cumsum(df$w)
+  tibble(keskiarvo = sum(df$e * df$w),
+         ala = df$e[which(cdf >= 0.025)[1]],
+         yla = df$e[which(cdf >= 0.975)[1]],
+         p_pos = sum(df$w[df$e > 0]))
+}
+
+skenaariot <- expand_grid(
+  kertoimet = c("A: kerroin 1,38", "B: Veikkausliigan jakauma"),
+  n_eff     = c(2145, 1000),
+  priori    = c("Skeptinen", "Tasainen")
+) |>
+  mutate(post = pmap(list(kertoimet, n_eff, priori), \(k, n, p) {
+    posteriori(if (startsWith(k, "A")) sigma_A else sigma_B, n, p)
+  }),
+  yht = map(post, post_yht))
+
+stopifnot(all(map_dbl(skenaariot$post, \(d) sum(d$w)) > 0.999))
+
+skenaario_yht <- skenaariot |> select(-post) |> unnest(yht)
+```
+
+```{r}
+#| label: fig-kho-posteriori
+#| fig-cap: "Vedonlyöjän todellisen edun jakauma kahdeksassa skenaariossa. Mitä enemmän käyrästä on nollaviivan oikealla puolella, sitä varmemmin tulos johtuu taidosta. Katkoviiva on nolla (ei taitoa), pisteviiva havaittu vuoden 2020 tuotto."
+#| fig-height: 6
+skenaariot |>
+  mutate(nimi = paste0(priori, " priori, ", num(n_eff), " tehollista vetoa")) |>
+  select(kertoimet, nimi, post) |>
+  unnest(post) |>
+  ggplot(aes(100 * e, w, colour = nimi)) +
+  geom_line(linewidth = 0.9) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_vline(xintercept = 100 * kho$roi, linetype = 3) +
+  facet_wrap(~kertoimet, ncol = 1, scales = "free_y") +
+  coord_cartesian(xlim = c(-10, 25)) +
+  labs(x = "Todellinen etu (% panoksista)", y = "Suhteellinen uskottavuus", colour = NULL,
+       title = "Kuinka taitava vedonlyöjä oli?") +
+  theme(legend.position = "bottom", axis.text.y = element_blank()) +
+  guides(colour = guide_legend(ncol = 2))
+```
+
+**Näin luet kuvan:** Vaaka-akselilla on vedonlyöjän todellinen etu prosentteina. Käyrän korkeus kertoo, kuinka uskottava kukin arvo on. Ylempi paneeli on matalien kertoimien skenaario, alempi Veikkausliigan kerroinjakauma. Jokainen väri on yksi oletusyhdistelmä.
+
+```{r}
+#| label: tbl-kho
+#| tbl-cap: "Vedonlyöjän todellisen edun arvio eri oletuksilla. P(etu > 0) on todennäköisyys, että vedonlyöjällä on aito positiivinen etu."
+skenaario_yht |>
+  transmute(Kertoimet = kertoimet, `Tehollisia vetoja` = num(n_eff), Priori = priori,
+            `Etu, keskiarvo` = pct(keskiarvo),
+            `95 % väli` = paste0(pct(ala), " … ", pct(yla)),
+            `P(etu > 0)` = ifelse(p_pos > 0.9999, "> 99,99 %", pct(p_pos, 2))) |>
+  knitr::kable()
+```
+
+```{r}
+#| label: kho-yhteenveto
+n_vahva   <- sum(skenaario_yht$p_pos > 0.95)
+heikoin   <- skenaario_yht |> slice_min(p_pos, n = 1, with_ties = FALSE)
+A_vahva   <- all(skenaario_yht$p_pos[startsWith(skenaario_yht$kertoimet, "A")] > 0.95)
+```
+
+Kahdeksasta skenaariosta `r n_vahva` antaa yli 95 %:n todennäköisyyden aidolle positiiviselle edulle. `r ifelse(A_vahva, "Uutisen luvuista päätellyillä matalilla kertoimilla (skenaario A) tulos on yksiselitteinen kaikilla oletuksilla.", "")` Heikoin tulos syntyy yhdistelmällä *`r heikoin$kertoimet`, `r num(heikoin$n_eff)` tehollista vetoa, `r tolower(heikoin$priori)` priori*: silloin P(etu > 0) on `r pct(heikoin$p_pos)`.
+
+Tämä on opettavainen ero. Kun kertoimet ovat pitkiä, yhteen vetoon liittyy paljon sattumaa, ja skeptinen priori – joka pitää yli 3 %:n etua harvinaisena – tulkitsee suuren osan hyvästä tuloksesta tuuriksi. **Mitä enemmän sattumaa, sitä enemmän näyttöä tarvitaan.** Matalilla kertoimilla sama 11 %:n tuotto on paljon vahvempi todiste, koska sattuma ei pysty tuottamaan sitä yhtä helposti.
+
+Kaikissa skenaarioissa skeptinen priori vetää arviota alaspäin havaitusta `r pct(kho$roi)`:sta. Tämä on tärkeä periaate: **havaittu tulos ei ole taito, vaan taito plus sattuma.** Bayeslainen malli yrittää erottaa ne toisistaan.
+
+### Counterfactual: entä jos sama pelaaja olisi pelannut ilman taitoa?
+
+Rakennan vaihtoehtoisen maailman, jossa vedonlyöjä lyö samat 2 145 vetoa samoilla kertoimilla mutta ilman taitoa. Silloin hänen odotettu tuottonsa on miinus kate. Kuinka usein tällainen pelaaja yltäisi sattumalta vähintään `r pct(kho$roi)` tuottoon?
+
+```{r}
+#| label: nollataito
+N_sim <- 20000
+
+# Skenaario A: binomijakauma antaa tarkan vastauksen
+p0_A      <- (1 - m_avg) / kho$kerroin_A
+roi_nolla_A <- rbinom(N_sim, kho$vetoja, p0_A) * kho$kerroin_A / kho$vetoja - 1
+voitot_tarvitaan <- ceiling(kho$vetoja * (1 + kho$roi) / kho$kerroin_A)
+p_tuuri_A <- pbinom(voitot_tarvitaan - 1, kho$vetoja, p0_A, lower.tail = FALSE)
+
+# Skenaario B: simulointi Veikkausliigan kertoimilla
+sim_nolla_B <- function(N, n, kertoimet, m, chunk = 500) {
+  out <- numeric(0)
+  for (s in seq(1, N, by = chunk)) {
+    nb <- min(chunk, N - s + 1)
+    o  <- matrix(sample(kertoimet, nb * n, replace = TRUE), nrow = nb)
+    w  <- matrix(runif(nb * n), nrow = nb) < (1 - m) / o
+    out <- c(out, rowMeans(w * o) - 1)
+  }
+  out
+}
+roi_nolla_B <- sim_nolla_B(10000, kho$vetoja, kertoimet_B, m_avg)
+z_B         <- (kho$roi + m_avg) / (sigma_B(-m_avg) / sqrt(kho$vetoja))
+p_tuuri_B   <- pnorm(z_B, lower.tail = FALSE)
+
+stopifnot(abs(mean(roi_nolla_A) + m_avg) < 0.01, abs(mean(roi_nolla_B) + m_avg) < 0.01)
+```
+
+```{r}
+#| label: fig-nollataito
+#| fig-cap: "Taidottoman pelaajan vuositulos kahdessa kerroinskenaariossa. Harmaa jakauma näyttää, millaisia tuottoja 2 145 vetoa ilman taitoa tuottaa. Punainen viiva on KHO:n tapauksen vedonlyöjän todellinen tuotto."
+#| fig-height: 4.5
+bind_rows(
+  tibble(skenaario = "A: kerroin 1,38", roi = roi_nolla_A),
+  tibble(skenaario = "B: Veikkausliigan jakauma", roi = roi_nolla_B)
+) |>
+  ggplot(aes(100 * roi)) +
+  geom_histogram(bins = 80, fill = "grey70") +
+  geom_vline(xintercept = 100 * kho$roi, colour = "firebrick", linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  facet_wrap(~skenaario, ncol = 1, scales = "free_y") +
+  labs(x = "Vuoden tuotto (% panoksista)", y = "Pelaajien määrä simuloinnissa",
+       title = "Ilman taitoa: millaisia vuosia sattuma tuottaa?")
+```
+
+**Näin luet kuvan:** Kuvitellaan tuhansia pelaajia, joilla ei ole lainkaan taitoa. Jokainen pylväs kertoo, kuinka moni heistä päätyi kyseiseen vuositulokseen. Punainen viiva on oikean vedonlyöjän tulos.
+
+Matalien kertoimien skenaariossa taidoton pelaaja yltäisi vähintään yhtä hyvään tulokseen todennäköisyydellä `r formatC(p_tuuri_A, format = "e", digits = 1)`. Veikkausliigan kerroinjakaumalla todennäköisyys on noin `r formatC(p_tuuri_B, format = "e", digits = 1)`, eli yksi `r num(1 / p_tuuri_B)` taidottomasta pelaajasta. Kummassakaan maailmassa tulos ei ole uskottava täysin taidottoman pelaajan sattumaksi.
+
+Huomaa, että tämä ei ole ristiriidassa sen kanssa, että skeptinen bayeslainen malli oli pitkien kertoimien skenaariossa varovaisempi. Nämä vastaavat eri kysymyksiin. Tässä kysytään: *kuinka todennäköinen tulos on, jos taitoa ei ole lainkaan?* (tämä on perinteisen p-arvon idea). Bayeslainen malli kysyy: *kun otetaan huomioon, että suuret edut ovat harvinaisia, mikä on todennäköisin taidon määrä?* Taidoton selitys hylätään molemmissa, mutta skeptinen malli epäilee, että todellinen etu on pienempi kuin vuoden tulos antaa ymmärtää.
+
+Tilastollinen johtopäätös tukee siis KHO:n oikeudellista johtopäätöstä. Tilasto ei tietenkään ratkaise oikeuskysymystä, mutta se pystyy mittaamaan juuri sen asian, jonka tuomioistuin joutui arvioimaan sanallisesti: *perustuuko menestys pelkkään sattumaan?*
+
+### Ennuste: mitä samalla taidolla tapahtuu seuraavana vuonna?
+
+Kyky ennustaa on parempi todiste ymmärryksestä kuin kyky selittää jälkikäteen. Käytän bayeslaisen mallin tulosta (skenaario A, skeptinen priori, 2 145 vetoa) ja ennustan, millaisen vuoden sama pelaaja tekisi samalla vetomäärällä ja samalla keskipanoksella (`r num(kho$keskipanos)` euroa).
+
+```{r}
+#| label: ennuste
+post_A <- skenaariot |>
+  filter(startsWith(kertoimet, "A"), n_eff == 2145, priori == "Skeptinen") |>
+  pull(post) |> pluck(1)
+
+e_draws <- sample(post_A$e, N_sim, replace = TRUE, prob = post_A$w)
+
+ennuste_vuosi <- function(n_vetoja) {
+  voitot <- rbinom(N_sim, n_vetoja, pmin((1 + e_draws) / kho$kerroin_A, 1))
+  (voitot * kho$kerroin_A - n_vetoja) * kho$keskipanos
+}
+seur_vuosi <- ennuste_vuosi(kho$vetoja)
+p_tappio   <- mean(seur_vuosi < 0)
+kvant      <- quantile(seur_vuosi, c(0.05, 0.5, 0.95))
+
+# Kuinka moni aidosti taitava näyttäisi epäonnistujalta lyhyellä aikavälillä?
+lyhyet <- tibble(vetoja = c(50, 100, 250, 500, 1000, 2145)) |>
+  mutate(p_tappiolla = map_dbl(vetoja, \(n) mean(ennuste_vuosi(n) < 0)))
+```
+
+```{r}
+#| label: fig-ennuste
+#| fig-cap: "Ennuste vedonlyöjän seuraavan vuoden tulokselle samalla taidolla, samalla vetomäärällä ja samalla keskipanoksella. Jakauma sisältää sekä epävarmuuden pelaajan taidosta että yksittäisten vetojen sattuman."
+#| fig-height: 4
+ggplot(tibble(tulos = seur_vuosi / 1000), aes(tulos)) +
+  stat_halfeye(.width = c(.5, .9), fill = "steelblue", alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_vline(xintercept = kho$voitto / 1000, colour = "firebrick") +
+  labs(x = "Vuoden tulos (tuhatta euroa)", y = NULL,
+       title = "Maailma on jakauma: sama taito, eri vuosi",
+       subtitle = "Punainen viiva = toteutunut vuosi 2020") +
+  theme(axis.text.y = element_blank())
+```
+
+**Näin luet kuvan:** Sininen pilvi kertoo, millaisia vuosituloksia samalla osaamisella voi syntyä. Musta piste on todennäköisin tulos, paksu viiva kattaa puolet ja ohut viiva 90 % mahdollisista vuosista. Punainen viiva on vuoden 2020 toteutunut tulos.
+
+Ennusteen mediaani on `r num(kvant[2] / 1000, 1)` tuhatta euroa, ja 90 % vuosista osuu välille `r num(kvant[1] / 1000, 1)`–`r num(kvant[3] / 1000, 1)` tuhatta euroa. Tappiollisen vuoden todennäköisyys on `r pct(p_tappio)`. Toteutunut 41 100 euroa on `r ifelse(kho$voitto > unname(kvant[2]), "mediaanin yläpuolella: osa vuoden 2020 tuloksesta oli siis myönteistä sattumaa", "mediaanin alapuolella: vuosi 2020 oli siis taitoon nähden pikemminkin tavallista heikompi")`.
+
+```{r}
+#| label: tbl-lyhyet
+#| tbl-cap: "Todennäköisyys, että sama taitava vedonlyöjä on tappiolla tietyn vetomäärän jälkeen."
+lyhyet |> transmute(Vetoja = num(vetoja), `P(tappiolla)` = pct(p_tappiolla)) |> knitr::kable()
+```
+
+Tämä taulukko on yrittäjälle tärkeämpi kuin miltä se näyttää. **Aidosti taitava toimija näyttää lyhyellä aikavälillä usein epäonnistujalta.** Jos vedonlyöjä olisi arvioinut itseään ensimmäisten 50 vedon perusteella, hänellä olisi ollut merkittävä riski lopettaa – ei siksi, että hän olisi ollut huono, vaan siksi, että otos oli liian pieni.
+
+## Osa 5: Pokeri vs. vedonlyönti – kummassa taito näkyy nopeammin?
+
+Taloustaidon uutisessa verojuristi Miika Härkönen toteaa, että pokeritulojen verotuksessa pelaaminen on jo vakiintuneesti voitu katsoa tulonhankkimistoiminnaksi ja että vedonlyönnissä sattuma on samalla tavoin aina läsnä taidon rinnalla. Tilastollisesti näissä on silti kaksi olennaista eroa.
+
+**Ensimmäinen ero on vastapuoli.** Pokerissa pelataan muita pelaajia vastaan, ja talo ottaa pöytämaksun (*rake*). Taitava voittaa heikompia pelaajia. Vedonlyönnissä vastapuolena on vedonvälittäjä, jonka hinnat heijastavat kaikkien markkinatoimijoiden tietoa. Taitava voittaa hinnan eli markkinan.
+
+**Toinen ero on päätösten tiheys.** Pokerissa tehdään kymmeniä päätöksiä tunnissa. KHO:n tapauksen vedonlyöjä teki vuodessa 2 145 vetoa käyttäen niihin 30–100 tuntia viikossa – siis karkeasti 0,7–2,4 tuntia työtä vetoa kohden.
+
+::: {.callout-note title="Faktalaatikko 3: Mitä tutkimus sanoo pokerin taidosta?"}
+Pokerin taidosta ei löydy meta-analyysia, mutta kolme laajaa tutkimusta päätyy samaan suuntaan eri menetelmin:
+
+- **Potter van Loon, van den Assem ja van Dolder** ([2015, *PLoS ONE*](https://eprints.nottingham.ac.uk/30839)) analysoivat 456 miljoonaa pelaajakättä 611 484 verkkopelaajalta. Ensimmäisen puolen vuoden menestys ennusti toisen puolen vuoden menestystä. Taito alkaa heidän arvionsa mukaan dominoida sattumaa noin 1 500 käden jälkeen, mikä vastaa yhden pöydän pelaajalle noin 19–25 tuntia.
+- **Levitt ja Miles** ([NBER 2011, julkaistu *Journal of Sports Economics* -lehdessä 2014](https://www.nber.org/system/files/working_papers/w17023/w17023.pdf)) tunnistivat etukäteen 720 huippupelaajaa vuoden 2010 World Series of Pokerissa. Heidän tuottonsa oli keskimäärin +30,5 %, muiden –15,6 %.
+- **Duersch, Lambrecht ja Oechssler** ([2020, *European Economic Review*](https://research.hanken.fi/en/publications/measuring-skill-and-chance-in-games/)) mittasivat yli neljän miljoonan verkkopelin perusteella, kuinka paljon taito selittää eri pelien tuloksista. Pokeri jäi alle 50 %:n taitotason, mutta noin sadan pelin jälkeen keskihajonnan verran parempi pelaaja voittaa kokonaisuutena 75 %:n todennäköisyydellä ([Heidelbergin yliopiston tiedote](https://www.uni-heidelberg.de/en/newsroom/skat-and-poker-more-luck-than-skill)).
+
+**Counterfactual:** Laskin alla saman 75 %:n rajan vedonlyönnille avoimen datan kertoimilla. Jos vedonlyönnin päätöksiä voisi tehdä pokerin tahtiin, sama varmuus saavutettaisiin murto-osassa ajasta. Ero ei siis välttämättä ole taidon määrässä, vaan siinä, kuinka paljon työtä yksi päätös vaatii.
+:::
+
+```{r}
+#| label: taidon-paljastuminen
+sigma2_A <- kho$kerroin_A - 1          # reilun vedon varianssi kertoimella o on o - 1
+sigma2_B <- mean(kertoimet_B) - 1
+
+n75 <- function(e, sigma2) 2 * sigma2 * (qnorm(0.75) / e)^2
+
+taito_tbl <- expand_grid(skenaario = c("A: kerroin 1,38", "B: Veikkausliigan jakauma"),
+                         etu = c(0.02, 0.05, kho$roi)) |>
+  mutate(sigma2 = if_else(startsWith(skenaario, "A"), sigma2_A, sigma2_B),
+         vetoja = n75(etu, sigma2),
+         tunnit_ala = vetoja * 30 * 52 / kho$vetoja,
+         tunnit_yla = vetoja * 100 * 52 / kho$vetoja)
+
+n_seq <- round(10^seq(1, 4.5, length.out = 300))
+kayrat <- expand_grid(n = n_seq, skenaario = c("A: kerroin 1,38", "B: Veikkausliigan jakauma"),
+                      etu = c(0.02, 0.05, kho$roi)) |>
+  mutate(sigma2 = if_else(startsWith(skenaario, "A"), sigma2_A, sigma2_B),
+         p_edella = pnorm(etu / sqrt(2 * sigma2 / n)),
+         etu_lbl = paste("Etu", pct(etu, 1)))
+
+nolla_voitolla <- expand_grid(n = n_seq, skenaario = c("A: kerroin 1,38", "B: Veikkausliigan jakauma")) |>
+  mutate(sigma2 = if_else(startsWith(skenaario, "A"), sigma2_A, sigma2_B),
+         p_voitolla = pnorm(-m_avg * sqrt(n) / sqrt(sigma2)))
+```
+
+```{r}
+#| label: fig-taito
+#| fig-cap: "Vasemmalla: todennäköisyys, että taitava vedonlyöjä on tietyn vetomäärän jälkeen edellä taidotonta, kolmella eri edun suuruudella. Vaakaviiva on 75 %:n raja, jota pokeritutkimuksissa käytetään. Oikealla: todennäköisyys, että taidoton pelaaja on vielä voitolla. Vaaka-akseli on logaritminen: jokainen merkitty piste on kymmenkertainen edelliseen."
+#| fig-height: 5
+#| fig-width: 11
+q1 <- ggplot(kayrat, aes(n, p_edella, colour = etu_lbl, linetype = skenaario)) +
+  geom_hline(yintercept = 0.75, linetype = 3) +
+  geom_line(linewidth = 0.9) +
+  scale_x_log10(labels = scales::label_number(big.mark = " ")) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(x = "Vetojen määrä", y = "P(taitava edellä taidotonta)", colour = NULL, linetype = NULL)
+q2 <- ggplot(nolla_voitolla, aes(n, p_voitolla, linetype = skenaario)) +
+  geom_line(linewidth = 0.9) +
+  scale_x_log10(labels = scales::label_number(big.mark = " ")) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(x = "Vetojen määrä", y = "P(taidoton vielä voitolla)", linetype = NULL)
+(q1 | q2) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+```
+
+**Näin luet kuvan:** Vasemmassa kuvassa jokainen viiva näyttää, miten taitavan pelaajan etumatka varmistuu vetojen kertyessä. Alussa todennäköisyys on lähellä 50 %, eli lopputulos on kolikonheittoa. Kun viiva ylittää katkoviivan, taitava on 75 %:n todennäköisyydellä edellä. Oikea kuva näyttää kääntöpuolen: kuinka pitkään taidoton pelaaja voi vielä olla voitolla ja kuvitella olevansa taitava.
+
+```{r}
+#| label: tbl-taito
+#| tbl-cap: "Vetomäärä ja työtunnit, joiden jälkeen taitava vedonlyöjä on 75 %:n todennäköisyydellä edellä taidotonta. Työtunnit on muunnettu KHO:n tapauksen tuntimäärillä (30–100 h/viikko, 2 145 vetoa/vuosi). Vertailukohta: pokerissa vastaava raja on noin 1 500 kättä eli 19–25 tuntia."
+taito_tbl |>
+  transmute(Kertoimet = skenaario, Etu = pct(etu), Vetoja = num(vetoja),
+            `Työtunteja` = paste0(num(tunnit_ala), "–", num(tunnit_yla))) |>
+  knitr::kable()
+```
+
+Pokerissa taito erottuu tutkimusten mukaan noin 19–25 pelitunnissa. Vedonlyönnissä sama varmuus vaatii realistisella 2–5 %:n edulla satoja tai tuhansia vetoja ja satoja tai tuhansia työtunteja. Poikkeuksellisen suurella edulla, kuten KHO:n vedonlyöjän vuoden 2020 tuotolla matalilla kertoimilla, raja tulee vastaan nopeasti – mutta niin suuri etu on markkinoilla harvinainen. Tyypillisesti vedonlyönti on siis **hitaampi taitopeli**: taito ei ole vähäisempää, mutta sen todistaminen kestää kauemmin.
+
+Tällä on suora merkitys verotukselle: jos verottaja tai tuomioistuin arvioi toimintaa lyhyen jakson perusteella, vedonlyönnissä sattuma peittää taidon paljon helpommin kuin pokerissa.
+
+::: {.callout-note title="Faktalaatikko 4: Miksi ihmiset sekoittavat tuurin ja taidon?"}
+Goodie ja Fortune ([2013, *Psychology of Addictive Behaviors*](https://doi.org/10.1037/a0031892)) kokosivat meta-analyysiin tutkimukset rahapelaamiseen liittyvistä ajatusvinoumista, kuten *kontrollin illuusiosta* (uskotaan vaikuttavansa sattumaan) ja *pelurin harhasta* (uskotaan, että tappioputken jälkeen voitto on "vuorossa"). Vinoumat olivat selvästi yhteydessä peliongelmien vakavuuteen.
+
+**Counterfactual:** Yllä olevan kuvan oikea paneeli näyttää, miksi illuusio on niin helppo syntyä. Pelaaja, jolla ei ole lainkaan taitoa, voi olla satojen vetojen ajan voitolla huomattavalla todennäköisyydellä. Jos ihmiset arvioisivat omaa pelaamistaan jakaumana eikä viimeisimpänä tuloksena, iso osa illuusiosta katoaisi. Tämä on myös syy, miksi lisensoitujen toimijoiden kannattaa näyttää asiakkaalle pitkän aikavälin tulos eikä vain viimeisiä voittoja.
+:::
+
+## Osa 6: Verotuksen counterfactualit ja pelirupeaman matematiikka
+
+KHO:n kahdessa syksyn päätöksessä on kyse lopulta yhdestä kysymyksestä: **kuinka pitkältä ajalta voitot ja tappiot saa laskea yhteen?** Tämä on täsmälleen sama kysymys kuin edellä: sattuma tasoittuu vain riittävän pitkässä jaksossa.
+
+### Neljä tapaa verottaa samaa vuotta
+
+KHO:n tapauksen omista luvuista voi laskea, millainen veropohja syntyy eri tulkinnoilla:
+
+```{r}
+#| label: tbl-verosaannot
+#| tbl-cap: "Sama vuosi, neljä tulkintaa. Veropohja on se summa, josta veroa lasketaan. Viimeinen sarake kertoo, kuinka moninkertainen veropohja on todelliseen voittoon nähden."
+verosaannot <- tibble(
+  Tulkinta = c(
+    "1. Jokainen voitto erikseen, panoksia ei vähennetä",
+    "2. Voittaneiden vetojen panokset vähennetään (Verohallinnon tulkinta)",
+    "3. Pelirupeamittain (KHO elokuu 2026)",
+    "4. Koko toiminta kokonaisuutena (KHO lokakuu 2026)"
+  ),
+  Veropohja = c(kho$palautukset, kho$lisatty_tulo, NA, kho$voitto)
+) |>
+  mutate(`Suhde voittoon` = Veropohja / kho$voitto)
+
+verosaannot |>
+  mutate(Veropohja = if_else(is.na(Veropohja), "riippuu rupeaman pituudesta (ks. alla)", paste(num(Veropohja), "€")),
+         `Suhde voittoon` = if_else(is.na(`Suhde voittoon`), "–", paste0(num(`Suhde voittoon`, 1), "×"))) |>
+  knitr::kable()
+```
+
+Tulkinnalla 2 veropohja on `r num(kho$lisatty_tulo / kho$voitto, 1)`-kertainen todelliseen voittoon nähden. Jos keskimääräinen veroaste tästä summasta ylittää `r pct(kho$voitto / kho$lisatty_tulo, 0)`, vero olisi suurempi kuin koko vuoden voitto. **Toisin sanoen voitollinen, taitava toiminta olisi muuttunut verotuksen jälkeen tappiolliseksi.** Oman veroasteen voi tarkistaa [Verohallinnon veroprosenttilaskurilla](https://www.vero.fi/).
+
+### Pelirupeaman pituus ratkaisee
+
+Elokuun päätöksessä KHO jätti pelirupeaman rajat avoimiksi. Simuloin, miten veropohja muuttuu rupeaman pituuden mukaan, kun pelaajalla on bayeslaisen mallin mukainen taito (skenaario A). Jokaisessa rupeamassa veroa maksetaan vain, jos rupeama päättyi voitolle; tappiollisia rupeamia ei voi vähentää voitollisista.
+
+Vuodessa 2 145 vetoa tarkoittaa keskimäärin noin kuutta vetoa päivässä, joten kuuden vedon rupeama vastaa suunnilleen yhden päivän pelaamista – samaa tulkintaa, jota Härkönen uutisessa esimerkillään kuvaa.
+
+```{r}
+#| label: rupeama
+N_rup <- 2000
+o_A   <- kho$kerroin_A
+e_r   <- sample(post_A$e, N_rup, replace = TRUE, prob = post_A$w)
+p_r   <- pmin((1 + e_r) / o_A, 1)
+voitti_m <- matrix(runif(N_rup * kho$vetoja), nrow = N_rup) < p_r   # rivi = yksi simuloitu vuosi
+R <- ifelse(voitti_m, o_A - 1, -1) * kho$keskipanos
+vuosivoitto <- rowSums(R)
+
+rupeamat <- c(1, 3, 6, 15, 50, 200, kho$vetoja)
+rup_tulos <- map(rupeamat, \(k) {
+  g <- ceiling(seq_len(kho$vetoja) / k)
+  rup_summat <- rowsum(t(R), g)                    # rupeamat x simuloinnit
+  pohja <- colSums(pmax(rup_summat, 0))
+  tibble(rupeama = k, veropohja = pohja, voitto = vuosivoitto)
+}) |> list_rbind()
+
+# Tarkistus: koko vuoden rupeama vastaa tulkintaa 4 (vero vain positiivisesta vuosivoitosta)
+stopifnot(all(abs(filter(rup_tulos, rupeama == kho$vetoja)$veropohja -
+                    pmax(vuosivoitto, 0)) < 1e-6))
+
+rup_yht <- rup_tulos |>
+  filter(voitto > 0) |>
+  group_by(rupeama) |>
+  summarise(pohja_med = median(veropohja), voitto_med = median(voitto),
+            suhde_med = median(veropohja / voitto),
+            kynnys_med = median(voitto / veropohja), .groups = "drop")
+```
+
+```{r}
+#| label: fig-rupeama
+#| fig-cap: "Veropohjan suhde todelliseen voittoon pelirupeaman pituuden mukaan. Pisteet ovat mediaaneja simuloiduista voitollisista vuosista, pystyviivat kattavat 90 % vuosista. Arvo 1 tarkoittaa, että veroa maksetaan täsmälleen todellisesta voitosta."
+#| fig-height: 4.5
+rup_tulos |>
+  filter(voitto > 0) |>
+  mutate(suhde = veropohja / voitto) |>
+  group_by(rupeama) |>
+  summarise(med = median(suhde), ala = quantile(suhde, 0.05), yla = quantile(suhde, 0.95), .groups = "drop") |>
+  ggplot(aes(rupeama, med)) +
+  geom_hline(yintercept = 1, linetype = 2) +
+  geom_pointrange(aes(ymin = ala, ymax = yla)) +
+  geom_line() +
+  scale_x_log10(breaks = rupeamat) +
+  labs(x = "Pelirupeaman pituus (vetoja)", y = "Veropohja / todellinen voitto",
+       title = "Mitä lyhyempi rupeama, sitä enemmän verotetaan sattumaa")
+```
+
+**Näin luet kuvan:** Vaaka-akselilla on rupeaman pituus vetoina: vasemmalla jokainen veto on oma rupeamansa, oikealla koko vuosi on yksi rupeama. Pystyakselilla on se, kuinka moninkertainen verotettava summa on todelliseen voittoon nähden. Esimerkiksi arvo 3 tarkoittaa, että veroa maksetaan kolminkertaisesta summasta.
+
+```{r}
+#| label: tbl-rupeama
+#| tbl-cap: "Kynnysveroaste: keskimääräinen veroaste, jolla vero söisi koko vuoden voiton. Mitä matalampi kynnys, sitä todennäköisemmin verotus muuttaa voitollisen toiminnan tappiolliseksi."
+rup_yht |>
+  transmute(`Rupeaman pituus (vetoja)` = num(rupeama),
+            `Veropohja / voitto` = paste0(num(suhde_med, 1), "×"),
+            Kynnysveroaste = pct(pmin(kynnys_med, 1), 0)) |>
+  knitr::kable()
+```
+
+Tulos on politiikan kannalta olennainen: **pelirupeaman määritelmä ei ole tekninen yksityiskohta, vaan se ratkaisee, verotetaanko taitoa vai sattumaa.** Yhden vedon rupeamilla veropohja on mallissa `r num(rup_yht$suhde_med[rup_yht$rupeama == 1], 1)`-kertainen todelliseen voittoon nähden, päivän (6 vedon) rupeamilla `r num(rup_yht$suhde_med[rup_yht$rupeama == 6], 1)`-kertainen ja 50 vedon rupeamilla `r num(rup_yht$suhde_med[rup_yht$rupeama == 50], 2)`-kertainen. Mitä pidempi rupeama, sitä enemmän sattuma ehtii tasoittua ja sitä lähemmäs todellista tuloa verotus osuu. (Yhden vedon rupeamassa malli antaa hieman suuremman kertoimen kuin toteutunut `r num(kho$lisatty_tulo / kho$voitto, 1)`-kertainen, koska bayeslainen arvio taidosta on havaittua vuositulosta maltillisempi.)
+
+Lyhyillä rupeamilla verotettava summa on suurempi kuin voitto siksi, että tappiolliset rupeamat jäävät vähentämättä. Rupeamajako on siis kuin verottaja poimisi vuoden sattumanvaihtelusta vain hyvät päivät.
+
+Pokerissa sama ongelma on pienempi, koska yhteen istuntoon mahtuu satoja käsiä. Siksi pokerin istuntokohtainen tarkastelu on luonnostaan lähempänä todellista tuloa kuin vedonlyönnin päiväkohtainen tarkastelu.
+
+## Osa 7: Sama matematiikka yrityksessä
+
+::: {.callout-note title="Faktalaatikko 5: Kuinka paljon yritysten menestyksestä on tuuria?"}
+**Henderson, Raynor ja Ahmed** ([2012, *Strategic Management Journal*](https://ideas.repec.org/a/bla/stratm/v33y2012i4p387-406.html)) tutkivat yhdysvaltalaisia pörssiyhtiöitä vuosilta 1965–2008 ja kysyivät, kuinka pitkään yrityksen on menestyttävä, jotta menestystä ei voi selittää sattumalla. Pitkäaikaisesti menestyneitä yrityksiä oli enemmän kuin pelkkä sattuma tuottaisi, mutta sattumalta "huippuyrityksiltä" näyttäviä oli niin paljon, että ne johtavat helposti harhaan. Esimerkiksi menestyskirjojen esimerkkiyritykset voivat olla osin pelkkiä onnekkaita.
+
+**Fama ja French** ([2010, *Journal of Finance*](https://doi.org/10.1111/j.1540-6261.2010.01598.x)) päätyivät sijoitusrahastoista vastaavaan tulokseen: vain harvoilla rahastoilla on niin paljon taitoa, että se riittää kattamaan kulut.
+
+**Counterfactual:** KHO:n vedonlyöjällä oli vuodessa 2 145 itsenäistä "koetta". Yrityksellä, joka raportoi neljännesvuosittain, on kymmenessä vuodessa 40 tulosta. Jos yrityksen sattumanvaraisuus olisi edes vedonlyönnin luokkaa, kymmenen vuoden tulossarja ei useinkaan riittäisi erottamaan taitoa tuurista. Tästä syystä yksittäisen yrityksen, johtajan tai salkunhoitajan menestyksestä tehdyt johtopäätökset kannattaa aina esittää jakaumana.
+:::
+
+Vedonlyöjän tapaus näyttää neljä periaatetta, jotka pätevät mihin tahansa liiketoimintaan:
+
+1. **Sattumalla on hinta.** Satunnaisesti toimiva ei päädy nollaan vaan katteen verran miinukselle. Yrityksessä tämä on esimerkiksi kilpailijoiden etumatka, transaktiokulut tai markkinahinta.
+2. **Etu syntyy tiedosta, jota hinta ei vielä sisällä.** Julkisesta datasta tehty malli ei voittanut markkinaa. Kilpailuetu syntyy datan *yhdistämisestä* tavalla, jota muut eivät tee.
+3. **Taito näkyy vasta jakaumassa.** Yksi kvartaali, yksi kauppa tai yksi projekti ei todista mitään. Taitavakin näyttää lyhyellä aikavälillä usein epäonnistujalta.
+4. **Arviointijakso ratkaisee.** Kuten pelirupeama verotuksessa, myös bonusjärjestelmän, budjettikauden tai pilotin pituus päättää, palkitaanko taitoa vai tuuria.
+
+## Rajoitukset
+
+- KHO:n tapauksen tiedot ovat yhden lehtiuutisen varassa. Voittaneiden vetojen keskikerroin (1,38) on päätelty Verohallinnon lisäämästä tulosta, ja se voi poiketa todellisesta, jos palautuksiin sisältyy mitätöityjä vetoja tai osittaisia voittoja. Siksi analyysi tehtiin kahdella kerroinskenaariolla.
+- Vedonlyöjä pelasi ETA-alueen ulkopuolisilla vedonvälittäjillä ja todennäköisesti muillakin vetotyypeillä kuin 1X2. Football-Data.co.uk:n kertoimet ovat edustava, mutta eivät täsmälleen samat hinnat.
+- Vetojen riippumattomuus on oletus. Jos samaan otteluun lyödään useita vetoja, ne riippuvat toisistaan, mikä lisää sattumaa ja pidentää taidon paljastumiseen tarvittavaa aikaa.
+- Parhaan saatavilla olevan kertoimen sarakkeeseen sisältyy yksittäisiä hetkellisiä kertoimia, joihin ei käytännössä pääse käsiksi. Siksi hintatason vertailu on parhaan kertoimen osalta optimistinen.
+- Pokerivertailu nojaa eri menetelmin tehtyihin tutkimuksiin. 75 %:n raja on yhteinen mittari, mutta "käsi", "peli" ja "veto" eivät ole täysin samanarvoisia yksiköitä.
+- Tämä kirjoitus ei ole veroneuvontaa. Omasta tilanteesta kannattaa kysyä verojuristilta.
+
+## Miten tätä voi hyödyntää yrityksessä?
+
+**1. Taito- ja tuuriauditointi palkitsemiseen.** Myyjien, salkunhoitajien, franchise-yrittäjien tai alihankkijoiden tuloshistoriasta voi laskea saman bayeslaisen mallin, jolla arvioin vedonlyöjää. Tulos kertoo, kuinka suuri osa erosta on aitoa osaamista ja kuinka suuri osa sattumaa. Moni bonusjärjestelmä palkitsee tuuria ja rankaisee epäonnea – ja ajaa samalla parhaat tekijät pois huonon vuoden jälkeen.
+
+**2. Kesän 2027 lisenssimarkkina.** Suomeen tulee kokonainen uusi toimiala. Operaattorit tarvitsevat kerroinmallinnusta, katteen hallintaa, ammattipelaajien tunnistamista ja lakisääteistä ongelmapelaamisen ehkäisyä. Kaikki nämä ovat jakaumien mallintamista. Kotimainen, avointa dataa ymmärtävä analytiikkakumppani on etu, kun valvoja kysyy perusteluja.
+
+**3. Urheilun integriteetti.** Sama kertoimien kalibraatioanalyysi, jolla testasin markkinan tarkkuutta, tunnistaa myös poikkeavat kerroinliikkeet. Sarjat ja seurat voivat käyttää sitä sopupelien varhaisvaroitukseen.
+
+**4. Veroneuvonta ja oikaisuvaatimukset.** KHO perusteli päätöksensä sillä, että menestys perustui tiedonhankintaan eikä pelkkään sattumaan. Tilastollinen analyysi, joka osoittaa positiivisen edun ja sen epävarmuuden, on juuri sitä näyttöä, jota tällaisessa arviossa tarvitaan. Lisäksi pelirupeamalaskelmat antavat pelaajalle ja juristille konkreettisen kuvan eri tulkintojen taloudellisista vaikutuksista.
+
+**5. Hinnoitteluvirheiden metsästys muilla markkinoilla.** Vedonlyöjä etsi kertoimista virheitä. Sama ajattelu toimii julkisissa hankinnoissa, kiinteistö- ja käytettyjen tavaroiden markkinoilla sekä vakuutushinnoittelussa: missä hinta poikkeaa systemaattisesti todellisesta riskistä?
+
+**6. Kokeilujen ja pilottien mitoitus.** Osan 5 kaava, jolla laskin tarvittavan vetomäärän, on sama, jolla lasketaan A/B-testin tai pilottihankkeen kesto. Liian lyhyt kokeilu päättää asian sattuman perusteella – ja tuhoaa usein hyvän idean.
+
+**7. Rekrytointi ja yrityskaupat.** Kun arvioit toimitusjohtajaehdokkaan "käännetarinaa" tai ostokohteen kasvuhistoriaa, kysy: kuinka monta riippumatonta havaintoa tarina oikeastaan sisältää, ja kuinka usein sattuma tuottaisi saman?
+
+Jos haluat selvittää, mikä osa yrityksesi, tiimisi tai sijoitustesi tuloksesta on taitoa ja mikä tuuria, [varaa aika](https://www.kristianvepsalainen.com). Teen analyysit avoimella datalla aina kun mahdollista ja raportoin tulokset jakaumina, en pistearvoina.
+
+## Lähteet
+
+- Angelini, G. & De Angelis, L. (2019). Efficiency of online football betting markets. *International Journal of Forecasting* 35(2), 712–721. [Linkki](https://ideas.repec.org/a/eee/intfor/v35y2019i2p712-721.html)
+- Duersch, P., Lambrecht, M. & Oechssler, J. (2020). Measuring skill and chance in games. *European Economic Review*. [Linkki](https://research.hanken.fi/en/publications/measuring-skill-and-chance-in-games/)
+- Fama, E. F. & French, K. R. (2010). Luck versus skill in the cross-section of mutual fund returns. *Journal of Finance* 65(5), 1915–1947. [Linkki](https://doi.org/10.1111/j.1540-6261.2010.01598.x)
+- Goodie, A. S. & Fortune, E. E. (2013). Measuring cognitive distortions in pathological gambling: Review and meta-analyses. *Psychology of Addictive Behaviors* 27(3), 730–743. [Linkki](https://doi.org/10.1037/a0031892)
+- Henderson, A. D., Raynor, M. E. & Ahmed, M. (2012). How long must a firm be great to rule out chance? *Strategic Management Journal* 33(4), 387–406. [Linkki](https://ideas.repec.org/a/bla/stratm/v33y2012i4p387-406.html)
+- Levitt, S. D. & Miles, T. J. (2014). The role of skill versus luck in poker: Evidence from the World Series of Poker. *Journal of Sports Economics* 15(1), 31–44. [Työpaperiversio](https://www.nber.org/system/files/working_papers/w17023/w17023.pdf)
+- Potter van Loon, R. J. D., van den Assem, M. J. & van Dolder, D. (2015). Beyond chance? The persistence of performance in online poker. *PLoS ONE* 10(3). [Linkki](https://eprints.nottingham.ac.uk/30839)
+- Taloustaito (1.10.2026). KHO linjasi ammattimaisen vedonlyöjän verotuksesta. [Linkki](https://www.taloustaito.fi/Vero/2026/kho-linjasi-ammattimaisen-vedonlyojan-verotuksesta--myos-havittyjen-vetojen-panokset-sai-vahentaa/)
+- Taloustaito (14.8.2026). KHO linjasi nettipelaajien verotusta. [Linkki](https://www.taloustaito.fi/Rahat/kho-linjasi-nettipelaajien-verotusta--myos-havittyjen-pelien-panoksia-voi-vahentaa-rajatusti/)
+- Veikkaus / STT Info (2025). Rahapelijärjestelmän uudistus on Veikkaukselle historiallinen muutos. [Linkki](https://www.sttinfo.fi/tiedote/71694276/rahapelijarjestelman-uudistus-on-veikkaukselle-historiallinen-muutos)
+- Data: Football-Data.co.uk, Veikkausliiga-tiedosto `new/FIN.csv`. [Linkki](https://www.football-data.co.uk/)

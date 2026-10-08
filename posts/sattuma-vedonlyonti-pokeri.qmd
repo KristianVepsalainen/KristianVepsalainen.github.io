@@ -4,7 +4,6 @@ description: "Korkein hallinto-oikeus totesi, että sattuma ei estä vedonlyönt
 author: "Kristian Vepsäläinen"
 date: "2026-10-08"
 categories: [sattuma, vedonlyönti, pokeri, bayes, counterfactual, verotus, ennustemallit]
-draft: true
 format:
   html:
     code-fold: true

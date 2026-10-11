@@ -1,0 +1,639 @@
+---
+title: "Mikä latausasema kannattaisi pitää pystyssä hinnalla millä hyvänsä?"
+subtitle: "Latausverkko jakaumana, osa 7: kestävyys, riskikartta ja Lapin eristäminen"
+description: |
+  Latausverkon toimivuus näkyy vasta kun jotain hajoaa. Poistamme asemia yksi
+  kerrallaan ja mittaamme, kuinka paljon koko maan saavutettavuus heikkenee.
+  Tuloksena on kartta, joka kertoo mitkä asemat pitävät verkkoa kasassa.
+date: 2026-10-13
+categories: [avoin data, verkostoanalyysi, latausverkko, riskianalyysi, kestävyys]
+draft: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+#| cache: false
+
+library(here)
+library(tidyverse)
+library(sf)
+library(dodgr)
+library(igraph)
+library(ggrepel)
+library(ggdist)
+library(patchwork)
+library(qs2)
+library(scales)
+
+select <- dplyr::select
+filter <- dplyr::filter
+count  <- dplyr::count
+
+source(here("R", "theme_kristian.R"))
+
+knitr::opts_chunk$set(
+  echo = FALSE, warning = FALSE, message = FALSE,
+  fig.width = 9, fig.height = 5.5, dpi = 150
+)
+
+theme_set(theme_kristian())
+
+pal <- c(punainen = "#e63946", turkoosi = "#2a9d8f", oranssi = "#f4a261",
+         navy = "#1d3557", sininen = "#457b9d")
+
+data_dir <- here("data", "latausverkko")
+set.seed(42)
+
+asemat    <- qs2::qd_read(file.path(data_dir, "asemat.qs"))
+liitokset <- qs2::qd_read(file.path(data_dir, "liitokset.qs"))
+kunnat_sf <- qs2::qs_read(file.path(data_dir, "kunnat_lau.qs"))
+pno       <- qs2::qs_read(file.path(data_dir, "paavo.qs"))
+tieverkko <- qs2::qs_read(file.path(data_dir, "tieverkko.qs"))
+tieverkko <- tieverkko[tieverkko$component == 1, ]
+```
+
+## Verkko näyttää hyvältä siihen asti kun se ei näytä
+
+Latausverkon tilaa arvioidaan sen mukaan, miten se toimii normaalisti. Kuinka
+monta asemaa on, kuinka kaukana ne ovat, kuinka moni käyttää niitä.
+
+Nämä mittarit kuvaavat verkkoa hyvässä säässä. Infrastruktuurin arvo mitataan
+kuitenkin siinä, mitä tapahtuu kun jokin pettää — ja se ei näy normaalitilan
+mittareista lainkaan.
+
+Asema voi olla epäkunnossa, sähköt voivat olla poikki, maksujärjestelmä voi
+kaatua, tai kaikki latauspaikat voivat olla varattuja juhannusaattona.
+Autoilijalle nämä tarkoittavat samaa asiaa: asema on siinä mutta sitä ei voi
+käyttää.
+
+Tässä osassa poistan asemia yksi kerrallaan ja mittaan, kuinka paljon koko maan
+saavutettavuus heikkenee. Lopputulos on kartta, jossa jokainen asema on
+väritetty sen mukaan, kuinka paljon sen katoaminen haittaisi.
+
+Se on eri kartta kuin lista suurimmista tai vilkkaimmista asemista.
+
+## Menetelmä: poista yksi, mittaa kaikki
+
+Idea on yksinkertainen. Lasketaan ensin, kuinka kaukana lähin suurtehulaturi on
+jokaisesta postinumeroalueesta. Sitten poistetaan yksi asema ja lasketaan sama
+uudelleen. Erotus kertoo, kuinka paljon tuo asema oli tuomassa
+saavutettavuutta.
+
+Kun tämä toistetaan jokaiselle asemalle, saadaan jokaiselle asemalle luku:
+**paljonko koko maan saavutettavuus heikkenisi, jos tämä asema katoaisi
+huomenna.**
+
+Laskenta on kevyempi kuin miltä kuulostaa. Kun etäisyydet jokaisesta alueesta
+jokaiseen asemaan on kerran laskettu, aseman poistaminen tarkoittaa vain yhden
+sarakkeen pudottamista taulukosta ja rivikohtaisen pienimmän arvon etsimistä
+uudelleen. Reititystä ei tarvitse tehdä uudelleen.
+
+```{r}
+#| label: hpc-ja-matriisi
+#| echo: true
+
+hpc <- liitokset |>
+  filter(teho_kw >= 150) |>
+  group_by(avain) |>
+  summarise(max_kw = max(teho_kw, na.rm = TRUE), pistokkeita = n(),
+            .groups = "drop") |>
+  left_join(asemat, by = "avain") |>
+  filter(!is.na(lat), !is.na(lon))
+
+stopifnot(
+  "Suurtehulatureita ei löytynyt" = nrow(hpc) > 50,
+  "Koordinaatit Suomen ulkopuolella" =
+    all(between(hpc$lat, 59.4, 70.2) & between(hpc$lon, 18.9, 31.7))
+)
+
+matriisi_path <- file.path(data_dir, "saavutettavuusmatriisi.qs")
+
+if (!file.exists(matriisi_path)) {
+  from <- pno |>
+    st_transform(4326) |> st_coordinates() |>
+    as_tibble() |> setNames(c("x", "y")) |> as.matrix()
+
+  ajat <- dodgr_times(
+    graph = tieverkko, from = from,
+    to = as.matrix(select(hpc, x = lon, y = lat))
+  ) / 60
+
+  dimnames(ajat) <- list(pno$pno, hpc$avain)
+  qs2::qs_save(ajat, matriisi_path)
+} else {
+  ajat <- qs2::qs_read(matriisi_path)
+}
+
+stopifnot(
+  "Matriisin koko ei täsmää" =
+    nrow(ajat) == nrow(pno) && ncol(ajat) == nrow(hpc),
+  "Matriisissa on negatiivisia aikoja" = all(ajat >= 0, na.rm = TRUE)
+)
+
+# Alueet, joista ei pääse yhdellekään asemalle, jätetään pois: ne eivät
+# reagoi minkään aseman poistamiseen eivätkä siis kerro kriittisyydestä.
+nyky_min <- apply(ajat, 1, \(r) min(r, na.rm = TRUE))
+kelpo <- is.finite(nyky_min) & pno$asukkaat > 0
+
+ajat_k <- ajat[kelpo, , drop = FALSE]
+vakiluku <- pno$asukkaat[kelpo]
+nyky <- nyky_min[kelpo]
+
+stopifnot(
+  "Yli 10 % alueista jäi ulkopuolelle" = mean(kelpo) > 0.90,
+  "Väkilukuja puuttuu" = all(!is.na(vakiluku))
+)
+
+nyky_keskiaika <- weighted.mean(nyky, vakiluku)
+```
+
+```{r}
+#| label: poistosimulaatio
+#| echo: true
+
+# Jokaisen aseman poisto vuorollaan. Poisto = sarakkeen pudotus ja
+# rivikohtaisen minimin laskenta uudelleen.
+poistovaikutus <- map_dfr(seq_len(ncol(ajat_k)), function(j) {
+  uusi_min <- apply(ajat_k[, -j, drop = FALSE], 1, \(r) min(r, na.rm = TRUE))
+  muutos <- uusi_min - nyky
+
+  # Osa alueista voi menettää yhteyden kokonaan
+  katkeaa <- !is.finite(uusi_min) & is.finite(nyky)
+  muutos_a <- ifelse(katkeaa, NA_real_, muutos)
+
+  tibble(
+    avain = colnames(ajat_k)[j],
+    # Väestöpainotettu keskimääräinen ajoajan kasvu koko maassa
+    keskikasvu_min = weighted.mean(muutos_a, vakiluku, na.rm = TRUE),
+    # Kuinka moni asukas menettää yhteyden kokonaan
+    katkeaa_asukkaita = sum(vakiluku[katkeaa]),
+    # Kuinka moni asukas kokee yli 15 minuutin lisäyksen
+    pahasti_kasvaa = sum(vakiluku[!is.na(muutos_a) & muutos_a > 15]),
+    # Pahin yksittäinen alue
+    pahin_alue_min = suppressWarnings(max(muutos_a, na.rm = TRUE))
+  )
+}) |>
+  mutate(pahin_alue_min = if_else(is.finite(pahin_alue_min),
+                                  pahin_alue_min, NA_real_)) |>
+  left_join(select(hpc, avain, nimi, kunta, op_nimi, max_kw, pistokkeita,
+                   lat, lon), by = "avain")
+
+stopifnot(
+  "Poistolaskenta tuotti negatiivisia muutoksia" =
+    all(poistovaikutus$keskikasvu_min >= -1e-9, na.rm = TRUE),
+  "Poistolaskenta epäonnistui" = nrow(poistovaikutus) == nrow(hpc)
+)
+
+jakauman_muoto <- poistovaikutus |>
+  summarise(
+    mediaani = median(keskikasvu_min, na.rm = TRUE),
+    q90 = quantile(keskikasvu_min, 0.9, na.rm = TRUE),
+    maksimi = max(keskikasvu_min, na.rm = TRUE),
+    nollia = mean(keskikasvu_min < 0.01, na.rm = TRUE),
+    top10_osuus = sum(sort(keskikasvu_min, decreasing = TRUE)[1:10],
+                      na.rm = TRUE) / sum(keskikasvu_min, na.rm = TRUE)
+  )
+```
+
+```{r}
+#| label: kuva-jakauma
+#| fig-cap: "Asemien kriittisyyden jakauma."
+
+poistovaikutus |>
+  filter(!is.na(keskikasvu_min)) |>
+  ggplot(aes(keskikasvu_min)) +
+  geom_histogram(bins = 50, fill = pal["turkoosi"], colour = NA) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Koko maan keskimääräisen ajoajan kasvu, jos asema katoaa (min)",
+       y = "Asemia",
+       title = "Useimpien asemien katoamista ei huomaisi kukaan",
+       subtitle = "Muutama asema erottuu selvästi muista")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on luku, joka kertoo kuinka paljon
+suomalaisten keskimääräinen matka lähimmälle suurtehulaturille pitenisi, jos
+kyseinen asema katoaisi. Pystyakselilta luetaan, kuinka moni asema saa kunkin
+arvon.
+
+Valtaosa asemista on nollan tuntumassa. Se ei tarkoita että ne olisivat
+tarpeettomia — se tarkoittaa, että niiden vieressä on toinen asema. Jos
+sellainen asema katoaa, käyttäjä ajaa naapuriin eikä kukaan huomaa mitään.
+
+Jakauman oikeassa hännässä on muutama asema, joiden katoaminen näkyisi koko
+maan tilastossa. Ne ovat tämän osan kohde.
+
+Kymmenen kriittisintä asemaa vastaa
+`r percent(jakauman_muoto$top10_osuus, accuracy = 1)` kaikkien asemien
+yhteenlasketusta kriittisyydestä.
+
+## Riskikartta
+
+```{r}
+#| label: kuva-riskikartta
+#| fig-cap: "Latausasemien kriittisyys: kuinka paljon koko maan saavutettavuus heikkenisi, jos asema katoaisi."
+#| fig-height: 9.5
+#| fig-width: 7.5
+
+riski_sf <- poistovaikutus |>
+  filter(!is.na(keskikasvu_min)) |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+  st_transform(3067)
+
+ggplot() +
+  geom_sf(data = st_transform(kunnat_sf, 3067),
+          fill = "grey11", colour = "grey18", linewidth = 0.05) +
+  geom_sf(data = riski_sf |> arrange(keskikasvu_min),
+          aes(colour = keskikasvu_min, size = keskikasvu_min), alpha = 0.85) +
+  scale_colour_gradientn(
+    colours = c(unname(pal["sininen"]), unname(pal["turkoosi"]),
+                unname(pal["oranssi"]), unname(pal["punainen"])),
+    values = scales::rescale(c(0, 0.5, 2, max(riski_sf$keskikasvu_min))),
+    name = "Ajoajan kasvu\nkoko maassa (min)",
+    guide = guide_colourbar(barwidth = unit(9, "cm"),
+                            barheight = unit(0.4, "cm"),
+                            title.position = "top")
+  ) +
+  scale_size_continuous(range = c(0.6, 7), guide = "none") +
+  labs(title = "Suomen latausverkon riskikartta",
+       subtitle = "Punainen: aseman katoaminen heikentäisi koko maan saavutettavuutta",
+       caption = "Aineistot: OpenStreetMap, Fintraffic AFIR, Tilastokeskus") +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(), legend.position = "bottom")
+```
+
+**Miten karttaa luetaan.** Jokainen piste on suurtehulatausasema. Väri ja koko
+kertovat, kuinka paljon koko maan väestöpainotettu matka lähimmälle
+suurtehulaturille pitenisi, jos juuri tuo asema katoaisi.
+
+Siniset pisteet ovat asemia, joiden katoamista ei huomaisi: naapurissa on
+toinen. Punaiset ovat asemia, joiden katoaminen näkyisi valtakunnallisesti.
+
+Kartta ei kerro, mitkä asemat ovat vilkkaimpia tai suurimpia. Se kertoo, mitkä
+ovat korvaamattomimpia — ja nämä kaksi ovat eri asioita. Vilkkain asema on
+siellä missä on paljon ihmisiä, ja siellä on yleensä myös vaihtoehtoja.
+
+```{r}
+#| label: kuva-karki
+#| fig-cap: "Kriittisimmät latausasemat."
+
+poistovaikutus |>
+  slice_max(keskikasvu_min, n = 15) |>
+  mutate(label = paste0(str_trunc(nimi, 30), "\n", kunta, " · ", op_nimi),
+         label = fct_reorder(label, keskikasvu_min)) |>
+  ggplot(aes(keskikasvu_min, label)) +
+  geom_col(fill = pal["punainen"], width = 0.68) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Koko maan ajoajan kasvu (min)", y = NULL,
+       title = "Asemat, joita ilman verkko toimii huonoimmin",
+       subtitle = "Väestöpainotettu vaikutus koko Suomen tasolla") +
+  theme(axis.text.y = element_text(size = 7))
+```
+
+## Kriittisyys ei ole sama kuin koko
+
+```{r}
+#| label: koko-vs-kriittisyys
+#| echo: true
+
+kor_koko <- cor.test(poistovaikutus$keskikasvu_min,
+                     poistovaikutus$pistokkeita,
+                     method = "spearman", exact = FALSE)
+
+kor_teho <- cor.test(poistovaikutus$keskikasvu_min,
+                     poistovaikutus$max_kw,
+                     method = "spearman", exact = FALSE)
+
+# Operaattorivertailu
+isot_op <- poistovaikutus |> count(op_nimi) |> filter(n >= 8) |> pull(op_nimi)
+op_data <- poistovaikutus |> filter(op_nimi %in% isot_op)
+
+kw_testi <- kruskal.test(keskikasvu_min ~ op_nimi, data = op_data)
+n_tot <- nrow(op_data)
+epsilon2 <- unname(kw_testi$statistic) / ((n_tot^2 - 1) / (n_tot + 1))
+```
+
+Kriittisyyden ja pistokemäärän järjestyskorrelaatio on
+`r format(round(unname(kor_koko$estimate), 3), decimal.mark = ",")`, ja
+kriittisyyden ja tehon
+`r format(round(unname(kor_teho$estimate), 3), decimal.mark = ",")`.
+
+**Miksi järjestyskorrelaatio.** Kriittisyysjakauma on erittäin vino: valtaosa
+asemista on nollan tuntumassa ja muutama kaukana ylhäällä. Tavallinen
+korrelaatiokerroin olettaa suunnilleen symmetrisen jakauman ja reagoi
+voimakkaasti yksittäisiin ääriarvoihin, joita tässä on paljon.
+Järjestyskorrelaatio käyttää vain sijalukuja eikä oleta jakauman muodosta
+mitään.
+
+```{r}
+#| label: kuva-koko
+#| fig-cap: "Aseman koko ja sen kriittisyys."
+
+poistovaikutus |>
+  filter(!is.na(keskikasvu_min)) |>
+  ggplot(aes(pistokkeita, keskikasvu_min)) +
+  geom_point(colour = pal["turkoosi"], alpha = 0.55, size = 2.2) +
+  geom_text_repel(
+    data = \(d) d |> slice_max(keskikasvu_min, n = 8),
+    aes(label = kunta), colour = "grey80", size = 3,
+    max.overlaps = 12, seed = 42
+  ) +
+  labs(x = "Latauspistokkeita asemalla",
+       y = "Koko maan ajoajan kasvu, jos asema katoaa (min)",
+       title = "Iso asema ei ole sama kuin tärkeä asema",
+       subtitle = "Kriittisimmät asemat ovat usein pieniä")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on aseman koko pistokemäärällä
+mitattuna, pystyakselilla sen kriittisyys verkoston kannalta. Jos nämä
+kulkisivat käsi kädessä, pisteet asettuisivat nousevalle suoralle.
+
+Ne eivät asetu. Kriittisimmät asemat löytyvät kuvan vasemmasta laidasta eli
+pienten asemien joukosta. Syy on maantieteellinen: pieni asema on pieni koska
+sen ympärillä ei ole paljon ihmisiä, ja juuri siksi sen ympärillä ei ole
+myöskään muita asemia.
+
+Tällä on suora seuraus julkiselle tuelle. Jos tukea kohdennetaan aseman koon,
+käyttöasteen tai investoinnin suuruuden perusteella, se ohjautuu asemille,
+joiden katoamista kukaan ei huomaisi. Verkoston kestävyyden kannalta olennaiset
+asemat ovat pieniä, syrjäisiä ja liiketaloudellisesti heikoimpia.
+
+::: {.callout-note}
+## Faktalaatikko: miksi verkot kestävät satunnaisvahinkoa mutta eivät kohdennettua
+
+Verkostoteoriassa on tunnettu tulos, joka koskee lähes kaikkia
+todellisia verkkoja: sähköverkkoja, internetiä, lentoliikennettä,
+ekosysteemejä.
+
+Näissä verkoissa solmujen tärkeys on erittäin epätasaisesti jakautunut.
+Valtaosa solmuista on merkityksettömiä ja muutama pitää verkkoa kasassa. Sama
+rakenne näkyy tämän osan ensimmäisessä kuvassa.
+
+Rakenteesta seuraa kaksi vastakkaista ominaisuutta. Verkko kestää
+poikkeuksellisen hyvin satunnaisia vaurioita: jos solmuja katoaa umpimähkään,
+osumat kohdistuvat lähes aina merkityksettömiin solmuihin eikä mitään tapahdu.
+Mutta verkko on poikkeuksellisen haavoittuvainen kohdennetulle vahingolle: jos
+solmuja poistetaan tärkeysjärjestyksessä, verkko hajoaa nopeasti.
+
+Ilmiö tunnetaan nimellä *robust yet fragile*, ja se on yksi
+verkostotutkimuksen keskeisimmistä havainnoista.
+
+**Mitä tästä seuraa latausverkolle.** Yksittäisen aseman satunnainen
+rikkoutuminen ei ole ongelma, ja siksi arki näyttää sujuvan hyvin. Se ei kerro
+mitään siitä, miten verkko kestäisi häiriön, joka ei ole satunnainen — kuten
+yhden operaattorin taustajärjestelmän kaatumista, sähkökatkoa laajalla alueella
+tai poikkeuksellista kysyntähuippua samaan aikaan samoilla teillä.
+
+Tätä eroa testaan seuraavassa luvussa numeerisesti.
+:::
+
+## Vaihtoehtoiset skenaariot: satunnainen vastaan kohdennettu
+
+```{r}
+#| label: counterfactual
+#| echo: true
+
+# Poistetaan asemia yksi kerrallaan kahdessa järjestyksessä ja
+# seurataan, miten saavutettavuus heikkenee.
+poista_ketju <- function(jarjestys, askeleet = 40) {
+  jaljella <- seq_len(ncol(ajat_k))
+  tulos <- vector("list", askeleet)
+
+  for (s in seq_len(askeleet)) {
+    poistettava <- jarjestys[s]
+    jaljella <- setdiff(jaljella, poistettava)
+    m <- apply(ajat_k[, jaljella, drop = FALSE], 1, \(r) min(r, na.rm = TRUE))
+    kelpo_r <- is.finite(m)
+
+    tulos[[s]] <- tibble(
+      poistettu = s,
+      keskiaika = weighted.mean(m[kelpo_r], vakiluku[kelpo_r]),
+      ilman_yhteytta = sum(vakiluku[!kelpo_r]) / sum(vakiluku)
+    )
+  }
+  bind_rows(tulos)
+}
+
+# Kohdennettu: kriittisimmät ensin
+jarjestys_kohdennettu <- order(poistovaikutus$keskikasvu_min,
+                               decreasing = TRUE, na.last = TRUE)
+
+# Satunnainen: keskiarvo useasta vedosta, jotta yksittäinen
+# onnekas tai epäonnekas järjestys ei ohjaa tulosta
+satunnaiset <- map_dfr(1:20, function(k) {
+  poista_ketju(sample(ncol(ajat_k))) |> mutate(veto = k)
+}) |>
+  group_by(poistettu) |>
+  summarise(keskiaika = mean(keskiaika),
+            ilman_yhteytta = mean(ilman_yhteytta),
+            .groups = "drop") |>
+  mutate(tapa = "Satunnainen häiriö")
+
+kohdennettu <- poista_ketju(jarjestys_kohdennettu) |>
+  mutate(tapa = "Kohdennettu häiriö")
+
+vertailu <- bind_rows(satunnaiset, kohdennettu)
+
+stopifnot(
+  "Ketjulaskenta epäonnistui" = nrow(vertailu) > 0,
+  "Keskiaika laskee poistojen myötä" =
+    all(diff(kohdennettu$keskiaika) >= -1e-6)
+)
+
+ero_40 <- vertailu |>
+  filter(poistettu == max(poistettu)) |>
+  select(tapa, keskiaika)
+```
+
+```{r}
+#| label: kuva-kestavyys
+#| fig-cap: "Saavutettavuuden heikkeneminen, kun asemia poistetaan kahdessa eri järjestyksessä."
+
+vertailu |>
+  ggplot(aes(poistettu, keskiaika, colour = tapa)) +
+  geom_hline(yintercept = nyky_keskiaika, colour = "grey55", linetype = 2) +
+  geom_line(linewidth = 1) +
+  scale_colour_manual(values = c("Satunnainen häiriö" = unname(pal["turkoosi"]),
+                                 "Kohdennettu häiriö" = unname(pal["punainen"]))) +
+  labs(x = "Poistettuja asemia", y = "Keskimääräinen ajoaika laturille (min)",
+       colour = NULL,
+       title = "Sama määrä asemia pois, hyvin eri lopputulos",
+       subtitle = "Katkoviiva: nykytila")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on poistettujen asemien määrä,
+pystyakselilla suomalaisten keskimääräinen matka lähimmälle
+suurtehulaturille.
+
+Turkoosi käyrä kuvaa satunnaista häiriötä: asemia katoaa umpimähkään.
+Punainen kuvaa kohdennettua: kriittisimmät poistuvat ensin.
+
+Ero on suuri, ja se on tämän osan tärkein tulos. **Verkko kestää satunnaista
+vahinkoa hyvin ja kohdennettua huonosti.** Se ei ole latausverkon erityispiirre
+vaan yleinen ominaisuus, mutta sen suuruus on tässä mitattu.
+
+Käytännön seuraus on kaksijakoinen. Hyvä uutinen: yksittäiset viat eivät ole
+ongelma, ja arki sujuu. Huono uutinen: mittarit, jotka seuraavat arkea, eivät
+kerro mitään verkon kestävyydestä poikkeustilanteessa.
+
+## Kuinka monta asemaa erottaa Lapin?
+
+Kestävyyttä voi kysyä myös toisin. Sen sijaan että poistettaisiin asemia
+tärkeysjärjestyksessä, voidaan kysyä: kuinka monta asemaa pitäisi vähintään
+poistaa, jotta jokin alue irtoaisi muusta verkosta?
+
+Tämä on graafiteorian minimileikkaus. Se etsii pienimmän joukon solmuja, joiden
+poistaminen katkaisee yhteyden kahden pisteen välillä.
+
+```{r}
+#| label: minimileikkaus
+#| echo: true
+
+# Rakennetaan asemaverkko: kaari kahden aseman välille, jos ne ovat
+# toistensa naapureita eikä välissä ole kolmatta asemaa.
+matriisi_asemat_path <- file.path(data_dir, "matkamatriisi.qs")
+stopifnot("Asemien matkamatriisi puuttuu – aja osa 5 ensin" =
+            file.exists(matriisi_asemat_path))
+
+mm <- qs2::qs_read(matriisi_asemat_path)
+matkat <- mm$matkat
+
+# Vain ne asemat, jotka ovat mukana molemmissa aineistoissa
+yhteiset <- intersect(rownames(matkat), hpc$avain)
+D <- matkat[yhteiset, yhteiset]
+hpc_v <- hpc |> filter(avain %in% yhteiset) |>
+  arrange(match(avain, yhteiset))
+
+stopifnot("Matriisin ja asemataulun järjestys ei täsmää" =
+            all(rownames(D) == hpc_v$avain))
+
+rng_matriisi <- function(Dm, raja) {
+  n <- nrow(Dm)
+  A <- (Dm <= raja) & is.finite(Dm)
+  diag(A) <- FALSE
+  for (k in seq_len(n)) {
+    M <- pmax(matrix(Dm[, k], n, n), matrix(Dm[k, ], n, n, byrow = TRUE))
+    A[is.finite(M) & M < Dm] <- FALSE
+  }
+  diag(A) <- FALSE
+  A
+}
+
+g <- graph_from_adjacency_matrix(rng_matriisi(D, 300), mode = "undirected")
+V(g)$avain <- hpc_v$avain
+V(g)$lat <- hpc_v$lat
+V(g)$kunta <- hpc_v$kunta
+
+# Eteläisin ja pohjoisin asema: näiden välisen yhteyden katkaiseminen
+# irrottaisi pohjoisen etelästä.
+etela <- which.min(V(g)$lat)
+pohjoinen <- which.max(V(g)$lat)
+
+leikkaus <- min_cut(g, source = etela, target = pohjoinen,
+                    value.only = FALSE)
+
+leikkaus_koko <- leikkaus$value
+
+stopifnot(
+  "Minimileikkaus epäonnistui" = is.finite(leikkaus_koko),
+  "Leikkaus on epäuskottavan suuri" = leikkaus_koko < 20
+)
+```
+
+Etelän ja pohjoisen välinen yhteys katkeaisi, jos **`r leikkaus_koko`**
+yhteyttä poistuisi verkosta.
+
+Luku on pienempi kuin useimmat arvaisivat. Se ei tarkoita, että pohjoiseen ei
+pääsisi ajamaan — se tarkoittaa, ettei sinne pääsisi suurtehulatureiden
+ketjua pitkin ilman että jokin väli ylittää kolmesataa kilometriä.
+
+Tulos on rakenteellinen ja seuraa maantieteestä: Suomi on kapea maa, ja
+pohjoiseen johtaa käytännössä muutama päätie. Latausverkko noudattaa teitä,
+joten sen rakenne perii tieverkon rakenteen.
+
+::: {.callout-important}
+## Mitä tämä analyysi ei ota huomioon
+
+**Asemat eivät katoa vaan menevät epäkuntoon.** Poistosimulaatio olettaa aseman
+katoavan kokonaan. Todellisuudessa yleisin häiriö on osittainen: yksi laturi
+kolmesta ei toimi, jono on pitkä, tai maksupääte kaatuu. Näiden vaikutus
+riippuu käyttöasteesta, jota ei ole julkisesti saatavilla.
+
+**Hitaammat laturit puuttuvat.** Tarkastelu koskee vain suurtehulatureita.
+Häiriötilanteessa autoilija voi käyttää hitaampaa laturia, jos aikaa on. Kartta
+kuvaa siis pikalatausverkon kestävyyttä, ei liikkumisen mahdottomuutta.
+
+**Rekisteri on epätäydellinen.** Sarjan ensimmäisessä osassa arvioitiin, että
+osa asemista puuttuu rekisteristä kokonaan. Jos puuttuvat asemat ovat siellä
+missä muutkin, riskiarvio on hieman yläkanttiin. Jos ne ovat syrjässä, arvio on
+liian matala. En tiedä kumpi pätee.
+
+**Kriittisyys on nykyhetken ominaisuus.** Uusi asema kriittisen aseman viereen
+poistaa kriittisyyden kokonaan. Kartta kuvaa siis tilannetta, ei kohtaloa —
+ja juuri siksi se on hyödyllinen.
+:::
+
+## Mitä jää käteen
+
+**Useimpien asemien katoamista ei huomaisi kukaan.** Se ei tee niistä
+tarpeettomia; se tarkoittaa että niillä on naapuri.
+
+**Kriittisyys ei seuraa kokoa.** Kriittisimmät asemat ovat pieniä ja syrjäisiä
+— eli juuri niitä, joita markkinaehtoinen rakentaminen tuottaa vähiten ja
+joiden kannattavuus on heikoin.
+
+**Verkko kestää satunnaista vahinkoa ja hajoaa kohdennetusta.** Arjen mittarit
+kertovat ensimmäisestä eivätkä mitään toisesta.
+
+**Pohjoisen yhteys nojaa harvoihin väleihin.** Se on seurausta maantieteestä,
+ei suunnitteluvirheestä — mutta se on tiedettävä.
+
+Seuraavassa osassa siirryn rakenteesta ajankohtaan. Verkko, joka riittää
+keskiviikkona marraskuussa, ei välttämättä riitä juhannusaattona — ja
+kesämökkien sijainti kertoo, missä se ruuhkautuu.
+
+---
+
+## Mitä tästä on hyötyä yrityksellesi
+
+**Aja poistotesti omalle infrastruktuurillesi.** Tämän osan koko menetelmä on
+yksi silmukka: poista yksi solmu, mittaa lopputulos, palauta, siirry seuraavaan.
+Sitä voi soveltaa mihin tahansa, mikä on mallinnettavissa verkkona —
+toimittajiin, järjestelmiin, avainhenkilöihin, toimipisteisiin. Vastaus
+kysymykseen "mitä tapahtuu jos tämä katoaa" on laskettavissa, ei arvattavissa.
+
+**Älä priorisoi kokoa, priorisoi korvaamattomuutta.** Suurin toimittaja ei ole
+kriittisin. Kriittisin on se, jolle ei ole vaihtoehtoa. Nämä ovat lähes aina eri
+toimijoita, ja ero näkyy vasta kun sen laskee.
+
+**Muista, että arki ei ennusta poikkeustilaa.** Verkko, joka kestää
+satunnaisvahinkoa erinomaisesti, voi romahtaa kohdennetusta. Jos
+varautumissuunnitelma nojaa siihen, että viime vuonna ei sattunut mitään, se
+mittaa satunnaista häiriötä eikä kerro mitään järjestelmällisestä.
+
+Tämä on suoraan DORA:n ja NIS2:n logiikka: valvoja ei kysy, onko teillä
+sattunut häiriöitä, vaan onko teillä tunnistettu mitkä toiminnot kaatuvat
+ensin ja mitä siitä seuraa.
+
+**Erota "ei ole tapahtunut" ja "ei voi tapahtua".** Riskikartta on
+todennäköisyyksistä riippumaton: se kertoo mitä seuraisi, ei kuinka
+todennäköistä se on. Molempia tarvitaan, mutta ne on laskettava erikseen.
+Seurausten laskeminen on usein helpompaa kuin todennäköisyyden arviointi — ja
+silti se jätetään useammin tekemättä.
+
+**Ja tee kartta, älä listaa.** Tämän osan tulos olisi voitu esittää
+taulukkona viidestätoista tärkeimmästä asemasta. Kartta kertoo saman ja
+lisäksi sen, missä ne ovat ja miksi. Kun analyysin pitää muuttaa jonkun
+mieltä, esitystapa ratkaisee yhtä paljon kuin sisältö.
+
+Jos organisaatiossasi ei ole laskettu, mikä hajoaa ensin ja mitä siitä seuraa,
+tai jos kriittisyys on määritelty kokouksessa eikä mitattu, siinä on työtä
+odottamassa. Teen tätä vuokrattavana Head of Datana ja projektikohtaisesti —
+hinnasto ja yhteystiedot löytyvät
+[sivustolta](https://kristianvepsalainen.com).
+
+---
+
+*Aineistot: OpenStreetMap (© OpenStreetMap-osallistujat, ODbL 1.0), Fintraffic
+AFIR / Digitraffic, Tilastokeskuksen Paavo-aineisto, Eurostat GISCO. Koodi on
+kokonaisuudessaan tässä postauksessa. Maailma on jakauma.*

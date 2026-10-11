@@ -154,24 +154,42 @@ nyky_keskiaika <- weighted.mean(nyky, vakiluku)
 
 # Jokaisen aseman poisto vuorollaan. Poisto = sarakkeen pudotus ja
 # rivikohtaisen minimin laskenta uudelleen.
+#
+# Vaikutusta EI mitata koko maan keskiarvona. Kriittisinkin asema koskettaa
+# vain murto-osaa väestöstä, joten koko maan yli jaettuna sen katoaminen
+# näyttää muutaman sekunnin asialta. Kolme lukua kertoo sen, minkä yksi
+# keskiarvo peittää: keitä koskee, kuinka paljon heitä koskee, ja kuinka
+# moni ylittää kipurajan.
+kipuraja_min <- 30
+
 poistovaikutus <- map_dfr(seq_len(ncol(ajat_k)), function(j) {
   uusi_min <- apply(ajat_k[, -j, drop = FALSE], 1, \(r) min(r, na.rm = TRUE))
-  muutos <- uusi_min - nyky
 
   # Osa alueista voi menettää yhteyden kokonaan
   katkeaa <- !is.finite(uusi_min) & is.finite(nyky)
-  muutos_a <- ifelse(katkeaa, NA_real_, muutos)
+  muutos <- ifelse(katkeaa, NA_real_, uusi_min - nyky)
+
+  koskee <- !is.na(muutos) & muutos > 0.5
 
   tibble(
     avain = colnames(ajat_k)[j],
-    # Väestöpainotettu keskimääräinen ajoajan kasvu koko maassa
-    keskikasvu_min = weighted.mean(muutos_a, vakiluku, na.rm = TRUE),
-    # Kuinka moni asukas menettää yhteyden kokonaan
+    # Keitä koskee
+    asukkaita_koskee = sum(vakiluku[koskee]),
+    # Kuinka paljon koskee niitä, joita se koskee
+    kasvu_koskeville = if (any(koskee))
+      weighted.mean(muutos[koskee], vakiluku[koskee]) else 0,
+    # Kokonaisvaikutus: menetettyjä henkilöminuutteja latauskertaa kohti
+    henkilominuutteja = sum(muutos[koskee] * vakiluku[koskee]),
+    # Kynnysmittari: kuinka moni siirtyy kipurajan yli
+    yli_kipurajan = sum(vakiluku[!is.na(muutos) &
+                                   nyky <= kipuraja_min &
+                                   uusi_min > kipuraja_min]),
+    # Kuinka moni menettää yhteyden kokonaan
     katkeaa_asukkaita = sum(vakiluku[katkeaa]),
-    # Kuinka moni asukas kokee yli 15 minuutin lisäyksen
-    pahasti_kasvaa = sum(vakiluku[!is.na(muutos_a) & muutos_a > 15]),
     # Pahin yksittäinen alue
-    pahin_alue_min = suppressWarnings(max(muutos_a, na.rm = TRUE))
+    pahin_alue_min = suppressWarnings(max(muutos, na.rm = TRUE)),
+    # Koko maan keskiarvo kuljetaan mukana vain vertailua varten
+    keskikasvu_min = weighted.mean(muutos, vakiluku, na.rm = TRUE)
   )
 }) |>
   mutate(pahin_alue_min = if_else(is.finite(pahin_alue_min),
@@ -181,51 +199,96 @@ poistovaikutus <- map_dfr(seq_len(ncol(ajat_k)), function(j) {
 
 stopifnot(
   "Poistolaskenta tuotti negatiivisia muutoksia" =
-    all(poistovaikutus$keskikasvu_min >= -1e-9, na.rm = TRUE),
-  "Poistolaskenta epäonnistui" = nrow(poistovaikutus) == nrow(hpc)
+    all(poistovaikutus$kasvu_koskeville >= -1e-9, na.rm = TRUE),
+  "Poistolaskenta epäonnistui" = nrow(poistovaikutus) == nrow(hpc),
+  "Kynnysmittari on nolla kaikilla – valitse toinen kipuraja" =
+    sum(poistovaikutus$yli_kipurajan) > 0
 )
+
+# Kuinka paljon laimennus muuttaa kuvaa? Tämä luku menee tekstiin.
+laimennuskerroin <- poistovaikutus |>
+  slice_max(henkilominuutteja, n = 1) |>
+  transmute(kerroin = kasvu_koskeville / pmax(keskikasvu_min, 1e-9)) |>
+  pull(kerroin)
 
 jakauman_muoto <- poistovaikutus |>
   summarise(
-    mediaani = median(keskikasvu_min, na.rm = TRUE),
-    q90 = quantile(keskikasvu_min, 0.9, na.rm = TRUE),
-    maksimi = max(keskikasvu_min, na.rm = TRUE),
-    nollia = mean(keskikasvu_min < 0.01, na.rm = TRUE),
-    top10_osuus = sum(sort(keskikasvu_min, decreasing = TRUE)[1:10],
-                      na.rm = TRUE) / sum(keskikasvu_min, na.rm = TRUE)
+    mediaani = median(kasvu_koskeville, na.rm = TRUE),
+    maksimi = max(kasvu_koskeville, na.rm = TRUE),
+    ei_ketaan = mean(asukkaita_koskee == 0),
+    top10_osuus = sum(sort(henkilominuutteja, decreasing = TRUE)[1:10],
+                      na.rm = TRUE) / sum(henkilominuutteja, na.rm = TRUE)
   )
 ```
 
+### Miksi koko maan keskiarvo ei kelpaa tähän
+
+Ilmeisin tapa mitata aseman kriittisyyttä olisi laskea, kuinka paljon
+suomalaisten keskimääräinen matka lähimmälle laturille pitenisi. Kokeilin sitä
+ensin, ja tulos oli käyttökelvoton.
+
+Syy on aritmetiikassa. Maan kriittisinkin asema koskettaa muutamaa tuhatta
+ihmistä. Kun heidän kokemansa kymmenien minuuttien lisäys jaetaan viiden ja
+puolen miljoonan asukkaan kesken — joista valtaosa ei huomaisi mitään —
+jäljelle jää muutama sekunti.
+
+Kriittisimmän aseman kohdalla ero on
+`r format(round(laimennuskerroin), big.mark = " ")`-kertainen: se, mitä se
+tarkoittaa asianosaisille, on tuhatkertainen siihen nähden, miltä se näyttää
+kansallisessa keskiarvossa.
+
+Luku ei olisi ollut väärin. Se olisi ollut tosi ja merkityksetön — ja juuri
+siksi vaarallinen, koska se olisi antanut ymmärtää ettei yhdelläkään asemalla
+ole väliä.
+
+Mittaan siksi kolmea asiaa erikseen: **keitä** aseman katoaminen koskee,
+**kuinka paljon** se koskee juuri heitä, ja **kuinka moni** siirtyy sen myötä
+kohtuullisen matkan päästä kohtuuttoman taakse.
+
 ```{r}
 #| label: kuva-jakauma
-#| fig-cap: "Asemien kriittisyyden jakauma."
+#| fig-cap: "Asemien kriittisyyden jakauma kahdella eri mittarilla."
+#| fig-height: 6.5
 
-poistovaikutus |>
+p_vaara <- poistovaikutus |>
   filter(!is.na(keskikasvu_min)) |>
-  ggplot(aes(keskikasvu_min)) +
+  ggplot(aes(keskikasvu_min * 60)) +
+  geom_histogram(bins = 50, fill = "grey35", colour = NA) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Koko maan keskimääräisen ajoajan kasvu (sekuntia)", y = "Asemia",
+       title = "Väärä mittari: koko maan keskiarvo",
+       subtitle = "Kaikki asemat näyttävät merkityksettömiltä, koska luku on jaettu koko väestölle")
+
+p_oikea <- poistovaikutus |>
+  filter(asukkaita_koskee > 0) |>
+  ggplot(aes(kasvu_koskeville)) +
   geom_histogram(bins = 50, fill = pal["turkoosi"], colour = NA) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
-  labs(x = "Koko maan keskimääräisen ajoajan kasvu, jos asema katoaa (min)",
-       y = "Asemia",
-       title = "Useimpien asemien katoamista ei huomaisi kukaan",
-       subtitle = "Muutama asema erottuu selvästi muista")
+  labs(x = "Ajoajan kasvu niille, joita asema koskee (min)", y = "Asemia",
+       title = "Oikea mittari: vaikutus asianosaisille",
+       subtitle = "Sama laskenta, sama data – vain nimittäjä on eri")
+
+p_vaara / p_oikea
 ```
 
-**Miten kuvaa luetaan.** Vaaka-akselilla on luku, joka kertoo kuinka paljon
-suomalaisten keskimääräinen matka lähimmälle suurtehulaturille pitenisi, jos
-kyseinen asema katoaisi. Pystyakselilta luetaan, kuinka moni asema saa kunkin
-arvon.
+**Miten kuvaa luetaan.** Molemmat paneelit kuvaavat täsmälleen samaa laskentaa.
+Ainoa ero on se, kenen kesken vaikutus jaetaan.
 
-Valtaosa asemista on nollan tuntumassa. Se ei tarkoita että ne olisivat
-tarpeettomia — se tarkoittaa, että niiden vieressä on toinen asema. Jos
-sellainen asema katoaa, käyttäjä ajaa naapuriin eikä kukaan huomaa mitään.
+Ylempi harmaa paneeli jakaa sen koko Suomen väestölle, ja silloin akselin
+yksikkönä on sekunti. Alempi jakaa sen vain niille, joiden matka oikeasti
+pitenee, ja silloin yksikkönä on minuutti.
 
-Jakauman oikeassa hännässä on muutama asema, joiden katoaminen näkyisi koko
-maan tilastossa. Ne ovat tämän osan kohde.
+Alemmassa paneelissa valtaosa asemista on edelleen vasemmassa laidassa. Se ei
+tarkoita että ne olisivat tarpeettomia — se tarkoittaa, että niiden vieressä on
+toinen asema. Jos sellainen asema katoaa, käyttäjä ajaa naapuriin eikä kukaan
+huomaa mitään.
+
+Oikeassa hännässä on asemia, joiden katoaminen tarkoittaisi asianosaisille
+kymmenien minuuttien lisämatkaa. Ne ovat tämän osan kohde.
 
 Kymmenen kriittisintä asemaa vastaa
 `r percent(jakauman_muoto$top10_osuus, accuracy = 1)` kaikkien asemien
-yhteenlasketusta kriittisyydestä.
+yhteenlasketusta kokonaisvaikutuksesta.
 
 ## Riskikartta
 
@@ -236,38 +299,51 @@ yhteenlasketusta kriittisyydestä.
 #| fig-width: 7.5
 
 riski_sf <- poistovaikutus |>
-  filter(!is.na(keskikasvu_min)) |>
+  filter(asukkaita_koskee > 0) |>
   st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
   st_transform(3067)
 
 ggplot() +
   geom_sf(data = st_transform(kunnat_sf, 3067),
           fill = "grey11", colour = "grey18", linewidth = 0.05) +
-  geom_sf(data = riski_sf |> arrange(keskikasvu_min),
-          aes(colour = keskikasvu_min, size = keskikasvu_min), alpha = 0.85) +
+  geom_sf(data = riski_sf |> arrange(kasvu_koskeville),
+          aes(colour = kasvu_koskeville, size = asukkaita_koskee),
+          alpha = 0.85) +
   scale_colour_gradientn(
     colours = c(unname(pal["sininen"]), unname(pal["turkoosi"]),
                 unname(pal["oranssi"]), unname(pal["punainen"])),
-    values = scales::rescale(c(0, 0.5, 2, max(riski_sf$keskikasvu_min))),
-    name = "Ajoajan kasvu\nkoko maassa (min)",
+    values = scales::rescale(c(0, 5, 20, max(riski_sf$kasvu_koskeville))),
+    breaks = c(0, 15, 30, 45, 60),
+    labels = c("0", "15 min", "30 min", "45 min", "1 h"),
+    name = "Lisämatka niille, joita asema koskee",
     guide = guide_colourbar(barwidth = unit(9, "cm"),
                             barheight = unit(0.4, "cm"),
-                            title.position = "top")
+                            title.position = "top",
+                            label.theme = element_text(angle = 45, hjust = 1,
+                                                       size = 8,
+                                                       colour = "grey85"))
   ) +
   scale_size_continuous(range = c(0.6, 7), guide = "none") +
   labs(title = "Suomen latausverkon riskikartta",
-       subtitle = "Punainen: aseman katoaminen heikentäisi koko maan saavutettavuutta",
+       subtitle = "Väri: kuinka paljon matka pitenee asianosaisille. Koko: kuinka moni heitä on.",
        caption = "Aineistot: OpenStreetMap, Fintraffic AFIR, Tilastokeskus") +
   theme(axis.text = element_blank(), axis.ticks = element_blank(),
         panel.grid = element_blank(), legend.position = "bottom")
 ```
 
-**Miten karttaa luetaan.** Jokainen piste on suurtehulatausasema. Väri ja koko
-kertovat, kuinka paljon koko maan väestöpainotettu matka lähimmälle
-suurtehulaturille pitenisi, jos juuri tuo asema katoaisi.
+**Miten karttaa luetaan.** Jokainen piste on suurtehulatausasema.
 
-Siniset pisteet ovat asemia, joiden katoamista ei huomaisi: naapurissa on
-toinen. Punaiset ovat asemia, joiden katoaminen näkyisi valtakunnallisesti.
+Pisteen **väri** kertoo, kuinka paljon matka lähimmälle laturille pitenisi
+niillä ihmisillä, joita aseman katoaminen koskee. Sininen tarkoittaa muutamaa
+minuuttia, punainen puolta tuntia tai enemmän.
+
+Pisteen **koko** kertoo, kuinka moni ihminen on asianosainen.
+
+Nämä kaksi eivät kulje käsi kädessä, ja siinä on kartan koko viesti. Pieni
+punainen piste on asema, jonka katoaminen olisi harvoille katastrofi. Suuri
+sininen piste on asema, jonka katoaminen olisi monille pieni harmi. Kumpaa
+pidetään pahempana, on arvovalinta — mutta se on valinta, joka pitää tehdä
+tietoisesti eikä mittarin sivutuotteena.
 
 Kartta ei kerro, mitkä asemat ovat vilkkaimpia tai suurimpia. Se kertoo, mitkä
 ovat korvaamattomimpia — ja nämä kaksi ovat eri asioita. Vilkkain asema on
@@ -278,17 +354,31 @@ siellä missä on paljon ihmisiä, ja siellä on yleensä myös vaihtoehtoja.
 #| fig-cap: "Kriittisimmät latausasemat."
 
 poistovaikutus |>
-  slice_max(keskikasvu_min, n = 15) |>
+  slice_max(henkilominuutteja, n = 15) |>
   mutate(label = paste0(str_trunc(nimi, 30), "\n", kunta, " · ", op_nimi),
-         label = fct_reorder(label, keskikasvu_min)) |>
-  ggplot(aes(keskikasvu_min, label)) +
+         label = fct_reorder(label, henkilominuutteja)) |>
+  select(label,
+         `Lisämatka asianosaisille (min)` = kasvu_koskeville,
+         `Asianosaisia (henkeä)` = asukkaita_koskee) |>
+  pivot_longer(-label) |>
+  ggplot(aes(value, label)) +
   geom_col(fill = pal["punainen"], width = 0.68) +
-  scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
-  labs(x = "Koko maan ajoajan kasvu (min)", y = NULL,
+  facet_wrap(~name, scales = "free_x") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.10)),
+                     labels = label_number(big.mark = " ")) +
+  labs(x = NULL, y = NULL,
        title = "Asemat, joita ilman verkko toimii huonoimmin",
-       subtitle = "Väestöpainotettu vaikutus koko Suomen tasolla") +
+       subtitle = "Järjestetty kokonaisvaikutuksen mukaan: lisämatka kerrottuna asianosaisten määrällä") +
   theme(axis.text.y = element_text(size = 7))
 ```
+
+**Miten kuvaa luetaan.** Vasen paneeli kertoo, kuinka paljon matka pitenisi
+niillä ihmisillä, joita aseman katoaminen koskee. Oikea kertoo, kuinka monta
+heitä on.
+
+Asemat on järjestetty näiden tulon mukaan, eli kokonaisvaikutuksen. Paneelien
+järjestys ei ole sama, ja se on tarkoituksellista: osa asemista nousee listalle
+siksi että vaikutus on suuri, osa siksi että asianosaisia on paljon.
 
 ## Kriittisyys ei ole sama kuin koko
 
@@ -296,11 +386,11 @@ poistovaikutus |>
 #| label: koko-vs-kriittisyys
 #| echo: true
 
-kor_koko <- cor.test(poistovaikutus$keskikasvu_min,
+kor_koko <- cor.test(poistovaikutus$henkilominuutteja,
                      poistovaikutus$pistokkeita,
                      method = "spearman", exact = FALSE)
 
-kor_teho <- cor.test(poistovaikutus$keskikasvu_min,
+kor_teho <- cor.test(poistovaikutus$henkilominuutteja,
                      poistovaikutus$max_kw,
                      method = "spearman", exact = FALSE)
 
@@ -308,7 +398,7 @@ kor_teho <- cor.test(poistovaikutus$keskikasvu_min,
 isot_op <- poistovaikutus |> count(op_nimi) |> filter(n >= 8) |> pull(op_nimi)
 op_data <- poistovaikutus |> filter(op_nimi %in% isot_op)
 
-kw_testi <- kruskal.test(keskikasvu_min ~ op_nimi, data = op_data)
+kw_testi <- kruskal.test(henkilominuutteja ~ op_nimi, data = op_data)
 n_tot <- nrow(op_data)
 epsilon2 <- unname(kw_testi$statistic) / ((n_tot^2 - 1) / (n_tot + 1))
 ```
@@ -330,16 +420,18 @@ mitään.
 #| fig-cap: "Aseman koko ja sen kriittisyys."
 
 poistovaikutus |>
-  filter(!is.na(keskikasvu_min)) |>
-  ggplot(aes(pistokkeita, keskikasvu_min)) +
-  geom_point(colour = pal["turkoosi"], alpha = 0.55, size = 2.2) +
+  filter(asukkaita_koskee > 0) |>
+  ggplot(aes(pistokkeita, kasvu_koskeville)) +
+  geom_point(aes(size = asukkaita_koskee), colour = pal["turkoosi"],
+             alpha = 0.5) +
   geom_text_repel(
-    data = \(d) d |> slice_max(keskikasvu_min, n = 8),
+    data = \(d) d |> slice_max(kasvu_koskeville, n = 8),
     aes(label = kunta), colour = "grey80", size = 3,
     max.overlaps = 12, seed = 42
   ) +
+  scale_size_continuous(range = c(1.2, 7), guide = "none") +
   labs(x = "Latauspistokkeita asemalla",
-       y = "Koko maan ajoajan kasvu, jos asema katoaa (min)",
+       y = "Lisämatka asianosaisille, jos asema katoaa (min)",
        title = "Iso asema ei ole sama kuin tärkeä asema",
        subtitle = "Kriittisimmät asemat ovat usein pieniä")
 ```
@@ -415,7 +507,7 @@ poista_ketju <- function(jarjestys, askeleet = 40) {
 }
 
 # Kohdennettu: kriittisimmät ensin
-jarjestys_kohdennettu <- order(poistovaikutus$keskikasvu_min,
+jarjestys_kohdennettu <- order(poistovaikutus$henkilominuutteja,
                                decreasing = TRUE, na.last = TRUE)
 
 # Satunnainen: keskiarvo useasta vedosta, jotta yksittäinen
@@ -443,6 +535,26 @@ stopifnot(
 ero_40 <- vertailu |>
   filter(poistettu == max(poistettu)) |>
   select(tapa, keskiaika)
+
+# Onko kokonaisuus enemmän kuin osiensa summa? Verrataan yksittäispoistojen
+# summaa siihen, mitä samojen asemien yhtäaikainen poisto tekee.
+n_askelta <- max(vertailu$poistettu)
+
+summa_erikseen <- poistovaikutus |>
+  slice_max(henkilominuutteja, n = n_askelta) |>
+  summarise(s = sum(keskikasvu_min, na.rm = TRUE)) |>
+  pull(s)
+
+yhdessa <- kohdennettu |>
+  filter(poistettu == n_askelta) |>
+  pull(keskiaika) - nyky_keskiaika
+
+superadditiivisuus <- yhdessa / summa_erikseen
+
+stopifnot(
+  "Yhtäaikainen poisto on pienempi kuin erillisten summa – tarkista järjestys" =
+    superadditiivisuus >= 0.95
+)
 ```
 
 ```{r}
@@ -467,6 +579,38 @@ suurtehulaturille.
 
 Turkoosi käyrä kuvaa satunnaista häiriötä: asemia katoaa umpimähkään.
 Punainen kuvaa kohdennettua: kriittisimmät poistuvat ensin.
+
+Tässä kuvassa pystyakseli on koko maan keskiarvo, vaikka edellä juuri totesin
+sen huonoksi mittariksi. Ero on siinä, mihin lukua käytetään. Yksittäisen
+aseman arvon kuvaamiseen se ei kelpaa, koska laimennus peittää vaikutuksen.
+Kahden skenaarion vertailuun se kelpaa hyvin, koska molemmat lasketaan samalla
+nimittäjällä ja kiinnostavaa on käyrien välinen ero, ei niiden korkeus.
+
+### Kokonaisuus on enemmän kuin osiensa summa
+
+Kuvassa on yksityiskohta, joka on helppo ohittaa mutta joka on tämän osan
+kiinnostavin yksittäinen tulos.
+
+Jos lasken yhteen `r n_askelta` kriittisimmän aseman yksittäiset vaikutukset —
+siis sen, mitä kukin niistä tekee erikseen poistettuna — saan selvästi
+pienemmän luvun kuin se, mitä niiden yhtäaikainen poistuminen tekee. Suhde on
+noin `r format(round(superadditiivisuus, 2), decimal.mark = ",")`-kertainen.
+
+Syy on ymmärrettävä kun sen sanoo ääneen. Kun ensimmäinen asema poistetaan, sen
+käyttäjät siirtyvät naapuriasemalle. Kun myös naapuri poistetaan, he siirtyvät
+jo kauemmas — ja tuon toisen aseman vaikutus on silloin suurempi kuin mitä se
+oli yksin mitattuna, koska pakotie oli jo tukittu.
+
+Ilmiötä kutsutaan superadditiivisuudeksi, ja sillä on suora käytännön seuraus.
+**Riskilista, joka on laadittu poistamalla yksi kohde kerrallaan, aliarvioi
+systemaattisesti sen, mitä useampi samanaikainen häiriö tekisi.** Juuri niin
+riskilistat kuitenkin lähes aina laaditaan — myös tämän osan riskikartta on
+sellainen.
+
+Kerron tämän siksi, että tiedän oman menetelmäni rajan. Kartta kuvaa
+oikein sitä, mikä yksittäinen asema on korvaamattomin. Se ei kuvaa oikein sitä,
+mitä tapahtuu päivänä jona useampi asia menee rikki yhtä aikaa — ja se on
+poikkeustilanteen määritelmä.
 
 Ero on suuri, ja se on tämän osan tärkein tulos. **Verkko kestää satunnaista
 vahinkoa hyvin ja kohdennettua huonosti.** Se ei ole latausverkon erityispiirre
@@ -563,6 +707,20 @@ riippuu käyttöasteesta, jota ei ole julkisesti saatavilla.
 Häiriötilanteessa autoilija voi käyttää hitaampaa laturia, jos aikaa on. Kartta
 kuvaa siis pikalatausverkon kestävyyttä, ei liikkumisen mahdottomuutta.
 
+**Ajoajat ovat systemaattisesti alakanttiin, kaupungeissa pahiten.** Ajoaika
+lasketaan nopeusrajoituksista, eikä laskenta tunne liikennevaloja,
+risteysviiveitä eikä ruuhkia. Maantiellä virhe on pieni, mutta kaupungissa se
+on suuri — siellä matka-ajasta merkittävä osa kuluu juuri niihin asioihin,
+joita malli ei tunne.
+
+Tämä näkyy suoraan siinä, että nykytilan keskimääräinen matka lähimmälle
+suurtehulaturille on `r round(nyky_keskiaika, 1)` minuuttia. Luku on
+epäuskottavan pieni jokaiselle, joka on joskus ajanut kaupungissa. Se on
+oikein laskettu mutta kuvaa esteetöntä ajoa, ei todellista.
+
+Vertailuihin tämä ei vaikuta, koska virhe on samansuuntainen kaikkialla.
+Yksittäistä lukua ei kuitenkaan pidä lukea todellisena matka-aikana.
+
 **Rekisteri on epätäydellinen.** Sarjan ensimmäisessä osassa arvioitiin, että
 osa asemista puuttuu rekisteristä kokonaan. Jos puuttuvat asemat ovat siellä
 missä muutkin, riskiarvio on hieman yläkanttiin. Jos ne ovat syrjässä, arvio on
@@ -577,6 +735,14 @@ ja juuri siksi se on hyödyllinen.
 
 **Useimpien asemien katoamista ei huomaisi kukaan.** Se ei tee niistä
 tarpeettomia; se tarkoittaa että niillä on naapuri.
+
+**Nimittäjä ratkaisee, näyttääkö mikään miltään.** Koko maan keskiarvona
+kriittisimmänkin aseman katoaminen on muutaman sekunnin asia. Asianosaisille
+se on kymmeniä minuutteja. Sama laskenta, eri nimittäjä, tuhatkertainen ero.
+
+**Riskilistat aliarvioivat yhtäaikaiset häiriöt.** Yksi kerrallaan poistaen
+mitattu kriittisyys ei summaudu: yhdessä poistetut asemat tekevät enemmän
+vahinkoa kuin erikseen mitattuna.
 
 **Kriittisyys ei seuraa kokoa.** Kriittisimmät asemat ovat pieniä ja syrjäisiä
 — eli juuri niitä, joita markkinaehtoinen rakentaminen tuottaa vähiten ja
@@ -614,6 +780,20 @@ mittaa satunnaista häiriötä eikä kerro mitään järjestelmällisestä.
 Tämä on suoraan DORA:n ja NIS2:n logiikka: valvoja ei kysy, onko teillä
 sattunut häiriöitä, vaan onko teillä tunnistettu mitkä toiminnot kaatuvat
 ensin ja mitä siitä seuraa.
+
+**Tarkista riskiarviosi nimittäjä.** Jos riskin suuruus lasketaan jakamalla
+vaikutus koko organisaatiolle, koko asiakaskunnalle tai koko liikevaihdolle,
+jokainen yksittäinen riski näyttää pieneltä. Se ei ole laskuvirhe vaan
+näkökulmavirhe, ja se johtaa järjestelmällisesti siihen ettei mitään
+priorisoida. Kysy aina erikseen: keitä tämä koskee, kuinka paljon se koskee
+juuri heitä, ja kuinka moni ylittää sietokynnyksen.
+
+**Älä oleta riskien summautuvan.** Yksi kerrallaan arvioidut riskit ovat
+yhdessä pahempia kuin erikseen, koska varajärjestelyt ovat usein samoja.
+Jos palvelin A kaatuu, kuorma siirtyy palvelimelle B; jos molemmat kaatuvat,
+vaikutus on enemmän kuin kaksinkertainen. Sama koskee avainhenkilöitä,
+toimittajia ja toimipisteitä. Riskirekisteri, jossa jokainen rivi on arvioitu
+yksinään, kuvaa normaalipäivää eikä sitä päivää jota varten se on tehty.
 
 **Erota "ei ole tapahtunut" ja "ei voi tapahtua".** Riskikartta on
 todennäköisyyksistä riippumaton: se kertoo mitä seuraisi, ei kuinka

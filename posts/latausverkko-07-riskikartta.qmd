@@ -7,7 +7,6 @@ description: |
   Tuloksena on kartta, joka kertoo mitkä asemat pitävät verkkoa kasassa.
 date: 2026-10-13
 categories: [avoin data, verkostoanalyysi, latausverkko, riskianalyysi, kestävyys]
-draft: true
 ---
 
 ```{r}

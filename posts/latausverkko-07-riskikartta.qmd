@@ -51,6 +51,35 @@ kunnat_sf <- qs2::qs_read(file.path(data_dir, "kunnat_lau.qs"))
 pno       <- qs2::qs_read(file.path(data_dir, "paavo.qs"))
 tieverkko <- qs2::qs_read(file.path(data_dir, "tieverkko.qs"))
 tieverkko <- tieverkko[tieverkko$component == 1, ]
+
+# Koordinaattijärjestelmä pinnataan uudelleen: eri PROJ-versiot tuottavat
+# samasta EPSG-koodista hieman eri merkkijonon, ja sf vertaa merkkijonoja.
+st_crs(kunnat_sf) <- 3067
+st_crs(pno) <- 3067
+
+# Kotilatausmahdollisuus arvioidaan pientaloasumisen osuudesta, kuten
+# tämän sarjan aiemmassa osassa. Kerrostaloasuja on julkisen verkon
+# varassa arjessa; pientaloasuja ei ole.
+stopifnot(
+  "Paavo-aineistosta puuttuu rakennuskantatieto" =
+    all(c("pientaloasunnot", "kerrostaloasunnot") %in% names(pno))
+)
+
+pno <- pno |>
+  mutate(
+    asuntoja = pientaloasunnot + kerrostaloasunnot,
+    pientalo_osuus = if_else(asuntoja > 0, pientaloasunnot / asuntoja,
+                             NA_real_),
+    # Arjessa julkisesta verkosta riippuvaiset asukkaat
+    arkiriippuvaiset = asukkaat * (1 - coalesce(pientalo_osuus, 0.5))
+  )
+
+stopifnot(
+  "Pientalo-osuus jakauman ulkopuolella" =
+    all(between(pno$pientalo_osuus, 0, 1), na.rm = TRUE),
+  "Arkiriippuvaisia enemmän kuin asukkaita" =
+    all(pno$arkiriippuvaiset <= pno$asukkaat + 1e-9)
+)
 ```
 
 ## Verkko näyttää hyvältä siihen asti kun se ei näytä
@@ -138,14 +167,18 @@ kelpo <- is.finite(nyky_min) & pno$asukkaat > 0
 
 ajat_k <- ajat[kelpo, , drop = FALSE]
 vakiluku <- pno$asukkaat[kelpo]
+arkiriippuvaiset <- pno$arkiriippuvaiset[kelpo]
 nyky <- nyky_min[kelpo]
 
 stopifnot(
   "Yli 10 % alueista jäi ulkopuolelle" = mean(kelpo) > 0.90,
-  "Väkilukuja puuttuu" = all(!is.na(vakiluku))
+  "Väkilukuja puuttuu" = all(!is.na(vakiluku)),
+  "Arkiriippuvaisten painoja puuttuu" = all(!is.na(arkiriippuvaiset))
 )
 
 nyky_keskiaika <- weighted.mean(nyky, vakiluku)
+arkiriippuvaisia_yht <- sum(arkiriippuvaiset)
+arkiosuus <- arkiriippuvaisia_yht / sum(vakiluku)
 ```
 
 ```{r}
@@ -175,11 +208,15 @@ poistovaikutus <- map_dfr(seq_len(ncol(ajat_k)), function(j) {
     avain = colnames(ajat_k)[j],
     # Keitä koskee
     asukkaita_koskee = sum(vakiluku[koskee]),
+    # Keitä koskee arjessa: vain ne, joilla ei ole kotilatausta
+    arkiriippuvaisia_koskee = sum(arkiriippuvaiset[koskee]),
     # Kuinka paljon koskee niitä, joita se koskee
     kasvu_koskeville = if (any(koskee))
       weighted.mean(muutos[koskee], vakiluku[koskee]) else 0,
     # Kokonaisvaikutus: menetettyjä henkilöminuutteja latauskertaa kohti
     henkilominuutteja = sum(muutos[koskee] * vakiluku[koskee]),
+    # Sama arkikäytön näkökulmasta: kotilataus vähentää tarvetta
+    arki_henkilominuutteja = sum(muutos[koskee] * arkiriippuvaiset[koskee]),
     # Kynnysmittari: kuinka moni siirtyy kipurajan yli
     yli_kipurajan = sum(vakiluku[!is.na(muutos) &
                                    nyky <= kipuraja_min &
@@ -379,6 +416,254 @@ heitä on.
 Asemat on järjestetty näiden tulon mukaan, eli kokonaisvaikutuksen. Paneelien
 järjestys ei ole sama, ja se on tarkoituksellista: osa asemista nousee listalle
 siksi että vaikutus on suuri, osa siksi että asianosaisia on paljon.
+
+## Sama asema ei ole yhtä tärkeä kaikille
+
+Tähän asti olen mitannut yhtä asiaa: kuinka paljon matka lähimmälle
+suurtehulaturille pitenee, jos asema katoaa. Mittari olettaa hiljaisesti, että
+kaikki tarvitsevat sitä asemaa samalla tavalla.
+
+He eivät tarvitse. Suurtehulaturia käytetään kahteen täysin eri tarkoitukseen,
+ja niiden kriittisyys määräytyy eri tavalla.
+
+**Arkilataus.** Asukas, jolla ei ole omaa latauspaikkaa, käy lataamassa autonsa
+lähimmällä julkisella laturilla samaan tapaan kuin ennen käytiin bensa-asemalla.
+Hänelle lähin asema on arkinen välttämättömyys. Omakotitalossa asuva, joka
+lataa autonsa yöllä kotona, ei tätä asemaa tarvitse juuri koskaan.
+
+**Matkalataus.** Pitkällä matkalla auto on ladattava jossain matkan varrella.
+Tämä ei riipu lainkaan siitä, missä matkalainen asuu tai onko hänellä kotona
+latauspistettä. Helsingistä Rovaniemelle ajava tarvitsee aseman kilometrillä
+kolmesataa myös silloin, kun hän on lähtenyt liikkeelle täydellä akulla
+omakotitalon autotallista.
+
+Näistä ensimmäinen on herkkä asumismuodolle, jälkimmäinen ei ole sille lainkaan
+herkkä. Siksi ne on laskettava erikseen.
+
+### Arjen kriittisyys: ketä lähin asema oikeasti palvelee
+
+Tämän sarjan aiemmassa osassa arvioitiin kotilatausmahdollisuutta
+pientaloasumisen osuudesta. Käytän samaa arviota tässä: alueen asukkaista
+julkisesta verkosta arjessa riippuvaisiksi lasketaan kerrostaloasumisen osuutta
+vastaava osa.
+
+Koko maassa tämä tarkoittaa noin
+`r percent(arkiosuus, accuracy = 1)` väestöstä. Loput lataavat pääosin kotona.
+
+```{r}
+#| label: arki-vs-kaikki
+#| echo: true
+
+arkivertailu <- poistovaikutus |>
+  mutate(
+    arjen_paino = if_else(henkilominuutteja > 0,
+                          arki_henkilominuutteja / henkilominuutteja,
+                          NA_real_)
+  )
+
+# Järjestyksen muutos: kuinka moni kärkiasemista vaihtuu, kun
+# kotilataus otetaan huomioon?
+karki_kaikki <- arkivertailu |> slice_max(henkilominuutteja, n = 20) |> pull(avain)
+karki_arki   <- arkivertailu |> slice_max(arki_henkilominuutteja, n = 20) |> pull(avain)
+paallekkaisyys <- length(intersect(karki_kaikki, karki_arki))
+
+kor_arki <- cor(arkivertailu$henkilominuutteja,
+                arkivertailu$arki_henkilominuutteja,
+                method = "spearman", use = "complete.obs")
+```
+
+Kahdenkymmenen kärjestä `r paallekkaisyys` on sama molemmilla mittareilla, ja
+järjestyskorrelaatio on
+`r format(round(kor_arki, 2), decimal.mark = ",")`.
+
+Kotilatauksen huomioiminen ei siis mullista järjestystä, ja syy on
+ymmärrettävä: asemat ovat siellä missä on asutusta, ja asutuksen rakenne
+vaihtelee vähemmän kuin asemien harvuus. Mutta se siirtää painopistettä
+taajamiin päin, koska siellä kerrostaloasumisen osuus on suurin.
+
+```{r}
+#| label: kuva-arkipaino
+#| fig-cap: "Kuinka suuri osa aseman vaikutuksesta kohdistuu arjessa julkisesta verkosta riippuvaisiin."
+
+arkivertailu |>
+  filter(!is.na(arjen_paino), asukkaita_koskee > 0) |>
+  ggplot(aes(kasvu_koskeville, arjen_paino)) +
+  geom_hline(yintercept = arkiosuus, colour = pal["punainen"], linetype = 2) +
+  geom_point(aes(size = asukkaita_koskee), colour = pal["turkoosi"],
+             alpha = 0.5) +
+  geom_text_repel(
+    data = \(d) d |> slice_max(kasvu_koskeville, n = 6),
+    aes(label = kunta), colour = "grey80", size = 3,
+    max.overlaps = 12, seed = 42
+  ) +
+  scale_y_continuous(labels = percent) +
+  scale_size_continuous(range = c(1.2, 7), guide = "none") +
+  labs(x = "Lisämatka asianosaisille, jos asema katoaa (min)",
+       y = "Osuus vaikutuksesta, joka kohdistuu kotilatausta vailla oleviin",
+       title = "Kaukana sijaitsevan aseman käyttäjä lataa todennäköisemmin kotona",
+       subtitle = "Punainen katkoviiva: koko maan taso")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on aseman kriittisyys asianosaisille,
+pystyakselilla se, kuinka suuri osa asianosaisista on vailla kotilatausta.
+Punainen katkoviiva on koko maan taso.
+
+Viivan alapuolella olevat asemat palvelevat keskimääräistä enemmän
+omakotitaloasujia, jotka lataavat pääosin kotona. Viivan yläpuolella olevat
+palvelevat kerrostaloasujia, joille julkinen verkko on ainoa vaihtoehto.
+
+Kuvassa näkyy selvä kaltevuus: mitä kriittisempi asema on etäisyysmielessä,
+sitä todennäköisemmin sen lähialueella asutaan pientaloissa. Se on looginen
+seuraus siitä, että harvaan asutuilla alueilla sekä asemia että kerrostaloja on
+vähän.
+
+**Tästä seuraa epämiellyttävä johtopäätös.** Jos aseman tärkeyttä mitattaisiin
+pelkästään arkikäytöllä, syrjäseutujen asemat putoaisivat listan hännille — ei
+siksi että niitä ei tarvittaisi, vaan siksi että niiden lähialueella asutaan
+omakotitaloissa.
+
+Arkimittari yksinään siis siirtäisi tuen kaupunkeihin ja jättäisi harvaan
+asutut alueet ilman. Sitä varten tarvitaan toinen mittari.
+
+### Matkan kriittisyys: milloin asema on ketjun lenkki
+
+Arkimittari ei tavoita sitä tilannetta, jonka vuoksi syrjäinen asema on usein
+korvaamaton. Asema voi olla lähes tyhjä ja silti välttämätön, jos se on ainoa
+latausmahdollisuus kahden kaukana toisistaan olevan aseman välissä.
+
+Tällöin kyse ei ole siitä, kuka asuu lähellä. Kyse on siitä, että ilman tuota
+asemaa jokin väli kasvaa pidemmäksi kuin akku kestää — ja se koskee jokaista
+ohi ajavaa riippumatta siitä, missä hän asuu.
+
+Mittaan tämän kysymällä: **jos asema poistetaan, kuinka pitkäksi kasvaa se
+väli, joka sen tilalle jää?**
+
+```{r}
+#| label: matkan-kriittisyys
+#| echo: true
+
+matriisi_asemat_path <- file.path(data_dir, "matkamatriisi.qs")
+stopifnot("Asemien matkamatriisi puuttuu – aja edellinen osa ensin" =
+            file.exists(matriisi_asemat_path))
+
+mm <- qs2::qs_read(matriisi_asemat_path)
+D_kaikki <- mm$matkat
+
+yhteiset <- intersect(rownames(D_kaikki), hpc$avain)
+D <- D_kaikki[yhteiset, yhteiset]
+
+stopifnot(
+  "Matkamatriisi ei kata asemia" = length(yhteiset) > 50,
+  "Matriisi ei ole neliö" = nrow(D) == ncol(D)
+)
+
+# Talvinen pienen akun kantama: väli, jota pidetään liian pitkänä
+kantamaraja_km <- 150
+
+# Jokaiselle asemalle: kuinka pitkäksi lähimmän naapurin matka kasvaa
+# muilla asemilla, jos tämä asema poistetaan. Jos jonkin aseman lähin
+# naapuri hyppää kantamarajan yli, poistettu asema oli ketjun lenkki.
+naapurietaisyys <- function(Dm) {
+  diag(Dm) <- Inf
+  apply(Dm, 1, \(r) min(r, na.rm = TRUE))
+}
+
+nyky_naapuri <- naapurietaisyys(D)
+
+ketjulenkki <- map_dfr(seq_len(nrow(D)), function(j) {
+  D2 <- D[-j, -j, drop = FALSE]
+  uusi <- naapurietaisyys(D2)
+  vanha <- nyky_naapuri[-j]
+
+  kasvu <- uusi - vanha
+  ylittaa <- is.finite(uusi) & vanha <= kantamaraja_km & uusi > kantamaraja_km
+
+  tibble(
+    avain = rownames(D)[j],
+    pisin_vali_km = suppressWarnings(max(uusi[is.finite(uusi)], na.rm = TRUE)),
+    vali_kasvu_km = suppressWarnings(max(kasvu[is.finite(kasvu)], na.rm = TRUE)),
+    rikkoo_ketjun = any(ylittaa)
+  )
+}) |>
+  mutate(across(c(pisin_vali_km, vali_kasvu_km),
+                \(x) if_else(is.finite(x), x, NA_real_)))
+
+stopifnot(
+  "Ketjulaskenta epäonnistui" = nrow(ketjulenkki) == nrow(D),
+  "Välin kasvu on negatiivinen" =
+    all(ketjulenkki$vali_kasvu_km >= -1e-9, na.rm = TRUE)
+)
+
+n_ketjulenkkeja <- sum(ketjulenkki$rikkoo_ketjun, na.rm = TRUE)
+
+kriittisyys <- poistovaikutus |>
+  left_join(ketjulenkki, by = "avain")
+```
+
+Asemia, joiden poistuminen kasvattaa jonkin välin yli
+`r kantamaraja_km` kilometrin, on **`r n_ketjulenkkeja`**.
+
+Nämä ovat matkalatauksen kannalta kriittisiä riippumatta siitä, kuka niiden
+lähellä asuu. Raja `r kantamaraja_km` kilometriä vastaa talvista pienen akun
+kantamaa; kesällä suurella akulla sama väli olisi ongelmaton.
+
+```{r}
+#| label: kuva-kaksi-kriittisyytta
+#| fig-cap: "Arjen kriittisyys ja matkan kriittisyys samassa kuvassa."
+
+kriittisyys |>
+  filter(asukkaita_koskee > 0, !is.na(vali_kasvu_km)) |>
+  mutate(ryhma = if_else(rikkoo_ketjun,
+                         "Rikkoo ketjun: väli ylittää talvikantaman",
+                         "Ei riko ketjua")) |>
+  ggplot(aes(arki_henkilominuutteja + 1, vali_kasvu_km)) +
+  geom_hline(yintercept = kantamaraja_km, colour = "grey55", linetype = 2) +
+  geom_point(aes(colour = ryhma), size = 2.4, alpha = 0.7) +
+  geom_text_repel(
+    data = \(d) d |> filter(rikkoo_ketjun) |> slice_max(vali_kasvu_km, n = 8),
+    aes(label = kunta), colour = "grey80", size = 3,
+    max.overlaps = 14, seed = 42
+  ) +
+  scale_x_log10(labels = label_number(big.mark = " ")) +
+  scale_colour_manual(values = c(
+    "Rikkoo ketjun: väli ylittää talvikantaman" = unname(pal["punainen"]),
+    "Ei riko ketjua" = unname(pal["turkoosi"]))) +
+  labs(x = "Arjen kriittisyys: henkilöminuutteja kotilatausta vailla oleville (log)",
+       y = "Suurimman syntyvän välin kasvu (km)",
+       colour = NULL,
+       title = "Kaksi eri tapaa olla korvaamaton",
+       subtitle = "Vasen yläkulma: harvojen arki, mutta kaikkien matka") +
+  theme(legend.position = "bottom")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on arjen kriittisyys: kuinka paljon
+aseman katoaminen haittaisi niitä lähialueen asukkaita, joilla ei ole
+kotilatausmahdollisuutta. Akseli on logaritminen, koska arvot vaihtelevat
+tuhansiin.
+
+Pystyakselilla on matkan kriittisyys: kuinka paljon pisin väli kasvaa, jos
+asema katoaa. Punaiset pisteet ovat asemia, joiden poistuminen kasvattaa välin
+yli talvisen kantaman.
+
+Kuvan neljä lohkoa tarkoittavat eri asioita.
+
+*Oikea alakulma* on kaupunkiasema: paljon kotilatausta vailla olevia käyttäjiä,
+mutta naapurissa on toinen asema. Jos se katoaa, moni kokee pienen harmin.
+
+*Vasen yläkulma* on juuri se tapaus, jota arkimittari ei näe. Lähellä ei asu
+juuri ketään ilman kotilatausta — mutta asema on ketjun ainoa lenkki, ja sen
+katoaminen katkaisee matkalatausreitin kaikilta ohi ajavilta.
+
+*Oikea yläkulma* olisi pahin mahdollinen: paljon arkikäyttäjiä ja ketjun lenkki.
+Niitä on vähän, mikä on hyvä uutinen.
+
+*Vasen alakulma* on asema, jonka katoamista ei huomaisi juuri kukaan.
+
+**Tämä on osan tärkein korjaus.** Yksi kriittisyysluku ei riitä, koska
+latausasemalla on kaksi eri tehtävää eivätkä ne mene samoihin paikkoihin.
+Kaupunkiasema on tärkeä siksi että sen käyttäjillä ei ole vaihtoehtoa kotona;
+syrjäinen asema on tärkeä siksi että sen käyttäjillä ei ole vaihtoehtoa
+matkalla. Tuki, joka mittaa vain toista, kohdistuu väärin.
 
 ## Kriittisyys ei ole sama kuin koko
 
@@ -633,24 +918,16 @@ poistaminen katkaisee yhteyden kahden pisteen välillä.
 #| label: minimileikkaus
 #| echo: true
 
-# Rakennetaan asemaverkko: kaari kahden aseman välille, jos ne ovat
-# toistensa naapureita eikä välissä ole kolmatta asemaa.
-matriisi_asemat_path <- file.path(data_dir, "matkamatriisi.qs")
-stopifnot("Asemien matkamatriisi puuttuu – aja osa 5 ensin" =
-            file.exists(matriisi_asemat_path))
-
-mm <- qs2::qs_read(matriisi_asemat_path)
-matkat <- mm$matkat
-
-# Vain ne asemat, jotka ovat mukana molemmissa aineistoissa
-yhteiset <- intersect(rownames(matkat), hpc$avain)
-D <- matkat[yhteiset, yhteiset]
+# Asemien välinen matkamatriisi D on luettu jo edellä matkan
+# kriittisyyttä varten; käytetään samaa.
 hpc_v <- hpc |> filter(avain %in% yhteiset) |>
   arrange(match(avain, yhteiset))
 
 stopifnot("Matriisin ja asemataulun järjestys ei täsmää" =
             all(rownames(D) == hpc_v$avain))
 
+# Kaari kahden aseman välille, jos ne ovat toistensa naapureita eikä
+# välissä ole kolmatta asemaa.
 rng_matriisi <- function(Dm, raja) {
   n <- nrow(Dm)
   A <- (Dm <= raja) & is.finite(Dm)
@@ -740,6 +1017,12 @@ tarpeettomia; se tarkoittaa että niillä on naapuri.
 kriittisimmänkin aseman katoaminen on muutaman sekunnin asia. Asianosaisille
 se on kymmeniä minuutteja. Sama laskenta, eri nimittäjä, tuhatkertainen ero.
 
+**Latausasemalla on kaksi eri tehtävää, ja ne eivät ole samoissa paikoissa.**
+Kaupunkiasema on korvaamaton siksi, että sen käyttäjillä ei ole
+latausmahdollisuutta kotona. Syrjäinen asema on korvaamaton siksi, että sen
+käyttäjillä ei ole vaihtoehtoa matkan varrella. Mittari, joka tunnistaa vain
+toisen, kohdentaa tuen väärin.
+
 **Riskilistat aliarvioivat yhtäaikaiset häiriöt.** Yksi kerrallaan poistaen
 mitattu kriittisyys ei summaudu: yhdessä poistetut asemat tekevät enemmän
 vahinkoa kuin erikseen mitattuna.
@@ -780,6 +1063,20 @@ mittaa satunnaista häiriötä eikä kerro mitään järjestelmällisestä.
 Tämä on suoraan DORA:n ja NIS2:n logiikka: valvoja ei kysy, onko teillä
 sattunut häiriöitä, vaan onko teillä tunnistettu mitkä toiminnot kaatuvat
 ensin ja mitä siitä seuraa.
+
+**Kysy, onko sama resurssi kahdessa eri käytössä.** Latausasema osoittautui
+kahdeksi eri asiaksi: arjen peruspalveluksi niille joilla ei ole vaihtoehtoa
+kotona, ja matkaketjun lenkiksi kaikille ohi ajaville. Yksi kriittisyysluku ei
+voinut kuvata molempia.
+
+Sama pätee yllättävän moneen asiaan organisaatiossa. Järjestelmä, jota
+käytetään sekä päivittäiseen rutiiniin että kerran kuussa tapahtuvaan
+tilinpäätökseen, on kriittinen kahdesta eri syystä ja eri aikoina.
+Avainhenkilö, joka hoitaa arjen työt ja on lisäksi ainoa joka osaa yhden
+harvinaisen prosessin, on korvattavissa ensimmäisessä roolissa ja korvaamaton
+toisessa. Jos kriittisyys lasketaan yhtenä lukuna, toinen rooli katoaa
+näkyvistä — ja yleensä se joka katoaa on se harvinainen, koska se on pienempi
+volyymiltaan.
 
 **Tarkista riskiarviosi nimittäjä.** Jos riskin suuruus lasketaan jakamalla
 vaikutus koko organisaatiolle, koko asiakaskunnalle tai koko liikevaihdolle,

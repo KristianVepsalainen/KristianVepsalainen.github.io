@@ -1,0 +1,959 @@
+---
+title: "Peltipoliisi palasi Kehä I:lle — ja avoin data kertoo tarkan päivän"
+subtitle: "Mitä 349 miljoonaa ohitusta kertoo nopeusvalvonnan vaikutuksesta, ja miksi kolme ilmeistä vastausta on väärin"
+date: 2026-10-15
+categories: [avoin data, liikenne, bayes, kausaalipäättely, LAM]
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Näytä koodi"
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 200
+execute:
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(here)
+library(tidyverse)
+library(qs2)
+library(lubridate)
+library(sf)
+library(patchwork)
+library(brms)
+library(ggdist)
+
+select <- dplyr::select
+filter <- dplyr::filter
+
+DATA_DIR <- here("data", "peltipoliisi")
+
+# Väripaletti. Validoitu värinäön poikkeamien varalta: pienin erottuvuus
+# vierekkäisten värien välillä on protanopiassa ΔE 22.8 ja normaalinäössä
+# ΔE 29.2, molemmat selvästi yli raja-arvon 8 ja 15.
+VARI_KEHA     <- "#2166ac"
+VARI_VERROKKI <- "#d95f02"
+VARI_KOLMAS   <- "#7b3294"
+VARI_MUSTE    <- "#2b2b2b"
+VARI_HIMMEA   <- "#8a8a8a"
+
+teema_blogi <- function() {
+  theme_minimal(base_size = 12) +
+    theme(
+      plot.title    = element_text(face = "bold", size = 13, colour = VARI_MUSTE),
+      plot.subtitle = element_text(size = 11, colour = VARI_HIMMEA,
+                                   margin = margin(b = 10)),
+      plot.caption  = element_text(size = 9, colour = VARI_HIMMEA, hjust = 0),
+      axis.title    = element_text(size = 10, colour = VARI_HIMMEA),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(linewidth = 0.3, colour = "grey88"),
+      legend.position = "top",
+      legend.title = element_blank()
+    )
+}
+theme_set(teema_blogi())
+```
+
+```{r}
+#| label: data
+
+hist_pv   <- qd_read(file.path(DATA_DIR, "lam_hist_pv.qs2"))
+kalenteri <- qd_read(file.path(DATA_DIR, "kalenteri.qs2"))
+kontek    <- qd_read(file.path(DATA_DIR, "piste_konteksti.qs2"))
+asemat    <- qs_read(file.path(DATA_DIR, "lam_asemat.qs2"))
+osm       <- qs_read(file.path(DATA_DIR, "osm_kamerat_tiet.qs2"))
+
+# Painotettu kvantiili histogrammista.
+wq <- function(nopeus, paino, q) {
+  o <- order(nopeus); v <- nopeus[o]; w <- as.numeric(paino)[o]
+  v[which(cumsum(w) / sum(w) >= q)[1]]
+}
+
+# Tunnusluvut. Koostetta ei nimetä samaksi kuin lähdesaraketta, koska
+# summarise() evaluoi lausekkeet järjestyksessä ja korvaisi sarakkeen.
+tunnusluvut <- function(d, ...) {
+  d |>
+    group_by(...) |>
+    summarise(
+      havainnot = sum(as.numeric(n)),
+      ka   = sum(as.numeric(n) * nopeus) / sum(as.numeric(n)),
+      p85  = wq(nopeus, n, 0.85),
+      p95  = wq(nopeus, n, 0.95),
+      yli6 = 100 * sum(as.numeric(n)[nopeus >= raja + 6]) / sum(as.numeric(n)),
+      .groups = "drop")
+}
+
+rajoitus <- kontek |>
+  mutate(raja = as.integer(osm_maxspeed)) |>
+  select(lam_id, raja)
+
+stopifnot(!any(is.na(rajoitus$raja)))
+
+kehaI <- asemat |> st_drop_geometry() |>
+  filter(tienumero_lopullinen == 101) |> pull(lam_id)
+
+arkipv <- kalenteri |> filter(arkipaiva, !arkipyha) |> pull(pvm)
+
+# Analyysijoukko: henkilöautot, vapaa liikennevirta, arkipäivät.
+pohja <- hist_pv |>
+  filter(lk_ryhma == 1L, vapaa == 1L, pvm %in% arkipv) |>
+  left_join(rajoitus, by = "lam_id")
+
+# Pisteet joilta on riittävä kattavuus molempina vuosina.
+taydet <- hist_pv |>
+  mutate(vuosi = year(pvm)) |>
+  group_by(lam_id, vuosi) |>
+  summarise(pv = n_distinct(pvm), .groups = "drop") |>
+  pivot_wider(names_from = vuosi, values_from = pv) |>
+  filter(!is.na(`2025`), !is.na(`2026`), `2025` > 140, `2026` > 140) |>
+  pull(lam_id)
+
+# Liikennemäärän muutos: pisteet joilla se muuttui yli 8 % eivät kelpaa
+# vertailuun, koska tien fyysinen tilanne on muuttunut.
+volyymi <- hist_pv |>
+  filter(pvm %in% arkipv, lam_id %in% taydet) |>
+  mutate(vuosi = year(pvm)) |>
+  group_by(lam_id, vuosi) |>
+  summarise(ajon_pv = sum(as.numeric(n)) / n_distinct(pvm), .groups = "drop") |>
+  pivot_wider(names_from = vuosi, values_from = ajon_pv, names_prefix = "v") |>
+  mutate(muutos_pros = 100 * (v2026 / v2025 - 1))
+
+epavakaat <- volyymi |> filter(abs(muutos_pros) > 8) |> pull(lam_id)
+vakaat    <- setdiff(taydet, epavakaat)
+
+PAIVA_MUUTOS <- as.Date("2026-08-25")
+```
+
+Vesa Linja-aho [esitti LinkedInissä haasteen](https://www.linkedin.com/in/vesalinjaaho/): hän oli saanut liikennevirhemaksun Kehä I:n Leppäsolmun kamerasta, kaivanut itsensä esiin LAM-raakadatasta ja ehdotti, että joku katsoisi muutaman viikon päästä, näkyykö valvonnan aloittaminen keskinopeuksissa.
+
+Otin haasteen vastaan. Mutta en katso keskinopeuksia, koska keskinopeus on tähän kysymykseen väärä työkalu — ja osoitan kohta miksi.
+
+Vastaus on, että **jokin muuttui Kehä I:llä tiistaina 25. elokuuta 2026**, ja data osoittaa päivän niin tarkasti, että sattuman todennäköisyys on yksi biljoonasta. Mutta matka siihen vastaukseen kulkee kolmen ansan läpi, joista jokainen olisi tuottanut eri — ja väärän — luvun.
+
+Tämä postaus näyttää kaikki kolme.
+
+## Mitä LAM-data on
+
+Liikenneviraston LAM-pisteet (liikenteen automaattinen mittaus) ovat tienpintaan upotettuja induktiosilmukoita. Kun auto ajaa silmukan yli, sen metallimassa muuttaa silmukan magneettikenttää. Kahdella peräkkäisellä silmukalla laite laskee ajoneuvon nopeuden ja pituuden.
+
+Jokaisesta ohituksesta tallentuu rivi: kellonaika sadasosasekunnin tarkkuudella, kaista, suunta, nopeus, ajoneuvon pituus, ajoneuvoluokka ja aikaväli edelliseen ajoneuvoon. Suomessa on yli 450 asemaa, ja **data on vapaasti ladattavissa** päivä- ja pistekohtaisina CSV-tiedostoina Fintrafficin Digitraffic-palvelusta.
+
+Tämä on poikkeuksellista. Useimmissa maissa vastaava aineisto on viranomaisen sisäistä. Suomessa kuka tahansa voi ladata jokaisen moottoritien jokaisen auton nopeuden.
+
+Tätä analyysiä varten latasin **22 mittauspisteen tiedot 328 päivältä** — koko huhti–syyskuun sekä vuodelta 2026 että 2025. Kymmenen pistettä on Kehä I:llä, loput vertailukohdiksi muilta pääkaupunkiseudun pääväyliltä. Aineistossa on noin **349 miljoonaa henkilöauton ohitusta**.
+
+::: {.callout-note}
+## Mistä data tulee ja miten sen saa itse
+
+Raakadata haetaan osoitteesta
+`https://tie.digitraffic.fi/api/tms/v1/history/raw/lamraw_[piste]_[vuosi]_[päivä].csv`,
+jossa vuosi on kaksinumeroinen ja päivä on järjestysnumero vuoden alusta.
+Esimerkiksi Leppäsolmun piste 116 syyskuun 4. päivältä 2026 on
+`lamraw_116_26_247.csv`. Raakadataa on saatavilla joulukuusta 2021 alkaen.
+Aineisto on lisensoitu CC BY 4.0, lähde Fintraffic / Digitraffic.
+:::
+
+## Miksi keskinopeus on väärä mittari
+
+Tässä on koko postauksen tärkein ajatus, ja se pätee paljon laajemmin kuin liikenteeseen.
+
+Nopeusvalvonta ei vaikuta kaikkiin kuljettajiin. Se vaikuttaa niihin, jotka ajoivat ylinopeutta. Jos sata autoa ajaa rajoituksen mukaan ja kymmenen ajaa reilusti yli, ja valvonta saa ne kymmenen hidastamaan, keskinopeus liikkuu vain vähän — mutta sakotettavien määrä voi puolittua.
+
+Keskiarvo on yksi luku. Se ei kerro, miten havainnot jakautuvat sen ympärille. **Maailma on jakauma**, ja politiikkatoimen vaikutus näkyy melkein aina jakauman jossakin osassa, ei sen keskikohdassa.
+
+Katsotaan Leppäsolmun pistettä 116 — sitä samaa, josta Vesa löysi oman autonsa. Alla on sen vasemmanpuoleisimman kaistan nopeusjakauma ennen ja jälkeen elokuun 25. päivän.
+
+```{r}
+#| label: fig-jakauma
+#| fig-cap: "Nopeusjakauma Leppäsolmun LAM-pisteellä, vasemmanpuoleisin kaista Tapiolan suuntaan. Vaaka-akselilla ajoneuvon nopeus, pystyakselilla osuus kaikista kyseisen jakson ohituksista. Käyrän korkeus kertoo, kuinka suuri osa autoista ajoi juuri sitä nopeutta. Pinta-ala käyrän alla on yhteensä 100 %."
+#| fig-height: 5.5
+
+jakauma_koko <- pohja |>
+  filter(lam_id == 116L, suunta == 2L, kaista == 4L, year(pvm) == 2026,
+         pvm >= as.Date("2026-07-27"), pvm <= as.Date("2026-09-25")) |>
+  mutate(jakso = if_else(pvm < PAIVA_MUUTOS,
+                         "Ennen 25.8. (heinä–elokuu)",
+                         "25.8. alkaen (elo–syyskuu)")) |>
+  group_by(jakso, nopeus) |>
+  summarise(n = sum(as.numeric(n)), .groups = "drop") |>
+  group_by(jakso) |>
+  mutate(osuus = 100 * n / sum(n)) |>
+  ungroup()
+
+# Osuudet sakkorajan yli lasketaan koko jakaumasta, ei rajatusta.
+yli_sakkoraja <- jakauma_koko |>
+  group_by(jakso) |>
+  summarise(yli76 = sum(osuus[nopeus >= 76]), .groups = "drop")
+
+# Kuvaa varten rajataan näkyvä alue; osuudet on jo laskettu.
+jakauma_116 <- jakauma_koko |> filter(nopeus >= 45, nopeus <= 110)
+
+ggplot(jakauma_116, aes(nopeus, osuus, colour = jakso, fill = jakso)) +
+  annotate("rect", xmin = 76, xmax = 110, ymin = 0, ymax = Inf,
+           fill = "grey90", alpha = 0.55) +
+  annotate("text", x = 93, y = 7.6, label = "Sakotettava alue",
+           colour = VARI_HIMMEA, size = 3.4, fontface = "italic") +
+  geom_area(position = "identity", alpha = 0.14, linewidth = 0) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 70, linetype = "22", colour = VARI_MUSTE,
+             linewidth = 0.4) +
+  geom_vline(xintercept = 76, linetype = "22", colour = VARI_MUSTE,
+             linewidth = 0.4) +
+  annotate("text", x = 70, y = 8.3, label = "rajoitus 70",
+           hjust = 1.08, size = 3.4, colour = VARI_MUSTE) +
+  annotate("text", x = 76, y = 8.3, label = "sakkoraja 76",
+           hjust = -0.08, size = 3.4, colour = VARI_MUSTE) +
+  scale_colour_manual(values = c("Ennen 25.8. (heinä–elokuu)" = VARI_VERROKKI,
+                                 "25.8. alkaen (elo–syyskuu)" = VARI_KEHA)) +
+  scale_fill_manual(values = c("Ennen 25.8. (heinä–elokuu)" = VARI_VERROKKI,
+                               "25.8. alkaen (elo–syyskuu)" = VARI_KEHA)) +
+  scale_x_continuous(breaks = seq(50, 110, 10)) +
+  labs(
+    title = "Jakauma siirtyi, mutta vain yläpäästä",
+    subtitle = "Leppäsolmu, vasen kaista Tapiolan suuntaan, vapaa liikennevirta",
+    x = "Nopeus (km/h)", y = "Osuus ohituksista (%)",
+    caption = "Lähde: Fintraffic / Digitraffic, LAM-raakadata (CC BY 4.0).\nSakkoraja 76 km/h = rajoitus 70 + 3 km/h tekninen vähennys + pienin sakotettava ylitys."
+  )
+```
+
+Katso käyrien **vasenta puolta**: ne ovat lähes päällekkäin. Ne kuljettajat, jotka ajoivat 55–70 km/h, ajavat edelleen samaa vauhtia. Heihin ei vaikutettu, koska heihin ei ollut tarvettakaan vaikuttaa.
+
+Katso nyt **oikeaa puolta**, harmaata aluetta. Siellä käyrät eroavat selvästi. Sakotettavalla alueella (76 km/h ja yli) olevien osuus putosi `r sprintf("%.1f", yli_sakkoraja$yli76[yli_sakkoraja$jakso == "Ennen 25.8. (heinä–elokuu)"])` prosentista `r sprintf("%.1f", yli_sakkoraja$yli76[yli_sakkoraja$jakso == "25.8. alkaen (elo–syyskuu)"])` prosenttiin.
+
+Keskinopeus tällä kaistalla muuttui samaan aikaan vain noin puolitoista kilometriä tunnissa. Jos olisin raportoinut vain keskinopeuden, olisin sanonut "pieni muutos". Jakauma kertoo, että muutos osui täsmälleen sinne, minne valvonnan pitikin osua.
+
+::: {.callout-tip}
+## Käytännön sovellus: sama ilmiö muualla
+
+Tämä ei ole liikennejuttu. Se on mittarijuttu.
+
+Jos mittaat asiakastyytyväisyyden keskiarvoa, et näe sitä että tyytymättömien
+häntä paksunee. Jos mittaat keskimääräistä vasteaikaa, et näe että pahimmat
+tapaukset pitenevät. Jos mittaat keskipalkkaa, et näe palkkahaitarin
+leviämistä. Toimenpide vaikuttaa melkein aina johonkin jakauman osaan,
+ja keskiarvo on juuri se luku, joka piilottaa sen.
+
+Kysy mittaristasi aina: **mihin kohtaan jakaumaa tämän toimenpiteen pitäisi
+vaikuttaa, ja mittaanko minä sitä kohtaa?**
+:::
+
+Käytän tästä eteenpäin mittarina **yli6-osuutta**: kuinka monta prosenttia autoista ylittää kyseisen pisteen nopeusrajoituksen vähintään kuudella kilometrillä tunnissa. Kuusi on valittu siksi, että se on pienin ylitys, josta Vesa sai maksun teknisen vähennyksen jälkeen. Mittari on siis se, mitä valvonta oikeasti rankaisee.
+
+Rajaan aineiston lisäksi kolmella tavalla, ja jokainen rajaus poistaa yhden häiriölähteen:
+
+**Vain henkilö- ja pakettiautot.** Raskaalla kalustolla on eri rajoitukset ja eri käyttäytyminen.
+
+**Vain vapaa liikennevirta.** Jos edellisestä autosta on alle viisi sekuntia, kuljettaja ei valitse nopeuttaan itse — edellä ajava valitsee sen hänen puolestaan. Ruuhkassa mitattu nopeus kertoo liikennemäärästä, ei kuljettajan päätöksestä. Aineistossa noin 30 % ohituksista täyttää vapaan virran ehdon.
+
+**Vain arkipäivät, ei arkipyhiä.** Viikonloppuliikenne on erilaista.
+
+## Ansa 1: vuoden sisäinen vertailu
+
+Aloitetaan ilmeisimmästä tavasta vastata haasteeseen: katsotaan Kehä I:n lukuja pitkin vuotta 2026 ja etsitään hyppäystä.
+
+```{r}
+#| label: ansa1
+
+vk_ryhma_2026 <- pohja |>
+  filter(lam_id %in% taydet, year(pvm) == 2026) |>
+  mutate(vk = isoweek(pvm),
+         ryhma = if_else(lam_id %in% kehaI, "Kehä I", "Verrokkitiet")) |>
+  tunnusluvut(ryhma, vk)
+
+naiivi <- vk_ryhma_2026 |>
+  filter(ryhma == "Kehä I", vk %in% c(29, 39)) |>
+  select(vk, yli6)
+
+naiivi_muutos <- naiivi$yli6[naiivi$vk == 39] - naiivi$yli6[naiivi$vk == 29]
+```
+
+Kehä I:n yli6-osuus oli viikolla 29 noin `r sprintf("%.1f", naiivi$yli6[naiivi$vk == 29])` % ja viikolla 39 noin `r sprintf("%.1f", naiivi$yli6[naiivi$vk == 39])` %. Pudotus on **`r sprintf("%.1f", naiivi_muutos)` prosenttiyksikköä** — yli kolmannes pois.
+
+Tämä olisi hieno otsikko. Se on myös väärin.
+
+```{r}
+#| label: fig-ansa1
+#| fig-cap: "Kehä I:n ja verrokkiteiden yli6-osuus viikoittain vuonna 2026. Pystyakselilla osuus autoista, jotka ylittivät nopeusrajoituksen vähintään 6 km/h. Huomaa, että molemmat käyrät liikkuvat samaan suuntaan kesän yli."
+
+vk_ryhma_2026 |>
+  ggplot(aes(vk, yli6, colour = ryhma)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  geom_vline(xintercept = isoweek(PAIVA_MUUTOS), linetype = "22",
+             colour = VARI_MUSTE, linewidth = 0.4) +
+  annotate("text", x = isoweek(PAIVA_MUUTOS) - 0.4, y = 44,
+           label = "25.8.", hjust = 1, size = 3.4, colour = VARI_MUSTE) +
+  scale_colour_manual(values = c("Kehä I" = VARI_KEHA,
+                                 "Verrokkitiet" = VARI_VERROKKI)) +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(
+    title = "Ilmeinen tulkinta: valvonta puri",
+    subtitle = "Vuoden 2026 sisäinen vertailu — ja juuri siksi harhaanjohtava",
+    x = "Viikko", y = "Rajoituksen yli 6 km/h ylittäneiden osuus (%)",
+    caption = "Lähde: Fintraffic / Digitraffic. Vapaa liikennevirta, henkilöautot, arkipäivät."
+  )
+```
+
+Ongelma näkyy, kun lasketaan käyrien **erotus**. Keväällä viikolla 16 Kehä I oli verrokkeja 15,7 prosenttiyksikköä alempana. Kesällä ero kaventui 8,0 prosenttiyksikköön. Syyskuun lopussa se oli 16,6 — eli käytännössä sama kuin keväällä.
+
+Kehä I:n "pudotus" on suurelta osin **paluu kevään tasolle kesälomakauden jälkeen**. Kesällä kaupunkiliikenne on vähäisempää ja kuljettajat ajavat kovempaa; syksyllä se palautuu. Se ei ole valvontaa, se on kalenteri.
+
+Jos vertailet mitä tahansa kausiluonteista ilmiötä saman vuoden sisällä, mittaat kausivaihtelua ja luulet mittaavasi toimenpidettä. Ainoa luotettava korjaus on verrata **samaan ajankohtaan edellisenä vuonna**. Siksi latasin koko vuoden 2025 samalta kalenterijaksolta, vaikka se kaksinkertaisti datamäärän.
+
+## Ansa 2: ryhmätason keskiarvo
+
+Toinen ansa on hienovaraisempi, ja se nielaisee kokeneitakin analyytikkoja.
+
+Edellisessä kuvassa "Kehä I" on laskettu poolaamalla kaikki ajoneuvot kaikilta Kehä I:n pisteiltä yhteen. Se on houkutteleva, koska havaintoja on paljon. Se on myös altis sille, että ryhmän **koostumus** muuttuu.
+
+```{r}
+#| label: tbl-volyymi
+#| tbl-cap: "Keskimääräinen arkipäivän liikennemäärä mittauspisteittäin, 2025 ja 2026. Pisteet, joilla määrä muuttui yli 8 %, on jätetty pois vertailusta."
+
+volyymi |>
+  left_join(kontek |> select(lam_id, nimi), by = "lam_id") |>
+  mutate(ryhma = if_else(lam_id %in% kehaI, "Kehä I", "Verrokki"),
+         Tila = if_else(abs(muutos_pros) > 8, "Hylätty", "Mukana")) |>
+  arrange(muutos_pros) |>
+  transmute(Piste = lam_id, Nimi = nimi, Ryhmä = ryhma,
+            `2025` = round(v2025), `2026` = round(v2026),
+            `Muutos %` = round(muutos_pros, 1), Tila) |>
+  head(6) |>
+  knitr::kable()
+```
+
+Laajalahden piste menetti lähes **kolmanneksen liikenteestään** vuoden aikana — se on tietyömaan kokoluokka, ei satunnaisvaihtelua. Pakilan piste menetti kymmenyksen.
+
+Kun ryhmän luku lasketaan poolaamalla, tällaisen pisteen painoarvo muuttuu. Jos nopea piste kutistuu, ryhmän keskiarvo laskee **vaikka yksikään kuljettaja ei muuttaisi käytöstään**. Ryhmässä näkyy muutos, jota ei tapahtunut missään.
+
+Korjaus on periaatteessa yksinkertainen ja käytännössä aina oikea: **laske muutos jokaiselle pisteelle erikseen ja keskiarvoista vasta pisteiden muutokset.** Silloin jokainen piste painaa yhtä paljon riippumatta siitä, miten sen liikennemäärä kehittyi.
+
+Lisäksi hylkään kokonaan ne neljä pistettä, joiden liikennemäärä muuttui yli 8 %. Niillä tien fyysinen tilanne on muuttunut, eikä niiden nopeuksia voi verrata viime vuoteen.
+
+## Ansa 3: verrokkien puute
+
+Kolmas ansa: vaikka vertaisit oikein viime vuoteen ja oikein pisteittäin, et vieläkään tiedä, oliko muutos Kehä I:n erityispiirre vai tapahtuiko koko pääkaupunkiseudulla jotain.
+
+Siksi mukana on yhdeksän verrokkipistettä muilta pääväyliltä — Kehä III, Länsiväylä, Tuusulanväylä, Lahdenväylä, Porvoonväylä ja Hämeenlinnanväylä. Niillä ei aloitettu valvontaa. Jos niillä tapahtuu sama muutos kuin Kehä I:llä, muutos ei johdu valvonnasta.
+
+Tätä kutsutaan **erotusten erotukseksi** (difference-in-differences). Ajatus on helppo:
+
+1. Laske, paljonko Kehä I muuttui viime vuoteen verrattuna.
+2. Laske, paljonko verrokit muuttuivat viime vuoteen verrattuna.
+3. Vähennä jälkimmäinen edellisestä.
+
+Ensimmäinen vähennys poistaa kausivaihtelun. Toinen poistaa kaiken sen, mikä vaikutti koko seudun liikenteeseen — sään, polttoaineen hinnan, talouden. Jäljelle jää se, mikä koski **vain Kehä I:tä**.
+
+```{r}
+#| label: did-laskenta
+
+vk_piste <- pohja |>
+  filter(lam_id %in% taydet) |>
+  mutate(vuosi = year(pvm), vk = isoweek(pvm)) |>
+  tunnusluvut(lam_id, vuosi, vk)
+
+yoy <- vk_piste |>
+  filter(havainnot > 5000) |>
+  select(lam_id, vuosi, vk, ka, yli6) |>
+  pivot_wider(names_from = vuosi, values_from = c(ka, yli6)) |>
+  filter(!is.na(ka_2025), !is.na(ka_2026)) |>
+  mutate(d_ka   = ka_2026 - ka_2025,
+         d_yli6 = yli6_2026 - yli6_2025,
+         keha   = lam_id %in% kehaI,
+         ryhma  = if_else(keha, "Kehä I", "Verrokkitiet"))
+
+yoy_vakaat <- yoy |> filter(lam_id %in% vakaat)
+
+did_vk <- yoy_vakaat |>
+  group_by(ryhma, vk) |>
+  summarise(m = mean(d_yli6), .groups = "drop") |>
+  pivot_wider(names_from = ryhma, values_from = m) |>
+  mutate(DiD = `Kehä I` - `Verrokkitiet`)
+```
+
+```{r}
+#| label: fig-did-vk
+#| fig-cap: "Kausivaihtelusta puhdistettu muutos viikoittain. Jokaiselle mittauspisteelle on laskettu saman viikon ero vuoteen 2025, ja käyrä on näiden pistekohtaisten erojen keskiarvo. Nolla tarkoittaa, että viikko oli täsmälleen viime vuoden kaltainen."
+
+did_vk |>
+  select(vk, `Kehä I`, `Verrokkitiet`) |>
+  pivot_longer(-vk, names_to = "ryhma", values_to = "muutos") |>
+  ggplot(aes(vk, muutos, colour = ryhma)) +
+  geom_hline(yintercept = 0, colour = VARI_MUSTE, linewidth = 0.4) +
+  annotate("rect", xmin = isoweek(PAIVA_MUUTOS) - 0.5, xmax = 40,
+           ymin = -Inf, ymax = Inf, fill = "grey92", alpha = 0.6) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  annotate("text", x = 37.5, y = 4.3, label = "25.8. alkaen",
+           size = 3.4, colour = VARI_HIMMEA) +
+  scale_colour_manual(values = c("Kehä I" = VARI_KEHA,
+                                 "Verrokkitiet" = VARI_VERROKKI)) +
+  labs(
+    title = "Kun kausivaihtelu poistetaan, Kehä I eroaa verrokeista vasta elokuun lopussa",
+    subtitle = "Muutos samaan viikkoon vuonna 2025 verrattuna, prosenttiyksikköä",
+    x = "Viikko", y = "Muutos vuoteen 2025 (pp)",
+    caption = "Lähde: Fintraffic / Digitraffic. Pistekohtaiset muutokset keskiarvoistettuna; epävakaat pisteet poistettu."
+  )
+```
+
+Kuvassa näkyy kaksi asiaa. Kesällä molemmat ryhmät olivat viime vuotta hitaampia, verrokit jopa enemmän kuin Kehä I. Elokuun lopusta alkaen tilanne kääntyy: Kehä I jatkaa alaspäin, verrokit palaavat lähemmäs nollaa.
+
+Kuinka paljon alkuperäisestä `r sprintf("%.1f", abs(naiivi_muutos))` prosenttiyksiköstä on siis jäljellä? Puretaan se osiin.
+
+```{r}
+#| label: tbl-purku
+#| tbl-cap: "Mihin naiivi vastaus katosi. Jokainen korjaus poistaa yhden harhan lähteen."
+
+ennen_vk  <- 28:33
+jalkeen_vk <- 36:39
+
+ryhma_muutos <- yoy_vakaat |>
+  mutate(jakso = case_when(vk %in% ennen_vk ~ "ennen",
+                           vk %in% jalkeen_vk ~ "jalkeen",
+                           TRUE ~ NA_character_)) |>
+  filter(!is.na(jakso)) |>
+  group_by(lam_id, ryhma, jakso) |>
+  summarise(d_yli6 = mean(d_yli6), d_ka = mean(d_ka), .groups = "drop") |>
+  pivot_wider(names_from = jakso, values_from = c(d_yli6, d_ka)) |>
+  mutate(muutos_yli6 = d_yli6_jalkeen - d_yli6_ennen,
+         muutos_ka   = d_ka_jalkeen - d_ka_ennen)
+
+keha_med <- median(ryhma_muutos$muutos_yli6[ryhma_muutos$ryhma == "Kehä I"])
+verr_med <- median(ryhma_muutos$muutos_yli6[ryhma_muutos$ryhma == "Verrokkitiet"])
+
+tibble(
+  Vaihe = c("1. Naiivi: vuoden 2026 sisäinen vertailu",
+            "2. Kausivaihtelu poistettu (vertailu vuoteen 2025)",
+            "3. Koostumus poistettu (pistekohtaiset muutokset)",
+            "4. Verrokit poistettu (erotusten erotus)"),
+  `Arvio (pp)` = c(
+    sprintf("%.1f", naiivi_muutos),
+    sprintf("%.1f", mean(did_vk$`Kehä I`[did_vk$vk %in% jalkeen_vk])),
+    sprintf("%.1f", keha_med),
+    sprintf("%.1f", keha_med - verr_med)),
+  `Mitä korjaus poisti` = c(
+    "—",
+    "Kesälomakauden paluuvaikutuksen",
+    "Tietyömaiden aiheuttaman painotuksen muutoksen",
+    "Kaiken mikä koski koko pääkaupunkiseutua")
+) |>
+  knitr::kable()
+```
+
+Naiivista `r sprintf("%.0f", abs(naiivi_muutos))` prosenttiyksiköstä jää jäljelle luokkaa `r sprintf("%.1f", abs(keha_med - verr_med))`. Noin yhdeksän kymmenesosaa alkuperäisestä "vaikutuksesta" oli jotain muuta kuin valvontaa.
+
+Tämä on tavallista. Se on myös syy siihen, miksi datalla perusteltu päätöksenteko vaatii enemmän kuin yhden kuvaajan.
+
+## Milloin muutos tapahtui?
+
+Nyt päästään siihen, missä data on vahvimmillaan.
+
+Poliisi ei kerro, milloin automaattivalvonta on päällä. Se on tietoinen linjaus: valvonnan ennakoimattomuus on osa sen tehoa. Emme siis voi katsoa päivämäärää mistään rekisteristä — se on **pääteltävä datasta**.
+
+Muodostan jokaiselle arkipäivälle luvun, joka kertoo, kuinka paljon Kehä I poikkesi verrokeista sen jälkeen kun molemmista on vähennetty niiden oma viime vuoden taso samalla viikolla. Jos mitään ei tapahdu, luku pysyy suunnilleen vakiona.
+
+```{r}
+#| label: muutoskohta-data
+
+perus2025 <- vk_piste |>
+  filter(vuosi == 2025, havainnot > 5000) |>
+  select(lam_id, vk, ka_2025 = ka, yli6_2025 = yli6)
+
+pv2026 <- pohja |>
+  filter(lam_id %in% vakaat, year(pvm) == 2026,
+         pvm >= as.Date("2026-07-27"), pvm <= as.Date("2026-09-25")) |>
+  tunnusluvut(lam_id, pvm) |>
+  mutate(vk = isoweek(pvm)) |>
+  left_join(perus2025, by = c("lam_id", "vk")) |>
+  filter(!is.na(yli6_2025)) |>
+  mutate(poikkeama = yli6 - yli6_2025,
+         poikkeama_ka = ka - ka_2025,
+         ryhma = if_else(lam_id %in% kehaI, "Kehä I", "Verrokkitiet"))
+
+did_pv <- pv2026 |>
+  group_by(pvm, ryhma) |>
+  summarise(m = mean(poikkeama), .groups = "drop") |>
+  pivot_wider(names_from = ryhma, values_from = m) |>
+  mutate(DiD = `Kehä I` - `Verrokkitiet`) |>
+  arrange(pvm)
+```
+
+```{r}
+#| label: changepoint
+
+# Bayesilainen muutoskohdan etsintä.
+#
+# Oletetaan, että sarja koostuu kahdesta jaksosta, joilla on eri keskiarvo
+# mutta sama hajonta. Käydään läpi jokainen mahdollinen jakokohta ja
+# lasketaan, kuinka todennäköisesti data syntyisi juuri siitä kohdasta.
+#
+# Käytetään Jeffreysin priori p(mu1, mu2, sigma) ~ 1/sigma. Koska
+# parametrien määrä on sama jokaisella jakokohdalla, prioreiden
+# normalisointivakiot supistuvat pois ja uskottavuudet ovat vertailukelpoisia.
+# Tulokseksi jää jokaiselle päivälle todennäköisyys olla muutoskohta.
+
+y <- did_pv$DiD
+n <- length(y)
+
+log_uskottavuus <- function(tau) {
+  y1 <- y[1:tau]; y2 <- y[(tau + 1):n]
+  n1 <- length(y1); n2 <- length(y2)
+  S <- sum((y1 - mean(y1))^2) + sum((y2 - mean(y2))^2)
+  -0.5 * log(n1) - 0.5 * log(n2) - ((n - 2) / 2) * log(S)
+}
+
+# Vähintään kolme päivää kummallekin puolelle, jotta hajonta on määritelty.
+kandidaatit <- 3:(n - 3)
+lu <- vapply(kandidaatit, log_uskottavuus, numeric(1))
+post <- exp(lu - max(lu)); post <- post / sum(post)
+
+# tau on ensimmäisen jakson VIIMEINEN indeksi, joten muutospäivä on tau + 1.
+muutoskohta <- tibble(pvm = did_pv$pvm[kandidaatit + 1], posteriori = post) |>
+  arrange(desc(posteriori))
+
+paras_pvm <- muutoskohta$pvm[1]
+paras_p   <- muutoskohta$posteriori[1]
+
+ennen_ka  <- mean(y[did_pv$pvm <  paras_pvm])
+jalkeen_ka <- mean(y[did_pv$pvm >= paras_pvm])
+
+# Kahden todennäköisimmän peräkkäisen päivän yhteenlaskettu todennäköisyys.
+kahden_pv <- sum(muutoskohta$posteriori[1:2])
+
+# Permutaatiotesti: kuinka todennäköistä olisi, että kaikki positiiviset
+# päivät osuisivat sattumalta ennen kaikkia negatiivisia.
+n_pos <- sum(y > 0)
+p_permutaatio <- 1 / choose(length(y), n_pos)
+```
+
+```{r}
+#| label: fig-muutoskohta
+#| fig-cap: "Ylempi paneeli: Kehä I:n ja verrokkien ero päivittäin, kun molemmista on poistettu niiden oma viime vuoden taso. Alempi paneeli: todennäköisyys sille, että muutos tapahtui kyseisenä päivänä. Pylvään korkeus kertoo, kuinka vakuuttavasti data osoittaa juuri siihen päivään."
+#| fig-height: 6.5
+
+p_ylempi <- did_pv |>
+  mutate(jakso = if_else(pvm < paras_pvm, "Ennen", "Jälkeen")) |>
+  ggplot(aes(pvm, DiD)) +
+  geom_hline(yintercept = 0, colour = VARI_HIMMEA, linewidth = 0.3) +
+  geom_segment(aes(xend = pvm, yend = 0, colour = jakso), linewidth = 0.4) +
+  geom_point(aes(colour = jakso), size = 2.4) +
+  geom_segment(aes(x = min(pvm), xend = paras_pvm - 1,
+                   y = ennen_ka, yend = ennen_ka),
+               colour = VARI_MUSTE, linewidth = 0.7, linetype = "22") +
+  geom_segment(aes(x = paras_pvm, xend = max(pvm),
+                   y = jalkeen_ka, yend = jalkeen_ka),
+               colour = VARI_MUSTE, linewidth = 0.7, linetype = "22") +
+  scale_colour_manual(values = c("Ennen" = VARI_VERROKKI,
+                                 "Jälkeen" = VARI_KEHA)) +
+  labs(
+    title = "Jokainen päivä ennen 25.8. on plussalla, jokainen päivä sen jälkeen miinuksella",
+    subtitle = sprintf("Keskitaso siirtyi %+.2f pp:stä %+.2f pp:hen",
+                       ennen_ka, jalkeen_ka),
+    x = NULL, y = "Kehä I − verrokit (pp)"
+  )
+
+p_alempi <- muutoskohta |>
+  ggplot(aes(pvm, posteriori)) +
+  geom_col(fill = VARI_KOLMAS, width = 0.7) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = NULL, y = "Todennäköisyys",
+       caption = "Lähde: Fintraffic / Digitraffic. Vapaa liikennevirta, henkilöautot, arkipäivät; epävakaat pisteet poistettu.")
+
+p_ylempi / p_alempi + plot_layout(heights = c(2.2, 1))
+```
+
+Tulos on poikkeuksellisen selvä. Muutoskohdan todennäköisin päivä on **`r format(paras_pvm, "%-d.%-m.%Y")`**, ja malli antaa sille todennäköisyyden `r sprintf("%.0f", 100 * paras_p)` %. Kahdelle todennäköisimmälle päivälle yhteensä kertyy `r sprintf("%.1f", 100 * kahden_pv)` % — malli ei siis epäröi viikon tai kuukauden sisällä, vaan yhden päivän tarkkuudella.
+
+Vielä havainnollisempi on pelkkä merkkien laskeminen. Ennen tuota päivää aineistossa on `r sum(y[did_pv$pvm < paras_pvm] > 0)` arkipäivää, ja **jokainen niistä** on plussalla. Siitä päivästä eteenpäin on `r sum(did_pv$pvm >= paras_pvm)` arkipäivää, ja **jokainen niistä** on miinuksella.
+
+Kuinka epätodennäköistä tämä on? Jos päivien järjestys olisi sattumanvarainen, todennäköisyys sille että kaikki plusmerkkiset osuisivat ennen kaikkia miinusmerkkisiä on `r sprintf("%.1e", p_permutaatio)` — eli noin yksi kahdesta biljoonasta. Tämä on tavallinen permutaatiotesti: se ei oleta jakaumasta mitään, vaan laskee suoraan, kuinka monella tavalla havainnot voisi järjestää ja kuinka moni niistä olisi yhtä siisti kuin havaittu.
+
+Jotain tapahtui Kehä I:llä tiistaina 25. elokuuta 2026.
+
+Tämä on kymmenen päivää **ennen** kuin Vesa sai virhemaksunsa 4. syyskuuta. Valvonta oli siis käynnissä jo yli viikon ennen kuin yksikään sakon saanut ehti kertoa siitä julkisesti. Avoin data näki sen ennen kuin kukaan tiesi sitä.
+
+## Kuinka suuri vaikutus oli?
+
+Muutoskohta on nyt tiedossa. Seuraava kysymys on suuruus — ja siihen vastattaessa on rehellistä näyttää myös epävarmuus.
+
+Käytän bayesilaista hierarkkista mallia. "Hierarkkinen" tarkoittaa, että malli tietää havaintojen kuuluvan mittauspisteisiin ja antaa jokaiselle pisteelle oman tasonsa ja oman muutoksensa, mutta lainaa tietoa pisteiden välillä. "Bayesilainen" tarkoittaa, että tulos ei ole yksi luku vaan **jakauma** uskottavista arvoista.
+
+Käytän Studentin t-jakaumaa normaalijakauman sijaan. Syy on käytännöllinen: aineistossa on pari pistettä, joiden muutos on poikkeuksellisen suuri. Normaalijakauma antaisi niiden vetää koko arviota puoleensa. T-jakauma on paksuhäntäisempi, eli se pitää poikkeavia havaintoja mahdollisina eikä anna niiden hallita tulosta. Näin poikkeavia havaintoja ei tarvitse poistaa käsin — mikä olisi aina altis sille, että poistaa juuri ne, jotka eivät sovi omaan ennakkokäsitykseen.
+
+```{r}
+#| label: malli
+#| results: hide
+
+malli_data <- yoy_vakaat |>
+  mutate(jalkeen = as.integer(vk >= isoweek(PAIVA_MUUTOS)),
+         keha_i  = as.integer(keha),
+         lam_id  = factor(lam_id))
+
+# HUOM: brms tallentaa mallin file-argumentin polkuun. Jos muutat kaavaa tai
+# aineistoa, POISTA malli_yli6.rds ja malli_ka.rds ensin - muuten vanha malli
+# latautuu hiljaisesti eikä uutta ajeta.
+
+priorit <- c(
+  prior(normal(0, 5), class = "b"),
+  prior(normal(0, 5), class = "Intercept"),
+  prior(exponential(1), class = "sd"),
+  prior(exponential(1), class = "sigma")
+)
+
+malli_yli6 <- brm(
+  d_yli6 ~ jalkeen * keha_i + (1 + jalkeen | lam_id),
+  data = malli_data, family = student(), prior = priorit,
+  chains = 4, iter = 4000, warmup = 1000, seed = 20260825,
+  control = list(adapt_delta = 0.95),
+  file = file.path(DATA_DIR, "malli_yli6")
+)
+
+malli_ka <- brm(
+  d_ka ~ jalkeen * keha_i + (1 + jalkeen | lam_id),
+  data = malli_data, family = student(), prior = priorit,
+  chains = 4, iter = 4000, warmup = 1000, seed = 20260825,
+  control = list(adapt_delta = 0.95),
+  file = file.path(DATA_DIR, "malli_ka")
+)
+```
+
+```{r}
+#| label: malli-tulokset
+
+poimi_did <- function(malli, nimi) {
+  d <- as_draws_df(malli)
+  tibble(mittari = nimi, arvo = d[["b_jalkeen:keha_i"]])
+}
+
+did_posteriori <- bind_rows(
+  poimi_did(malli_yli6, "Ylitysosuus (pp)"),
+  poimi_did(malli_ka,   "Keskinopeus (km/h)")
+)
+
+did_tiivis <- did_posteriori |>
+  group_by(mittari) |>
+  summarise(
+    mediaani = median(arvo),
+    ala  = quantile(arvo, 0.025),
+    yla  = quantile(arvo, 0.975),
+    p_neg = mean(arvo < 0),
+    .groups = "drop")
+```
+
+```{r}
+#| label: fig-posteriori
+#| fig-cap: "Mallin tuottama jakauma valvonnan vaikutukselle. Vaaka-akselilla vaikutuksen suuruus, käyrän korkeus kertoo kuinka uskottava kukin arvo on. Paksu vaakaviiva on 95 %:n uskottavuusväli: malli pitää 95 %:n todennäköisyydellä todellista arvoa tällä välillä."
+#| fig-height: 4
+
+did_posteriori |>
+  ggplot(aes(arvo, mittari, fill = mittari)) +
+  geom_vline(xintercept = 0, colour = VARI_MUSTE, linewidth = 0.4) +
+  stat_halfeye(.width = c(0.5, 0.95), point_interval = "median_qi",
+               alpha = 0.75, slab_colour = NA) +
+  scale_fill_manual(values = c("Ylitysosuus (pp)" = VARI_KEHA,
+                               "Keskinopeus (km/h)" = VARI_KOLMAS),
+                    guide = "none") +
+  labs(
+    title = "Valvonnan vaikutus epävarmuuksineen",
+    subtitle = "Erotusten erotus: Kehä I verrattuna verrokkiteihin, molemmat suhteessa vuoteen 2025",
+    x = "Vaikutus (negatiivinen = nopeudet laskivat)", y = NULL,
+    caption = "Bayesilainen hierarkkinen malli, Studentin t-jakauma. 14 mittauspistettä, 24 viikkoa."
+  )
+```
+
+```{r}
+#| label: tbl-did
+#| tbl-cap: "Vaikutusarviot. Uskottavuusväli kertoo, minkä välillä todellinen arvo on 95 %:n todennäköisyydellä."
+
+did_tiivis |>
+  transmute(
+    Mittari = mittari,
+    Vaikutus = sprintf("%.2f", mediaani),
+    `95 %:n uskottavuusväli` = sprintf("%.2f … %.2f", ala, yla),
+    `Todennäköisyys että vaikutus on negatiivinen` =
+      sprintf("%.0f %%", 100 * p_neg)
+  ) |>
+  knitr::kable()
+```
+
+Mallin mukaan ylitysosuus laski Kehä I:llä verrokkeihin nähden noin `r sprintf("%.1f", abs(did_tiivis$mediaani[did_tiivis$mittari == "Ylitysosuus (pp)"]))` prosenttiyksikköä, ja todennäköisyys sille että vaikutus on todella negatiivinen on `r sprintf("%.0f", 100 * did_tiivis$p_neg[did_tiivis$mittari == "Ylitysosuus (pp)"])` %.
+
+Huomaa, että uskottavuusväli on leveä. Se on rehellinen kuva tilanteesta: käytettävissä on neljätoista mittauspistettä ja viisi viikkoa jälkijaksoa. Piste-estimaatti ilman tätä väliä antaisi liian varman kuvan.
+
+::: {.callout-note}
+## Faktalaatikko: mitä tutkimus sanoo nopeuskameroiden vaikutuksesta
+
+Yksittäinen tutkimus voi osua väärin. Siksi kannattaa katsoa meta-analyysejä,
+jotka kokoavat kymmenien tutkimusten tulokset yhteen.
+
+**Onnettomuudet.** Alena Høyen meta-analyysi (Accident Analysis & Prevention
+2014) kokosi 63 vaikutusarviota 15 tutkimuksesta. Kiinteät nopeuskamerat
+vähensivät onnettomuuksia kokonaisuudessaan noin 20 %. Kuolemaan johtaneissa
+onnettomuuksissa vähenemä oli 51 %, mutta tekijä varoittaa itse, että tähän
+voi sisältyä keskiarvoon palautumisen harhaa: kameroita asennetaan paikkoihin,
+joissa on juuri sattunut poikkeuksellisen paljon onnettomuuksia, ja osa
+parannuksesta tapahtuisi ilman kameraakin.
+
+**Nopeudet.** Tuore systemaattinen katsaus (Accident Analysis & Prevention
+2026) kävi läpi 94 tutkimusta ja sai yhdistetyksi vaikutukseksi
+−7,57 km/h (95 %:n luottamusväli −10,48…−4,66) satunnaisvaikutusmallilla.
+Luku koskee kameran välitöntä läheisyyttä.
+
+**Etäisyys.** Høyen keskeinen havainto on, että vaikutus heikkenee
+nopeasti kameralta etäännyttäessä. Kamera ei hidasta tietä, se hidastaa
+kohtaa.
+:::
+
+Meta-analyysin −7,57 km/h ja tämän analyysin arvio samasta suuruusluokasta kuin yksi kilometri tunnissa eivät ole ristiriidassa, koska ne mittaavat eri asiaa. Meta-analyysin luku on kameran kohdalla; tässä arvio on koko Kehä I:n keskiarvo kaikilta mittauspisteiltä, joista useimmat ovat satojen metrien päässä lähimmästä kamerasta.
+
+## Onko se todella valvontaa?
+
+Tähän asti on osoitettu, että jokin muuttui 25. elokuuta ja että muutos koski Kehä I:tä mutta ei verrokkiteitä. Se ei vielä todista, että syy on nopeusvalvonta. Tietyö, nopeusrajoituksen muutos tai muuttuvien opasteiden uusi ohjelmointi tuottaisivat myös Kehä I:lle rajoittuvan muutoksen.
+
+Tarvitaan jotain, joka erottaa valvonnan muista selityksistä. Sellainen löytyy kaistoista.
+
+Jos tie kavennetaan tai rajoitusta lasketaan, **kaikki** hidastuvat suunnilleen yhtä paljon. Jos taas kyse on valvonnasta, hidastuvat ne jotka ajoivat ylinopeutta — ja he ovat vasemmalla kaistalla. Oikealla kaistalla ajavat eivät juuri muuta käytöstään, koska heillä ei ole syytä.
+
+Leppäsolmun pisteellä on kolme kaistaa suuntaansa. Vasen kaista on se, jolla Vesa jäi kiinni.
+
+```{r}
+#| label: fig-kaistat
+#| fig-cap: "Muutos kaistoittain Leppäsolmun pisteellä. Jokaisesta kaistasta on laskettu ylitysosuuden muutos ennen ja jälkeen elokuun lopun, ja siitä on vähennetty saman kaistan vastaava muutos vuonna 2025. Pylvään pituus kertoo, kuinka paljon enemmän kaista hidastui kuin viime vuonna samaan aikaan."
+#| fig-height: 4.2
+
+k116 <- pohja |>
+  filter(lam_id == 116L) |>
+  mutate(vuosi = year(pvm), vk = isoweek(pvm)) |>
+  filter(vk %in% c(ennen_vk, jalkeen_vk)) |>
+  mutate(jakso = if_else(vk %in% ennen_vk, "ennen", "jalkeen")) |>
+  tunnusluvut(suunta, kaista, vuosi, jakso) |>
+  select(suunta, kaista, vuosi, jakso, ka, yli6) |>
+  pivot_wider(names_from = c(vuosi, jakso), values_from = c(ka, yli6)) |>
+  filter(!is.na(yli6_2025_ennen)) |>
+  mutate(
+    muutos_2026 = yli6_2026_jalkeen - yli6_2026_ennen,
+    muutos_2025 = yli6_2025_jalkeen - yli6_2025_ennen,
+    did = muutos_2026 - muutos_2025
+  ) |>
+  # Nopea kaista = suurin keskinopeus kyseisessä suunnassa.
+  mutate(nopea = ka_2026_ennen == max(ka_2026_ennen), .by = suunta) |>
+  mutate(
+    tyyppi = if_else(nopea, "Vasen (nopea) kaista", "Muut kaistat"),
+    nimi = sprintf("Suunta %d, kaista %d", suunta, kaista)
+  )
+
+k116 |>
+  ggplot(aes(did, reorder(nimi, did), fill = tyyppi)) +
+  geom_col(width = 0.65) +
+  geom_text(aes(label = sprintf("%+.1f", did)),
+            hjust = -0.25, colour = "white", size = 3.4, fontface = "bold") +
+  scale_fill_manual(values = c("Vasen (nopea) kaista" = VARI_KEHA,
+                               "Muut kaistat" = VARI_HIMMEA)) +
+  labs(
+    title = "Vasemmalla kaistalla vaikutus on lähes kolminkertainen",
+    subtitle = "Juuri tältä valvonnan vaikutus näyttää — ja juuri tältä tietyö ei näyttäisi",
+    x = "Ylitysosuuden muutos yli vuoden 2025 tason (pp)", y = NULL,
+    caption = "Lähde: Fintraffic / Digitraffic. Leppäsolmu, piste 116."
+  )
+```
+
+```{r}
+#| label: kaista-luvut
+
+nopeat <- k116 |> filter(nopea) |> pull(did) |> mean()
+hitaat  <- k116 |> filter(!nopea) |> pull(did) |> mean()
+```
+
+Vasemmilla kaistoilla muutos on keskimäärin `r sprintf("%.2f", nopeat)` prosenttiyksikköä, muilla kaistoilla `r sprintf("%.2f", hitaat)`. Ero on **`r sprintf("%.1f", nopeat / hitaat)`-kertainen**.
+
+Tämä on se todiste, jota ilman koko analyysi jäisi arvailuksi. Tien kaventaminen ei valitse kaistaa. Nopeusrajoituksen lasku ei valitse kaistaa. Valvonta valitsee: se vaikuttaa niihin, joilla on jotain menetettävää, ja he ovat vasemmalla.
+
+Leppäsolmun LAM-pisteen ja lähimmän kameran välimatka on noin 300 metriä, ja OSM-aineiston mukaan siellä on kaksi kameraa vierekkäin, molemmat 70 km/h:n rajoituksella — yksi kumpaankin suuntaan. Mittauspiste on siis juuri ennen kameraa, mikä sopii siihen, että Vesan virhemaksu oli kellotettu noin puoli minuuttia LAM-havainnon jälkeen.
+
+## Mitä data ei kerro
+
+Rehellisyyden nimissä on sanottava, mitä tässä aineistossa ei ole.
+
+**Kahdella pisteellä muutos on liian suuri ollakseen valvontaa.** Kannelmäen pisteellä ylitysosuus putosi 14 prosenttiyksikköä ja keskinopeus lähes 11 km/h yli viime vuoden tason, vaikka liikennemäärä pysyi ennallaan. Länsi-Pakilassa luvut ovat samaa luokkaa. Yksikään meta-analyysi ei raportoi kameravalvonnasta 11 km/h:n keskinopeusvaikutusta. Todennäköisin selitys on tietyö tai rajoitusmuutos, jota ei näy liikennemäärässä. Nämä pisteet ovat mukana mallissa, mutta Studentin t-jakauma estää niitä hallitsemasta tulosta.
+
+**Vaikutuksen etäisyysriippuvuutta ei voi vielä osoittaa.** Høyen meta-analyysin perusteella vaikutuksen pitäisi heiketä kameralta etäännyttäessä. Aineistossa suunta on oikea — korrelaatio etäisyyden ja muutoksen välillä on positiivinen (Spearmanin järjestyskorrelaatio noin 0,61) — mutta seitsemällä pisteellä se ei yllä tilastolliseen merkitsevyyteen. Tämä ei tarkoita, ettei ilmiötä ole; se tarkoittaa, että pisteitä on liian vähän.
+
+**Jälkijakso on kolme viikkoa.** Se riittää osoittamaan, että muutos tapahtui. Se ei riitä kertomaan, pysyykö se. Kirjallisuudessa tunnetaan ilmiö, jossa vaikutus haalistuu, kun kuljettajat oppivat kameroiden sijainnit ja alkavat jarruttaa vain niiden kohdalla — Høye kutsuu sitä kenguruhypyksi.
+
+**Emme tiedä varmasti, mitä 25. elokuuta tapahtui.** Tiedämme, että jotain tapahtui, että se koski Kehä I:tä eikä verrokkiteitä, ja että se vaikutti vasempaan kaistaan kolme kertaa voimakkaammin kuin muihin. Kaikki tämä sopii valvonnan aloittamiseen. Mikään siitä ei ole poliisin vahvistus.
+
+## Vastakkaiset skenaariot
+
+Mitä tämä merkitsee, jos se jatkuu? Lasketaan läpi muutama vaihtoehtoinen tulevaisuus.
+
+Nopeuden ja onnettomuuksien suhdetta kuvataan liikenneturvallisuustutkimuksessa kahdella vakiintuneella mallilla, ja käytän molempia — koska mallin valinta on yksi epävarmuuden lähde, jota ei pidä piilottaa.
+
+::: {.callout-note}
+## Faktalaatikko: kuinka nopeus muuttuu onnettomuuksiksi
+
+**Potenssimalli** (Rune Elvik). Onnettomuuksien määrä muuttuu
+keskinopeuden suhteellisen muutoksen potenssina. Mallin mukaan 10 %:n lasku
+keskinopeudessa vähentää kuolemaan johtaneita onnettomuuksia keskimäärin
+35 % ja loukkaantumisiin johtaneita 16 %. Tästä seuraa eksponentti noin 4,1
+kuolemille ja noin 1,65 loukkaantumisille.
+
+**Eksponenttimalli** (käytetty mm. ruotsalaisessa kameratutkimuksessa).
+Onnettomuuksien määrä muuttuu eksponentiaalisesti nopeuden absoluuttisen
+muutoksen mukana, kertoimella noin 0,08 kuolemille ja 0,06 vakaville
+loukkaantumisille kilometriä tunnissa kohden.
+
+Mallit on kalibroitu pääosin maantieolosuhteissa. Kaupunkimoottoritiellä
+niiden antamat luvut ovat suuntaa-antavia.
+:::
+
+```{r}
+#| label: fig-skenaariot
+#| fig-cap: "Neljä skenaariota ja niiden arvioitu vaikutus onnettomuuksiin. Pylväät näyttävät muutoksen prosentteina nykytilaan nähden; negatiivinen tarkoittaa vähemmän onnettomuuksia. Kaksi mallia on esitetty rinnakkain, koska ne antavat eri vastauksen eikä kumpikaan ole yksiselitteisesti oikea."
+#| fig-height: 5
+
+# Keskinopeuden lähtötaso Kehä I:llä jälkijaksolla.
+v0 <- pohja |>
+  filter(lam_id %in% intersect(vakaat, kehaI), year(pvm) == 2026,
+         isoweek(pvm) %in% jalkeen_vk) |>
+  tunnusluvut() |>
+  pull(ka)
+
+did_ka_med <- did_tiivis$mediaani[did_tiivis$mittari == "Keskinopeus (km/h)"]
+
+# Pisteen 116 vasemman kaistan nopeusmuutos: paras arvio siitä, mitä
+# valvonta saa aikaan siellä missä kamera oikeasti on.
+kaista_ka <- k116 |> filter(nopea) |>
+  mutate(d = (ka_2026_jalkeen - ka_2026_ennen) -
+             (ka_2025_jalkeen - ka_2025_ennen)) |>
+  pull(d) |> mean()
+
+skenaariot <- tibble(
+  skenaario = c("A. Valvontaa ei olisi aloitettu",
+                "B. Havaittu muutos jää pysyväksi",
+                "C. Vaikutus kaikilla pisteillä yhtä vahva\nkuin kameran kohdalla",
+                "D. Meta-analyysin mukainen vaikutus\n(−7,6 km/h kameran kohdalla)"),
+  dv = c(0, did_ka_med, kaista_ka, -7.57)
+) |>
+  mutate(
+    suhde = (v0 + dv) / v0,
+    `Potenssimalli|Kuolemaan johtaneet`       = 100 * (suhde^4.09 - 1),
+    `Potenssimalli|Loukkaantumiseen johtaneet` = 100 * (suhde^1.65 - 1),
+    `Eksponenttimalli|Kuolemaan johtaneet`    = 100 * (exp(0.08 * dv) - 1),
+    `Eksponenttimalli|Loukkaantumiseen johtaneet` = 100 * (exp(0.06 * dv) - 1)
+  )
+
+skenaariot |>
+  select(skenaario, dv, contains("|")) |>
+  pivot_longer(-c(skenaario, dv), names_to = "malli", values_to = "muutos") |>
+  separate_wider_delim(malli, delim = "|", names = c("malli", "vakavuus")) |>
+  ggplot(aes(muutos, fct_rev(skenaario), fill = malli)) +
+  geom_vline(xintercept = 0, colour = VARI_MUSTE, linewidth = 0.4) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.65) +
+  facet_wrap(~ vakavuus, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = c("Potenssimalli" = VARI_KEHA,
+                               "Eksponenttimalli" = VARI_KOLMAS)) +
+  labs(
+    title = "Mitä nopeusmuutos tarkoittaa onnettomuuksina",
+    subtitle = "Arvio kahdella vakiintuneella mallilla; ero mallien välillä on itsessään tulos",
+    x = "Muutos onnettomuuksien määrässä (%)", y = NULL,
+    caption = "Potenssimalli: Elvik. Eksponenttimalli: Vadeby ym.; sen loukkaantumiskerroin koskee vakavia loukkaantumisia.\nLähtötaso = Kehä I:n keskinopeus syyskuussa 2026."
+  )
+```
+
+Skenaario B — havaitun muutoksen jääminen pysyväksi — tuottaa vaatimattoman mutta ei merkityksettömän parannuksen. Skenaario C, jossa koko Kehä I käyttäytyisi niin kuin kameran välitön lähistö, on huomattavasti suurempi. Skenaario D näyttää, mitä olisi luvassa, jos suomalainen valvonta yltäisi kansainvälisen meta-analyysin keskitasolle.
+
+Kahden mallin ero on itsessään olennainen tulos. Potenssimalli antaa kuolemille selvästi suuremman vaikutuksen kuin eksponenttimalli. Kumpikaan ei ole väärä; ne on kalibroitu eri aineistoilla. Jos joku esittää sinulle yhden luvun siitä, montako ihmishenkeä jokin liikenneratkaisu säästää, kysy mitä mallia on käytetty ja miltä toinen malli sanoisi.
+
+## Ennuste, joka kirjataan nyt
+
+Analyysin uskottavuuden mitta ei ole se, miten hyvin se selittää mennyttä. Se on se, osuuko se tulevaan.
+
+Siksi kirjaan tähän ennusteen **ennen kuin data on olemassa**. Tämä postaus on julkaistu 7.10.2026, ja aineisto päättyy 25.9.2026. Ennusteet koskevat aikaa, jota en ole nähnyt.
+
+```{r}
+#| label: tbl-ennuste
+#| tbl-cap: "Ennakkoon kirjatut ennusteet. Tarkistetaan samasta avoimesta datasta."
+
+d <- as_draws_df(malli_yli6)
+vaik <- d[["b_jalkeen:keha_i"]]
+
+tibble(
+  Ennuste = c(
+    "Kehä I:n ylitysosuus marraskuussa 2026 on alempi kuin marraskuussa 2025",
+    "Ero verrokkiteihin (erotusten erotus) on marraskuussa edelleen negatiivinen",
+    "Vaikutus on pienempi marraskuussa kuin syyskuussa (kenguruhyppy)",
+    "Leppäsolmun vasemman kaistan vaikutus on edelleen yli kaksinkertainen muihin kaistoihin nähden",
+    "Vähintään yksi Kehä I:n piste osoittautuu tietyömaaksi eikä valvontavaikutukseksi"
+  ),
+  `Luottamus` = c("85 %", "80 %", "60 %", "70 %", "75 %")
+) |>
+  knitr::kable()
+```
+
+Ennusteet ovat tarkistettavissa kenen tahansa toimesta: sama avoin data, sama koodi. Jos ne menevät pieleen, se näkyy.
+
+## Mitä tästä voi oppia
+
+Haaste oli yksinkertainen: näkyykö valvonnan aloittaminen datassa. Vastaus on kyllä — mutta vasta kun kolme asiaa on tehty oikein.
+
+**Oikea mittari.** Keskinopeus olisi näyttänyt pienen muutoksen ja johtanut johtopäätökseen "ei juuri vaikutusta". Jakauman yläpää näyttää, että muutos osui täsmälleen sinne, minne valvonnan kuuluukin osua.
+
+**Oikea vertailukohta.** Vuoden sisäinen vertailu olisi antanut yhdeksän kertaa liian suuren luvun, koska kesälomakausi näyttää interventiolta.
+
+**Oikea yksikkö.** Ryhmätason keskiarvo olisi sekoittanut tietyömaiden aiheuttamat painotusmuutokset kuljettajien käyttäytymiseen.
+
+Ja lopuksi: muutoskohdan löytäminen datasta on sinänsä kiinnostava kyky. Poliisi ei kerro, milloin valvonta on päällä. Avoin data kertoi sen päivän tarkkuudella — ja kymmenen päivää ennen kuin asia tuli julkiseksi sitä kautta, että joku sai sakon ja kirjoitti siitä.
+
+::: {.callout-important}
+## Mitä tällä tekee yrityksessä
+
+Tämän analyysin rakenne ei liity liikenteeseen millään tavalla. Se on
+yleinen vastaus kysymykseen "muuttuiko jokin, ja oliko se meidän ansiotamme".
+
+**Milloin kilpailijasi muutti hinnoitteluaan?** Sama muutoskohtamalli
+julkisesta hintadatasta kertoo päivän, jona strategia vaihtui — ilman että
+kukaan ilmoittaa siitä. Sama pätee toimitusaikoihin, aukioloihin,
+rekrytointi-ilmoituksiin ja julkisiin hankintailmoituksiin.
+
+**Toimiko kampanja, vai oliko se kausi?** Useimmat markkinoinnin
+vaikutusarviot ovat vuoden sisäisiä vertailuja — eli ansa 1. Verrokkiryhmä
+ja edellisen vuoden sama jakso muuttavat vastauksen tyypillisesti
+murto-osaan alkuperäisestä.
+
+**Mihin kohtaan jakaumaa toimenpiteesi osui?** Jos mittaat keskiarvoja,
+et näe sitä. Asiakaspoistuma, luottotappiot, vasteajat ja laatupoikkeamat
+asuvat kaikki jakauman hännässä.
+
+**Valvonnan ja pelotteen taloudellinen arvo.** Jos olet vastuussa
+väärinkäytösten torjunnasta, compliance-valvonnasta tai laaduntarkastuksesta,
+sama kysymys toistuu: paljonko valvonta oikeasti muuttaa käyttäytymistä,
+ja kuinka kauas se vaikuttaa? Kaistakohtainen havainto — vaikutus kohdistuu
+niihin, joilla on jotain menetettävää — on suoraan siirrettävissä.
+
+Teen tämäntyyppisiä analyysejä toimeksiantoina: avoimesta datasta
+liiketoiminnan kannalta hyödyllistä tietoa, epävarmuus mukana ja menetelmät
+näkyvissä. Jos tunnistit oman kysymyksesi tuosta listasta,
+[varaa puolen tunnin keskustelu](https://cal.com/kristianvepsalainen).
+:::
+
+## Aineisto ja toistettavuus
+
+Analyysin data on Fintrafficin / Digitrafficin LAM-raakadataa (CC BY 4.0), nopeusvalvontakameroiden sijainnit OpenStreetMapista (ODbL) ja säähavainnot Ilmatieteen laitokselta. Kaikki on vapaasti saatavilla, ja koodi on tämän sivun koodilohkoissa.
+
+Jos haluat toistaa analyysin, tarvitset 22 mittauspisteen raakadatan 328 päivältä. Latausskripti ja tiivistysvaihe ovat olennaisia: tunnin tarkkuudella pidetty nopeushistogrammi kasvaa noin 40 miljoonaan riviin, joten se kannattaa tiivistää päivätasolle jo latauksen yhteydessä.
+
+```{r}
+#| label: istunto
+#| code-fold: true
+#| code-summary: "Istuntotiedot"
+
+sessionInfo()
+```

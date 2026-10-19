@@ -1,0 +1,594 @@
+---
+title: "Juhannuksena Suomi muuttaa muuttolintujen tavoin — latausverkko ei"
+subtitle: "Latausverkko jakaumana, osa 8: kesämökit, kausivaihtelu ja jonot"
+description: |
+  Latausverkko on mitoitettu sinne missä ihmiset asuvat. Juhannuksena he ovat
+  muualla. Lasketaan mökkikannan perusteella, minne kysyntä siirtyy, ja
+  simuloidaan jonot epävarmuus mukaan lukien.
+date: 2026-10-20
+categories: [avoin data, simulaatio, latausverkko, kausivaihtelu, jonoteoria]
+draft: true
+---
+
+```{r}
+#| label: setup
+#| include: false
+#| cache: false
+
+library(here)
+library(tidyverse)
+library(sf)
+library(ggdist)
+library(ggrepel)
+library(patchwork)
+library(qs2)
+library(scales)
+
+select <- dplyr::select
+filter <- dplyr::filter
+count  <- dplyr::count
+
+source(here("R", "theme_kristian.R"))
+
+knitr::opts_chunk$set(
+  echo = FALSE, warning = FALSE, message = FALSE,
+  fig.width = 9, fig.height = 5.5, dpi = 150
+)
+
+theme_set(theme_kristian())
+
+pal <- c(punainen = "#e63946", turkoosi = "#2a9d8f", oranssi = "#f4a261",
+         navy = "#1d3557", sininen = "#457b9d")
+
+data_dir <- here("data", "latausverkko")
+set.seed(42)
+
+asemat    <- qs2::qd_read(file.path(data_dir, "asemat.qs"))
+liitokset <- qs2::qd_read(file.path(data_dir, "liitokset.qs"))
+kunnat_sf <- qs2::qs_read(file.path(data_dir, "kunnat_lau.qs"))
+st_crs(kunnat_sf) <- 3067
+pno <- qs2::qs_read(file.path(data_dir, "paavo.qs"))
+st_crs(pno) <- 3067
+
+stopifnot(
+  "Paavo-aineistosta puuttuu kesämökkitieto" = "kesamokit" %in% names(pno)
+)
+```
+
+## Maa, joka muuttaa paikkaa kahdesti vuodessa
+
+Latausinfraa suunnitellaan sinne, missä ihmiset ovat. Tilastokeskus kertoo
+missä he asuvat, Traficom missä heidän autonsa on rekisteröity, ja näiden
+perusteella lasketaan missä latureita tarvitaan.
+
+Kaikki nämä kuvaavat tilannetta keskiviikkona marraskuussa.
+
+Juhannuksena merkittävä osa väestöstä on muualla. Suomessa on satojatuhansia
+kesämökkejä, ja ne eivät ole siellä missä ihmiset asuvat — ne ovat
+määritelmällisesti toisaalla. Mökkikunnan väkiluku voi moninkertaistua
+muutamaksi viikoksi.
+
+Latausverkko ei siirry mukana. Se on rakennettu sinne, missä kysyntää on
+keskimäärin, ja keskimääräinen kysyntä ei tunne juhannusta.
+
+Tässä osassa lasken mökkikannan perusteella, minne kysyntä siirtyy kesällä, ja
+simuloin mitä se tarkoittaa latausjonoille. Simulaatio tehdään epävarmuus
+mukaan lukien: kaikki oletukset ovat jakaumia eivätkä lukuja, koska yksikään
+niistä ei ole tarkasti tiedossa.
+
+## Missä mökit ovat
+
+```{r}
+#| label: mokit
+#| echo: true
+
+alueet <- pno |>
+  st_drop_geometry() |>
+  mutate(
+    mokkikerroin = if_else(asukkaat > 0, kesamokit / asukkaat, NA_real_),
+    # Mökkiläisiä arvioidaan mökkimäärän perusteella. Kuinka monta
+    # henkeä mökillä on kerrallaan, on epävarmaa – siihen palataan
+    # simulaatiossa.
+    mokkeja = kesamokit
+  ) |>
+  filter(!is.na(mokkeja))
+
+koko_maa_mokkeja <- sum(alueet$mokkeja, na.rm = TRUE)
+
+mokkikeskittymat <- alueet |>
+  filter(asukkaat >= 50, mokkeja >= 50) |>
+  slice_max(mokkikerroin, n = 15) |>
+  select(pno, alue_nimi, kunta, asukkaat, mokkeja, mokkikerroin)
+
+stopifnot(
+  "Kesämökkejä ei löytynyt" = koko_maa_mokkeja > 100000,
+  "Mökkikerroin on negatiivinen" =
+    all(alueet$mokkikerroin >= 0, na.rm = TRUE)
+)
+```
+
+Aineiston mukaan Suomessa on
+`r format(koko_maa_mokkeja, big.mark = " ")` kesämökkiä.
+
+```{r}
+#| label: kuva-mokkikerroin
+#| fig-cap: "Kesämökkien ja vakituisten asukkaiden suhde postinumeroalueittain."
+
+alueet |>
+  filter(asukkaat >= 50, is.finite(mokkikerroin), mokkikerroin > 0) |>
+  ggplot(aes(mokkikerroin)) +
+  geom_histogram(bins = 50, fill = pal["turkoosi"], colour = NA) +
+  geom_vline(xintercept = 1, colour = pal["punainen"], linetype = 2) +
+  annotate("text", x = 1, y = Inf, hjust = -0.1, vjust = 1.8,
+           label = "  yhtä monta mökkiä kuin asukasta",
+           colour = pal["punainen"], size = 3.2) +
+  scale_x_log10(breaks = c(0.01, 0.1, 1, 10),
+                labels = c("0,01", "0,1", "1", "10")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(x = "Kesämökkejä yhtä vakituista asukasta kohti (logaritminen asteikko)",
+       y = "Postinumeroalueita",
+       title = "Osassa Suomea mökkejä on enemmän kuin asukkaita",
+       subtitle = "Näillä alueilla kesäinen kysyntä on moninkertainen talviseen verrattuna")
+```
+
+**Miten kuvaa luetaan.** Vaaka-akselilla on luku, joka kertoo montako
+kesämökkiä alueella on jokaista vakituista asukasta kohti. Akseli on
+logaritminen, koska arvot vaihtelevat sadasosista kymmeniin.
+
+Punainen katkoviiva merkitsee tilannetta, jossa mökkejä on yhtä monta kuin
+asukkaita. Sen oikealla puolella olevilla alueilla mökkejä on enemmän — eli
+kesällä paikalla voi olla moninkertainen määrä ihmisiä verrattuna
+väestörekisteriin.
+
+Jakauma on hyvin leveä. Se tarkoittaa, että kausivaihtelu ei jakaudu tasaisesti
+vaan keskittyy tiettyihin paikkoihin.
+
+```{r}
+#| label: kuva-mokkikartta
+#| fig-cap: "Kesämökkien keskittyminen Suomessa."
+#| fig-height: 9
+#| fig-width: 7
+
+mokki_sf <- pno |>
+  mutate(mokkikerroin = if_else(asukkaat > 0, kesamokit / asukkaat, NA_real_)) |>
+  filter(!is.na(mokkikerroin), kesamokit > 0)
+
+ggplot() +
+  geom_sf(data = kunnat_sf, fill = "grey11", colour = "grey18",
+          linewidth = 0.05) +
+  geom_sf(data = mokki_sf |> arrange(kesamokit),
+          aes(colour = pmin(mokkikerroin, 10), size = kesamokit),
+          alpha = 0.6) +
+  scale_colour_gradientn(
+    colours = c(unname(pal["sininen"]), unname(pal["turkoosi"]),
+                unname(pal["oranssi"]), unname(pal["punainen"])),
+    values = scales::rescale(c(0, 0.5, 2, 10)),
+    breaks = c(0, 2, 5, 10),
+    labels = c("0", "2", "5", "10+"),
+    name = "Mökkejä asukasta kohti",
+    guide = guide_colourbar(barwidth = unit(9, "cm"),
+                            barheight = unit(0.4, "cm"),
+                            title.position = "top")
+  ) +
+  scale_size_continuous(range = c(0.3, 4), guide = "none") +
+  labs(title = "Kesä-Suomi on eri maa kuin talvi-Suomi",
+       subtitle = "Pisteen koko: mökkien määrä, väri: suhde vakituisiin asukkaisiin",
+       caption = "Aineisto: Tilastokeskus, Paavo") +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(), legend.position = "bottom")
+```
+
+## Kysynnän siirtymä
+
+Nyt voidaan laskea, miten latauskysyntä siirtyy kesällä. Laskenta vaatii
+muutaman oletuksen, ja koska yksikään niistä ei ole tarkasti tiedossa, ne
+annetaan jakaumina.
+
+::: {.callout-note}
+## Faktalaatikko: mistä latauskysyntä syntyy
+
+Latausaseman kuormitus riippuu kolmesta asiasta: kuinka moni auto saapuu,
+kuinka kauan kukin lataa ja kuinka monta latauspaikkaa on.
+
+**Saapumistahti.** Mökkimatkalainen lataa matkalla, jos matka ylittää auton
+kantaman. Suomessa valtaosa mökkimatkoista on muutaman sadan kilometrin
+mittaisia, joten osa autoista tarvitsee yhden pysähdyksen.
+
+**Latausaika.** Suurteholaturilla tyypillinen pysähdys on 15–30 minuuttia.
+Latausnopeus ei ole vakio: akku ottaa vastaan täyttä tehoa vain osan ajasta, ja
+hidastuu merkittävästi kun varaustaso nousee yli 80 prosentin. Siksi
+latauspysähdys kestää kauemmin kuin pelkkä teho ja akkukoko antaisivat olettaa.
+
+**Palvelupaikkojen määrä.** Aseman kapasiteetti ei ole sen teho vaan
+pistokkeiden lukumäärä. Kahden pistokkeen 350 kW:n asema palvelee kahta autoa
+kerrallaan, ei kolmea.
+
+**Miksi nämä annetaan jakaumina.** Yksikään kolmesta ei ole tarkasti tiedossa.
+Latausaika riippuu automallista, säästä ja siitä kuinka tyhjänä akku on.
+Saapumistahti riippuu siitä, kuinka moni mökkiläinen ajaa sähköautolla ja
+kuinka moni heistä tarvitsee latausta matkalla. Jos näille annettaisiin
+pistearvot, tulos näyttäisi tarkemmalta kuin se on.
+:::
+
+```{r}
+#| label: kysyntamalli
+#| echo: true
+
+# Aseman kapasiteetti: suurtehopistokkeiden määrä
+kapasiteetti <- liitokset |>
+  filter(teho_kw >= 150) |>
+  group_by(avain) |>
+  summarise(pistokkeita = n(), .groups = "drop") |>
+  left_join(asemat, by = "avain") |>
+  filter(!is.na(lat), !is.na(lon))
+
+stopifnot("Kapasiteettitaulu tyhjä" = nrow(kapasiteetti) > 0)
+
+# Mökit liitetään lähimpään suurtehuasemaan: kysyntä kohdistuu sinne,
+# missä matkalainen todennäköisimmin pysähtyy.
+asema_sf <- kapasiteetti |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+  st_transform(3067)
+
+mokki_pisteet <- pno |> filter(kesamokit > 0)
+
+lahin <- st_nearest_feature(mokki_pisteet, asema_sf)
+
+mokit_asemittain <- tibble(
+  avain = asema_sf$avain[lahin],
+  mokkeja = mokki_pisteet$kesamokit,
+  asukkaat = mokki_pisteet$asukkaat
+) |>
+  group_by(avain) |>
+  summarise(mokkeja = sum(mokkeja), vakiasukkaat = sum(asukkaat),
+            .groups = "drop")
+
+kuormitus <- kapasiteetti |>
+  left_join(mokit_asemittain, by = "avain") |>
+  replace_na(list(mokkeja = 0, vakiasukkaat = 0))
+
+stopifnot(
+  "Mökkien liitos hukkasi mökkejä" =
+    abs(sum(kuormitus$mokkeja) - sum(mokki_pisteet$kesamokit)) < 1
+)
+```
+
+```{r}
+#| label: simulaatio
+#| echo: true
+
+# Erlang C: todennäköisyys joutua jonoon M/M/c-järjestelmässä.
+# a = tarjottu kuorma (saapumistahti kertaa palveluaika),
+# c = palvelupaikkojen määrä.
+erlang_c <- function(a, c) {
+  if (a >= c) return(1)  # järjestelmä ylikuormittunut
+  k <- 0:(c - 1)
+  summa <- sum(a^k / factorial(k))
+  viim <- a^c / (factorial(c) * (1 - a / c))
+  viim / (summa + viim)
+}
+
+odotusaika_min <- function(lambda_per_h, palveluaika_min, c) {
+  mu <- 60 / palveluaika_min          # palveluja tunnissa per paikka
+  a <- lambda_per_h / mu              # tarjottu kuorma
+  if (a >= c) return(NA_real_)        # jono kasvaa rajatta
+  pw <- erlang_c(a, c)
+  (pw / (c * mu - lambda_per_h)) * 60
+}
+
+# Epävarmat parametrit. Jokainen on jakauma, ei luku.
+n_sim <- 3000
+
+parametrit <- tibble(
+  sim = seq_len(n_sim),
+  # Osuus mökkikunnista, joihin saavutaan sähköautolla. Sidotaan
+  # sarjan osassa 3 laskettuun sähköistymisasteeseen ja annetaan
+  # sille väljä epävarmuus.
+  sahko_osuus = rbeta(n_sim, 7, 93),
+  # Kuinka suuri osa mökkimatkoista vaatii latauspysähdyksen
+  lataustarve = rbeta(n_sim, 4, 6),
+  # Latauspysähdyksen kesto minuutteina
+  palveluaika = rgamma(n_sim, shape = 25, rate = 1),
+  # Kuinka monta mökkiä saapuu juhannusaaton vilkkaimman
+  # kuuden tunnin aikana
+  saapumisikkuna_h = 6
+)
+
+stopifnot(
+  "Palveluajat epäuskottavia" =
+    all(between(parametrit$palveluaika, 5, 90)),
+  "Osuudet jakauman ulkopuolella" =
+    all(between(parametrit$sahko_osuus, 0, 1))
+)
+
+# Simulaatio asemittain: lasketaan odotusaika jokaiselle
+# parametriyhdistelmälle ja asemalle.
+simuloi_asema <- function(mokkeja, pistokkeita, p) {
+  lambda <- mokkeja * p$sahko_osuus * p$lataustarve / p$saapumisikkuna_h
+  map2_dbl(lambda, p$palveluaika,
+           \(l, s) odotusaika_min(l, s, pistokkeita))
+}
+
+isot <- kuormitus |> filter(mokkeja >= 200, pistokkeita > 0)
+
+tulokset <- map_dfr(seq_len(nrow(isot)), function(i) {
+  odotus <- simuloi_asema(isot$mokkeja[i], isot$pistokkeita[i], parametrit)
+  tibble(
+    avain = isot$avain[i],
+    nimi = isot$nimi[i],
+    kunta = isot$kunta[i],
+    mokkeja = isot$mokkeja[i],
+    pistokkeita = isot$pistokkeita[i],
+    mediaani_odotus = median(odotus, na.rm = TRUE),
+    q90_odotus = quantile(odotus, 0.9, na.rm = TRUE),
+    ylikuormitus_tn = mean(is.na(odotus))
+  )
+})
+
+stopifnot(
+  "Simulaatio ei tuottanut tuloksia" = nrow(tulokset) > 0,
+  "Todennäköisyydet jakauman ulkopuolella" =
+    all(between(tulokset$ylikuormitus_tn, 0, 1))
+)
+```
+
+**Priorien perustelu.** Sähköautojen osuus saa jakauman, jonka keskimassa on
+muutaman prosentin tuntumassa — se vastaa sarjan osassa 3 laskettua
+kuntakohtaista sähköistymisastetta väljällä epävarmuudella. Lataustarve eli
+osuus matkoista, joilla pysähdytään, saa jakauman painottuen alle puoleen:
+lähimmälle mökille ajetaan ilman latausta, kauimmaiselle ei. Palveluajan
+jakauma painottuu kahdenkymmenenviiden minuutin tienoille, mikä vastaa
+tyypillistä suurtehulatausta.
+
+Mikään näistä ei ole tarkka. Siksi ne ovat jakaumia, ja siksi tulos on jakauma.
+
+```{r}
+#| label: kuva-odotus
+#| fig-cap: "Arvioitu jonotusaika juhannusaattona mökkivaltaisten alueiden latausasemilla."
+
+tulokset |>
+  slice_max(mediaani_odotus, n = 15) |>
+  mutate(label = paste0(str_trunc(nimi, 28), "\n", kunta,
+                        " · ", pistokkeita, " pistoketta"),
+         label = fct_reorder(label, mediaani_odotus)) |>
+  ggplot(aes(y = label)) +
+  geom_linerange(aes(xmin = mediaani_odotus, xmax = q90_odotus),
+                 colour = pal["oranssi"], linewidth = 1.5, alpha = 0.6) +
+  geom_point(aes(x = mediaani_odotus), colour = pal["punainen"], size = 2.5) +
+  scale_x_continuous(expand = expansion(mult = c(0.02, 0.08))) +
+  labs(x = "Jonotusaika (min)", y = NULL,
+       title = "Missä juhannusjono olisi pisin",
+       subtitle = "Piste: mediaani. Viiva: kohti epäsuotuisaa skenaariota (90. prosenttipiste).") +
+  theme(axis.text.y = element_text(size = 7))
+```
+
+**Miten kuvaa luetaan.** Jokainen rivi on latausasema mökkivaltaisen alueen
+lähellä. Punainen piste kertoo arvioidun jonotusajan tyypillisessä
+tilanteessa. Oranssi viiva ulottuu kohti epäsuotuisampaa skenaariota: sen
+oikea pää on arvo, joka ylittyy kymmenen prosentin todennäköisyydellä.
+
+Viivan pituus on tässä yhtä kiinnostava kuin pisteen sijainti. Pitkä viiva
+tarkoittaa, että asema on herkkä oletuksille — pienikin muutos
+sähköautojen osuudessa tai latausajassa heiluttaa tulosta paljon. Lyhyt viiva
+tarkoittaa vakaata tilannetta.
+
+```{r}
+#| label: kuva-ylikuormitus
+#| fig-cap: "Ylikuormituksen todennäköisyys: kuinka usein jono kasvaisi rajatta."
+
+tulokset |>
+  filter(ylikuormitus_tn > 0.01) |>
+  slice_max(ylikuormitus_tn, n = 15) |>
+  mutate(label = paste0(str_trunc(nimi, 28), " (", kunta, ")"),
+         label = fct_reorder(label, ylikuormitus_tn)) |>
+  ggplot(aes(ylikuormitus_tn, label)) +
+  geom_col(fill = pal["punainen"], width = 0.65) +
+  geom_text(aes(label = percent(ylikuormitus_tn, accuracy = 1)),
+            hjust = -0.2, colour = "grey85", size = 3.2) +
+  scale_x_continuous(labels = percent,
+                     expand = expansion(mult = c(0, 0.15))) +
+  labs(x = "Todennäköisyys, että asema ylikuormittuu", y = NULL,
+       title = "Asemat, joilla jono voisi karata käsistä",
+       subtitle = "Ylikuormitus tarkoittaa, että autoja saapuu nopeammin kuin niitä ehditään palvella") +
+  theme(axis.text.y = element_text(size = 7.5))
+```
+
+**Mitä ylikuormitus tarkoittaa.** Jonoteoriassa järjestelmä on ylikuormittunut,
+kun saapumistahti ylittää palvelukyvyn. Silloin jono ei asetu mihinkään
+tasapainoon vaan kasvaa niin kauan kuin ruuhka jatkuu.
+
+Käytännössä se ei tarkoita loputonta jonoa vaan sitä, että ruuhka purkautuu
+vasta kun saapuminen hiljenee. Autoilijan kannalta ero on olennainen:
+tasapainossa olevassa jonossa odotusaika on ennustettava, ylikuormittuneessa ei.
+
+Palkin pituus kertoo, kuinka suurella osalla simulaation parametriyhdistelmistä
+asema ylikuormittuu. Se ei ole ennuste vaan herkkyysmittari: korkea arvo
+tarkoittaa, että ylikuormitus tapahtuu monilla uskottavilla oletuksilla, ei
+vain pahimmassa tapauksessa.
+
+## Vaihtoehtoiset skenaariot
+
+```{r}
+#| label: counterfactual
+#| echo: true
+
+# Kolme skenaariota, joissa muutetaan yhtä tekijää kerrallaan.
+skenaariot <- list(
+  "Nykytila" = list(kerroin = 1, pistoke_lisa = 0, asemia_pois = 0),
+  "Sähköautoja 3× nykyinen" = list(kerroin = 3, pistoke_lisa = 0, asemia_pois = 0),
+  "Kaksi pistoketta lisää / asema" = list(kerroin = 3, pistoke_lisa = 2, asemia_pois = 0),
+  "Sähköautoja 3× ja 10 % asemista epäkunnossa" =
+    list(kerroin = 3, pistoke_lisa = 0, asemia_pois = 0.10)
+)
+
+aja_skenaario <- function(s) {
+  p <- parametrit |> mutate(sahko_osuus = pmin(sahko_osuus * s$kerroin, 1))
+
+  d <- isot
+  if (s$asemia_pois > 0) {
+    # Epäkunnossa olevien asemien kysyntä siirtyy jäljelle jääville:
+    # mökkimäärä kasvaa samassa suhteessa.
+    d <- d |> mutate(mokkeja = mokkeja / (1 - s$asemia_pois))
+  }
+  d <- d |> mutate(pistokkeita = pistokkeita + s$pistoke_lisa)
+
+  map_dfr(seq_len(nrow(d)), function(i) {
+    odotus <- simuloi_asema(d$mokkeja[i], d$pistokkeita[i], p)
+    tibble(
+      avain = d$avain[i],
+      mediaani = median(odotus, na.rm = TRUE),
+      ylikuormitus = mean(is.na(odotus))
+    )
+  })
+}
+
+vertailu <- imap_dfr(skenaariot, \(s, nimi) {
+  aja_skenaario(s) |> mutate(skenaario = nimi)
+})
+
+yhteenveto <- vertailu |>
+  group_by(skenaario) |>
+  summarise(
+    mediaani_odotus = median(mediaani, na.rm = TRUE),
+    asemia_ylikuormittuu = mean(ylikuormitus > 0.5),
+    .groups = "drop"
+  ) |>
+  mutate(skenaario = factor(skenaario, levels = names(skenaariot)))
+
+stopifnot(
+  "Skenaariot eivät tuottaneet tuloksia" = nrow(yhteenveto) == length(skenaariot)
+)
+```
+
+```{r}
+#| label: kuva-skenaariot
+#| fig-cap: "Neljä skenaariota: kysynnän kasvu, kapasiteetin lisäys ja häiriö."
+
+yhteenveto |>
+  select(skenaario,
+         `Mediaanijono (min)` = mediaani_odotus,
+         `Asemia, jotka todennäköisesti ylikuormittuvat` = asemia_ylikuormittuu) |>
+  pivot_longer(-skenaario) |>
+  mutate(value = if_else(name == "Asemia, jotka todennäköisesti ylikuormittuvat",
+                         value * 100, value)) |>
+  ggplot(aes(value, fct_rev(skenaario))) +
+  geom_col(fill = pal["navy"], width = 0.6) +
+  geom_text(aes(label = round(value, 1)), hjust = -0.2,
+            colour = "grey85", size = 3.2) +
+  facet_wrap(~name, scales = "free_x") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.18))) +
+  labs(x = NULL, y = NULL,
+       title = "Kapasiteetin lisäys vastaan kysynnän kasvu",
+       subtitle = "Oikeanpuoleinen paneeli prosentteina asemista") +
+  theme(axis.text.y = element_text(size = 8))
+```
+
+Vertailun opetus on jonoteorian perustulos, joka on epäintuitiivinen ja siksi
+kertomisen arvoinen. **Jonotusaika ei kasva tasaisesti kysynnän mukana.** Se
+pysyy pitkään lähes muuttumattomana ja räjähtää sitten äkisti, kun kuormitus
+lähestyy kapasiteettia.
+
+Tämä tarkoittaa, että latausverkko voi näyttää toimivalta aivan ongelman
+kynnykselle asti. Kun sähköautojen määrä kasvaa tasaisesti vuosi vuodelta,
+jonot eivät kasva tasaisesti — ne eivät kasva lainkaan, kunnes ne kasvavat
+paljon.
+
+Mittari, joka seuraa keskimääräistä jonotusaikaa, antaa siis vihreää valoa
+viimeiseen hetkeen asti. Kapasiteetin käyttöaste varoittaa aikaisemmin, ja se
+on syy seurata sitä eikä jonoja.
+
+::: {.callout-important}
+## Mitä simulaatio ei ota huomioon
+
+**Saapumiset eivät ole satunnaisia.** Jonomalli olettaa, että autot saapuvat
+toisistaan riippumatta. Juhannusliikenteessä ne eivät saavu: ruuhka on
+aalto, ja autot kulkevat samassa aallossa. Todellinen huippukuormitus on siis
+jyrkempi kuin malli antaa ymmärtää.
+
+**Autoilijat sopeutuvat.** Jos jono on pitkä, osa ajaa seuraavalle asemalle tai
+odottaa. Malli ei tunne tätä, joten se yliarvioi jonot vilkkaimmilla asemilla ja
+aliarvioi ne naapurissa.
+
+**Mökkimatkan pituutta ei tunneta.** Oletan, että lataustarve syntyy
+mökkimatkasta, mutta en tiedä mistä kukin lähtee. Pääkaupunkiseudulta
+Savonlinnaan ajava tarvitsee latauksen; naapurikunnasta tuleva ei.
+
+**Liikennemäärädataa ei ole käytetty.** Väylävirastolla on kattava mittausverkko
+valtateillä, ja sen avulla kausivaihtelun voisi mitata arvioimisen sijaan. Se on
+luonteva tarkennus tähän analyysiin.
+
+Nämä rajoitteet vaikuttavat eri suuntiin, enkä pysty sanomaan kumpi voittaa.
+Siksi esitän tulokset jakaumina ja vertailuina skenaarioiden välillä, en
+absoluuttisina ennusteina. Vertailu kestää oletusten epätarkkuuden paremmin kuin
+yksittäinen luku.
+:::
+
+## Mitä jää käteen
+
+**Suomi muuttaa paikkaa kesällä.** Mökkikanta on jakautunut täysin eri tavalla
+kuin vakituinen asutus, ja osalla alueista mökkejä on enemmän kuin asukkaita.
+
+**Latausverkko on mitoitettu väärän kartan mukaan.** Infrastruktuuri seuraa
+vakituista väestöä, koska se on se mitä tilastot kertovat.
+
+**Jonot eivät kasva tasaisesti.** Ne pysyvät pieninä ja räjähtävät sitten.
+Siksi keskimääräinen jonotusaika on huono varoitusmittari ja kapasiteetin
+käyttöaste hyvä.
+
+**Kapasiteetti ei ole tehoa vaan pistokkeita.** Aseman kyky palvella ruuhkaa
+riippuu siitä, montako autoa voi ladata yhtä aikaa — ei siitä kuinka nopeasti
+yksi lataa.
+
+Seuraavassa osassa katson eteenpäin. Sähköautokanta kasvaa, ja kysymys on missä
+verkko pettää ensimmäisenä — sekä milloin.
+
+---
+
+## Mitä tästä on hyötyä yrityksellesi
+
+**Mitoita huipun mukaan, älä keskiarvon.** Keskimääräinen kuormitus on
+suunnittelun kannalta lähes hyödytön luku. Asiakaspalvelu, laskutus,
+varastointi ja palvelinkapasiteetti mitoitetaan huipun mukaan, ja huippu on
+yleensä monikerta keskiarvosta. Jos et tiedä omaa huippukerrointasi, se on
+ensimmäinen laskettava luku.
+
+**Opettele jonoteorian perustulos.** Odotusaika ei kasva lineaarisesti
+kuormituksen mukana vaan räjähtää lähellä kapasiteettirajaa. Tämä on syy siihen,
+miksi "meillä on 85 prosentin käyttöaste, kaikki hyvin" on vaarallinen lause.
+Kahdeksankymmenenviiden ja yhdeksänkymmenenviiden prosentin välillä jonot
+moninkertaistuvat.
+
+Sama ilmiö koskee ihmisiä: tiimi, joka on varattu 95-prosenttisesti, ei ole
+kymmenen prosenttia hitaampi kuin 85-prosenttisesti varattu, vaan
+moninkertaisesti hitaampi.
+
+**Käytä simulaatiota, kun parametrit ovat epävarmoja.** Tässä osassa yksikään
+oletus ei ollut tiedossa. Vaihtoehtoja oli kaksi: valita pistearvot ja esittää
+tulos tarkkana, tai antaa jakaumat ja esittää tulos jakaumana. Jälkimmäinen on
+rehellisempi ja usein helpompi — satunnaislukujen arpominen on vähemmän työtä
+kuin yhden oikean arvon puolustaminen kokouksessa.
+
+**Erota herkkyys ja ennuste.** Luku "ylikuormituksen todennäköisyys 40 %" ei
+tarkoita, että näin käy neljä kertaa kymmenestä. Se tarkoittaa, että
+ylikuormitus tapahtuu neljällä kymmenestä uskottavasta oletusyhdistelmästä.
+Se on herkkyysmittari, ja se on päätöksenteossa usein hyödyllisempi kuin
+ennuste — koska se kertoo, kuinka paljon oletuksilla on väliä.
+
+**Ja kysy, minkä kartan mukaan toimintasi on mitoitettu.** Latausverkko on
+rakennettu väestökartan mukaan, ja kesällä kartta on väärä. Vastaava virhe on
+yleinen: palveluverkko mitoitetaan asiakkaiden kotiosoitteiden mukaan vaikka
+heidät tavoittaa työpaikalta, tai varasto sijoitetaan myyntialueen keskelle
+vaikka tilaukset tulevat laidalta. Kysy aina, kuvaako käyttämäsi jakauma sitä
+hetkeä, jolloin kapasiteettia tarvitaan.
+
+Jos organisaatiossasi mitoitetaan kapasiteettia keskiarvoilla, tai jos
+kausivaihtelu on tiedossa mutta sitä ei ole laskettu auki, siinä on työtä
+odottamassa. Teen tätä vuokrattavana Head of Datana ja projektikohtaisesti —
+hinnasto ja yhteystiedot löytyvät
+[sivustolta](https://kristianvepsalainen.com).
+
+---
+
+*Aineistot: Tilastokeskuksen Paavo-postinumeroalueittainen avoin tieto,
+Fintraffic AFIR / Digitraffic, Eurostat GISCO. Koodi on kokonaisuudessaan tässä
+postauksessa. Maailma on jakauma.*

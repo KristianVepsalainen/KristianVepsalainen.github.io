@@ -7,7 +7,6 @@ description: |
   simuloidaan jonot epävarmuus mukaan lukien.
 date: 2026-10-20
 categories: [avoin data, simulaatio, latausverkko, kausivaihtelu, jonoteoria]
-draft: true
 ---
 
 ```{r}

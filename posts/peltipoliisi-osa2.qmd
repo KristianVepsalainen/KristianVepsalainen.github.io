@@ -1,0 +1,578 @@
+---
+title: "Kamera ei hidasta tietä, se hidastaa kohtaa"
+subtitle: "Kuinka kauas nopeusvalvonnan vaikutus yltää — ja miksi linnuntie-etäisyys on väärä mittari"
+date: 2026-10-22
+categories: [avoin data, liikenne, bayes, paikkatieto, LAM]
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Näytä koodi"
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 200
+execute:
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R","peltipoliisi" ,"peltipoliisi-yhteiset.R"))
+library(patchwork)
+library(brms)
+library(ggdist)
+
+theme_set(pp_teema())
+```
+
+Edellisessä osassa selvisi, että Kehä I:llä tapahtui jotain tiistaina 25. elokuuta 2026, ja että muutos kohdistui vasempaan kaistaan noin kolme kertaa voimakkaammin kuin muihin. Se sopii nopeusvalvonnan aloittamiseen.
+
+Jäljelle jäi kysymys, johon ensimmäinen osa ei pystynyt vastaamaan: **kuinka kauas kameran vaikutus yltää?**
+
+Yritin vastata siihen laskemalla jokaiselle mittauspisteelle linnuntie-etäisyyden lähimpään kameraan. Korrelaatio osoitti oikeaan suuntaan muttei yltänyt tilastolliseen merkitsevyyteen. Tulkitsin sen aineiston pienuudeksi.
+
+Olin väärässä. Vika ei ollut otoskoossa vaan muuttujassa.
+
+## Miksi linnuntie on väärä mitta
+
+Kuvittele mittauspiste, jonka vieressä kulkee kamera 100 metrin päässä. Linnuntietä mitattuna se on hyvin lähellä. Mutta kolme asiaa voi silti tehdä siitä merkityksettömän:
+
+**Kamera voi olla toisella puolella.** Jos kamera valvoo vastakkaista ajosuuntaa, se ei vaikuta siihen suuntaan, jonka ohi mittauspiste laskee. Mittauspiste mittaa molempia suuntia, mutta kamera valvoo yhtä.
+
+**Kamera voi olla jo ohitettu.** Kuljettaja, joka on juuri ajanut kameran ohi, käyttäytyy eri tavalla kuin kuljettaja, joka on tulossa sitä kohti. Tätä ilmiötä kutsutaan **kenguruhypyksi**: hidastetaan kameran kohdalla ja kiihdytetään heti perään.
+
+**Linnuntie ei ole ajomatka.** Kehä I kaartaa. Kaksi pistettä voivat olla 200 metrin päässä toisistaan linnuntietä, mutta 900 metrin päässä tietä pitkin, jos väliin osuu liittymä tai mutka.
+
+Oikea muuttuja ei siis ole etäisyys vaan **etumerkillinen ajomatka**: kuinka monta metriä kameraan on *ajosuunnassa*, ja onko kamera edessä vai takana.
+
+## Tien mittaviiva
+
+Rakennan Kehä I:lle mittaviivan ja projisoin sekä mittauspisteet että kamerat sille. Projisointi tarkoittaa, että jokaiselle kohteelle etsitään viivalta lähin piste, ja merkitään muistiin kuinka monta metriä viivan alusta siihen on. Sitä lukua kutsutaan **paaluluvuksi**.
+
+Kun kaikki ovat samalla viivalla, kahden kohteen välimatka tietä pitkin on pelkkä vähennyslasku.
+
+```{r}
+#| label: mittaviiva
+
+if (!"st_line_project" %in% getNamespaceExports("sf"))
+  stop("Tarvitaan sf >= 1.0-16 (st_line_project). Päivitä sf-paketti.")
+
+# Kehä I = kantatie 101. Poimitaan OSM-aineistosta ne tielinjat, joiden
+# ref-tagi sisältää luvun 101 omana lukunaan.
+kehaI_viivat <- pp$osm$tiet |>
+  filter(!is.na(ref), str_detect(ref, "(^|[^0-9])101([^0-9]|$)"))
+
+if (nrow(kehaI_viivat) < 5)
+  stop("OSM:stä löytyi vain ", nrow(kehaI_viivat), " Kehä I:n tielinjaa. ",
+       "Tarkista ref-tagin muoto: ", paste(head(unique(pp$osm$tiet$ref), 20),
+                                           collapse = ", "))
+
+# Yhdistetään palaset yhdeksi viivaksi ja otetaan pisin yhtenäinen osa.
+osat <- kehaI_viivat |>
+  st_geometry() |> st_union() |> st_line_merge() |>
+  st_cast("LINESTRING")
+
+pituudet <- as.numeric(st_length(osat))
+keskilinja <- osat[which.max(pituudet)]
+L <- max(pituudet)
+
+# TARKISTUS: Kehä I on noin 24 km. Jos pisin osa on paljon lyhyempi,
+# linjasto on pirstoutunut eikä paalulukuja voi laskea.
+if (L < 15000)
+  stop(sprintf("Pisin yhtenäinen osa on vain %.1f km (odotettu ~24 km). ",
+               L / 1000),
+       "OSM-linjasto on pirstoutunut; paalulukuja ei voi laskea luotettavasti.")
+
+paalu <- function(geom) as.numeric(st_line_project(keskilinja, geom))
+etaisyys_linjasta <- function(geom) as.numeric(st_distance(geom, keskilinja))
+
+pisteet_sf <- pp$asemat |> filter(lam_id %in% pp_kehaI)
+pisteet_paalu <- pisteet_sf |>
+  st_drop_geometry() |>
+  mutate(paalu_osm = paalu(st_geometry(pisteet_sf)),
+         etaisyys_viivasta = etaisyys_linjasta(st_geometry(pisteet_sf)))
+```
+
+```{r}
+#| label: metatiedot
+
+# Mitä sijaintitietoa asemilla oikeasti on? Digitrafficin asemarajapinta ei
+# palauta roadAddress-kenttää, joten virallinen tieosoite (tieosa ja etäisyys)
+# puuttuu. Tarkistetaan tilanne ennen kuin siihen nojataan.
+saatavilla <- pisteet_paalu |>
+  summarise(across(any_of(c("tieosa", "etaisyys", "suunta1", "suunta2")),
+                   \(x) sum(!is.na(x))))
+
+cat("Ei-tyhjiä arvoja Kehä I:n", nrow(pisteet_paalu), "pisteellä:\n")
+print(as.data.frame(saatavilla))
+
+# Leppäsolmun ajosuunnat erikseen: tätä pistettä vastaan ankkuri tarkistetaan.
+if (any(c("suunta1", "suunta2") %in% names(pisteet_paalu))) {
+  cat("\nLeppäsolmun (116) ajosuuntien kohdekunnat:\n")
+  print(as.data.frame(pisteet_paalu |>
+    filter(lam_id == 116L) |>
+    select(lam_id, any_of(c("suunta1", "suunta2")))))
+}
+```
+
+Mittaviivan suunta on mielivaltainen: OpenStreetMapin viiva voi olla digitoitu kumpaan suuntaan tahansa. Suunta pitää siis kiinnittää johonkin.
+
+Luonteva ankkuri olisi LAM-asemien virallinen tieosoite, joka kasvaa tierekisterin kasvavaan suuntaan. Sitä ei kuitenkaan ole: Digitrafficin asemarajapinta ei palauta `roadAddress`-kenttää, joten tieosa ja etäisyys ovat tyhjiä. Tämä selviää yllä olevasta tarkistuksesta, ja se on sama puute, joka tuli vastaan jo aineistoa ladattaessa.
+
+Käytän siis kahta muuta ankkuria.
+
+**Maantiede kiinnittää viivan suunnan.** Kehä I kaartaa Keilaniemestä pohjoisen kautta Itäkeskukseen, eli sen pituussuuntainen sijainti kasvaa idästä länteen johdonmukaisesti. Käännän viivan niin, että paaluluku kasvaa itään.
+
+**Julkaistu havainto kiinnittää ajosuunnat.** Vesa Linja-ahon LAM-poiminnassa Leppäsolmun pisteen suunta 2 ajaa Tapiolaan, eli länteen. Koska paaluluku kasvaa itään, suunta 2 on laskeva ja suunta 1 kasvava. Ajosuuntien numerointi on koko tielle sama, joten yksi varmistettu piste riittää.
+
+Tämä on pieni mutta tyypillinen avoimen datan tilanne: rajapinta ei anna tarvittavaa kenttää, ja se täytyy päätellä muusta julkisesta tiedosta.
+
+```{r}
+#| label: suunta
+
+# Ankkuri 1: mittaviivan suunta maantieteestä.
+# Kehä I kulkee lännestä itään, joten paaluluvun on kasvettava
+# itäisen pituusasteen mukana.
+rho_lon <- cor(pisteet_paalu$paalu_osm, pisteet_paalu$lon,
+               method = "spearman")
+
+# TARKISTUS: jos korrelaatio on heikko, projisointi ei ole osunut
+# Kehä I:lle vaan jollekin muulle linjalle.
+if (is.na(rho_lon) || abs(rho_lon) < 0.7)
+  stop(sprintf("Paaluluvun ja pituusasteen korrelaatio on %.2f. ", rho_lon),
+       "Projisointi on todennäköisesti osunut väärälle tielle. ",
+       "Tarkista etaisyys_viivasta-sarake taulukosta.")
+
+kaanna <- rho_lon < 0
+
+kaanna_paalu <- function(x) if (kaanna) L - x else x
+
+pisteet_paalu <- pisteet_paalu |> mutate(paalu = kaanna_paalu(paalu_osm))
+
+# TARKISTUS: projisoinnin pitää osua tielle. Mittaviiva kulkee ajoratojen
+# välissä, joten muutaman kymmenen metrin poikkeama on normaalia.
+if (max(pisteet_paalu$etaisyys_viivasta) > 60)
+  warning("Jokin mittauspiste on yli 60 m päässä mittaviivasta: ",
+          paste(pisteet_paalu$lam_id[pisteet_paalu$etaisyys_viivasta > 60],
+                collapse = ", "))
+
+# Ankkuri 2: ajosuuntien kytkeminen paalulukuun.
+# Leppäsolmun pisteellä suunta 2 ajaa Tapiolaan eli länteen, ja paaluluku
+# kasvaa itään -> suunta 1 kasvaa, suunta 2 laskee.
+SUUNTA_KASVAVA <- 1L
+
+kamerat_sf <- pp$osm$kamerat
+kamerat <- tibble(
+  kamera_id = seq_len(nrow(kamerat_sf)),
+  paalu_osm = paalu(st_geometry(kamerat_sf)),
+  etaisyys_viivasta = etaisyys_linjasta(st_geometry(kamerat_sf))
+) |>
+  mutate(paalu = kaanna_paalu(paalu_osm)) |>
+  # Vain kamerat jotka ovat oikeasti Kehä I:n varrella. 40 metrin raja
+  # sallii ajoratojen välisen etäisyyden mutta sulkee pois risteävät tiet.
+  filter(etaisyys_viivasta < 40)
+
+if (nrow(kamerat) < 3)
+  stop("Kehä I:n varrelta löytyi vain ", nrow(kamerat), " kameraa. ",
+       "Löysää 40 metrin rajaa tai tarkista mittaviiva.")
+```
+
+```{r}
+#| label: tbl-geometria
+#| tbl-cap: "Mittauspisteiden sijainti Kehä I:n mittaviivalla. Etäisyys viivasta kertoo, kuinka hyvin projisointi onnistui: muutaman metrin poikkeama on normaalia, koska mittaviiva kulkee ajoratojen välissä."
+
+pisteet_paalu |>
+  left_join(pp_rajoitus, by = "lam_id") |>
+  arrange(paalu) |>
+  transmute(
+    Piste = lam_id,
+    Nimi = nimi,
+    `Paaluluku (km)` = round(paalu / 1000, 2),
+    `Etäisyys viivasta (m)` = round(etaisyys_viivasta, 1),
+    `Rajoitus (km/h)` = raja
+  ) |>
+  knitr::kable()
+```
+
+Mittaviivan pituudeksi tuli `r sprintf("%.1f", L/1000)` km, mikä vastaa Kehä I:n todellista pituutta, ja sen varrelta löytyi `r nrow(kamerat)` nopeusvalvontakameraa. Paaluluvun ja pituusasteen järjestyskorrelaatio on `r sprintf("%.3f", abs(rho_lon))`, eli projisointi osui oikealle tielle. Suurin poikkeama mittaviivasta on `r sprintf("%.0f", max(pisteet_paalu$etaisyys_viivasta))` metriä, mikä on ajoratojen välisen etäisyyden suuruusluokkaa.
+
+## Etumerkillinen etäisyys
+
+Nyt voin laskea jokaiselle **mittauspiste–suunta-parille** sen, missä lähin kamera on ajosuunnassa.
+
+Suunta 1 ajaa paaluluvun kasvuun päin, suunta 2 sitä vastaan. Kamera, jonka paaluluku on suurempi kuin mittauspisteen, on siis suunnan 1 kuljettajalle *edessä* ja suunnan 2 kuljettajalle *takana*. Sama kamera, kaksi eri roolia.
+
+```{r}
+#| label: altistus
+
+ETU_RAJA <- 600   # metriä: "lähellä" tarkoittaa tätä
+
+# Etäisyys ajosuunnassa kaikkiin kameroihin. Positiivinen = kamera edessä.
+# SUUNTA_KASVAVA ajaa paaluluvun kasvuun päin, toinen suunta sitä vastaan.
+erotus_vektori <- function(p, s) {
+  if (s == SUUNTA_KASVAVA) kamerat$paalu - p else p - kamerat$paalu
+}
+
+lahin <- function(p, s, eteen) {
+  e <- erotus_vektori(p, s)
+  e <- if (eteen) e[e > 0] else -e[e < 0]
+  if (length(e) > 0) min(e) else NA_real_
+}
+
+# Luokkatunnukset pidetään ASCII-muodossa, koska brms muodostaa
+# kerroinnimet tasojen nimistä. Näyttönimet liitetään vasta kuviin.
+ALTISTUS_NIMET <- c(
+  ei_kameraa    = "Ei kameraa lähellä",
+  kamera_takana = "Kamera takana (alle 600 m)",
+  kamera_edessa = "Kamera edessä (alle 600 m)"
+)
+
+altistus <- expand_grid(
+  lam_id = pisteet_paalu$lam_id,
+  suunta = c(1L, 2L)
+) |>
+  left_join(pisteet_paalu |> select(lam_id, nimi, paalu), by = "lam_id") |>
+  mutate(
+    edessa_m = map2_dbl(paalu, suunta, \(p, s) lahin(p, s, TRUE)),
+    takana_m = map2_dbl(paalu, suunta, \(p, s) lahin(p, s, FALSE)),
+    altistus = case_when(
+      !is.na(edessa_m) & edessa_m <= ETU_RAJA ~ "kamera_edessa",
+      !is.na(takana_m) & takana_m <= ETU_RAJA ~ "kamera_takana",
+      TRUE ~ "ei_kameraa"
+    ),
+    altistus = factor(altistus, levels = names(ALTISTUS_NIMET)),
+    altistus_nimi = factor(ALTISTUS_NIMET[as.character(altistus)],
+                           levels = unname(ALTISTUS_NIMET))
+  )
+
+stopifnot(!any(is.na(altistus$altistus)))
+```
+
+```{r}
+#| label: tbl-altistus
+#| tbl-cap: "Jokainen mittauspiste esiintyy kahdesti, kerran kumpaakin ajosuuntaa kohti. Sama piste voi olla yhteen suuntaan kameraa lähestyvä ja toiseen suuntaan kameran juuri ohittanut."
+
+altistus |>
+  arrange(lam_id, suunta) |>
+  transmute(Piste = lam_id, Nimi = nimi, Suunta = suunta,
+            `Kamera edessä (m)` = round(edessa_m),
+            `Kamera takana (m)` = round(takana_m),
+            Altistusluokka = as.character(altistus_nimi)) |>
+  knitr::kable()
+```
+
+Huomaa, mitä taulukko tekee aineistolle: **jokainen mittauspiste on nyt kaksi havaintoa**, ja ne voivat kuulua eri altistusluokkiin. Linnuntie-etäisyys antoi yhden luvun pistettä kohti ja sekoitti kaksi erilaista tilannetta keskenään. Siinä oli vika.
+
+## Vaikutus altistusluokittain
+
+Lasken jokaiselle piste–suunta-parille saman kausikorjatun muutoksen kuin ensimmäisessä osassa: ylitysosuuden muutos viikoittain verrattuna samaan viikkoon vuonna 2025.
+
+```{r}
+#| label: yoy-suunnittain
+
+altistus_liitos <- altistus |>
+  select(lam_id, suunta, nimi, altistus, altistus_nimi, edessa_m, takana_m)
+
+yoy_suunta <- pp_pohja |>
+  filter(lam_id %in% intersect(pp_vakaat, pp_kehaI)) |>
+  pp_yoy(lam_id, suunta) |>
+  left_join(altistus_liitos, by = c("lam_id", "suunta"))
+
+stopifnot(nrow(yoy_suunta) > 0, !any(is.na(yoy_suunta$altistus)))
+
+ej_suunta <- yoy_suunta |>
+  pp_ennen_jalkeen(lam_id, suunta) |>
+  left_join(altistus_liitos, by = c("lam_id", "suunta"))
+```
+
+```{r}
+#| label: fig-altistus
+#| fig-cap: "Jokainen piste kuvassa on yksi mittauspiste yhteen ajosuuntaan. Pystyakselilla on ylitysosuuden muutos: kuinka paljon enemmän osuus laski elokuun lopun jälkeen kuin samaan aikaan vuonna 2025. Nollan alapuolella oleva piste tarkoittaa, että ylinopeudet vähenivät enemmän kuin viime vuonna."
+#| fig-height: 5
+
+varit_altistus <- setNames(
+  c(PP_VARI_HIMMEA, PP_VARI_VERROKKI, PP_VARI_KEHA),
+  unname(ALTISTUS_NIMET)
+)
+
+ej_suunta |>
+  ggplot(aes(altistus_nimi, muutos_yli6, colour = altistus_nimi)) +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_point(size = 3.2, alpha = 0.85,
+             position = position_jitter(width = 0.08, height = 0, seed = 1)) +
+  stat_summary(fun = mean, geom = "crossbar", width = 0.45,
+               linewidth = 0.4, colour = PP_VARI_MUSTE, fatten = 0) +
+  scale_colour_manual(values = varit_altistus, guide = "none") +
+  labs(
+    title = "Vaikutus on suurin siellä, missä kamera on edessä",
+    subtitle = "Vaakaviiva on luokan keskiarvo. Jokainen piste on mittauspiste yhteen ajosuuntaan.",
+    x = NULL, y = "Ylitysosuuden muutos yli vuoden 2025 tason (pp)",
+    caption = "Lähde: Fintraffic / Digitraffic, OpenStreetMap. Vapaa liikennevirta, henkilöautot, arkipäivät."
+  )
+```
+
+```{r}
+#| label: altistus-luvut
+
+luokka_ka <- ej_suunta |>
+  group_by(altistus) |>
+  summarise(havaintoja = n(), ka = mean(muutos_yli6),
+            ka_nopeus = mean(muutos_ka), .groups = "drop")
+
+hae <- function(luokka, sarake) {
+  luokka_ka[[sarake]][luokka_ka$altistus == luokka]
+}
+```
+
+Keskiarvot luokittain: kameraa lähestyttäessä `r sprintf("%.2f", hae("kamera_edessa", "ka"))` prosenttiyksikköä, kameran jo ohitettuaan `r sprintf("%.2f", hae("kamera_takana", "ka"))`, ja ilman kameraa lähellä `r sprintf("%.2f", hae("ei_kameraa", "ka"))`.
+
+## Malli, joka ottaa epävarmuuden mukaan
+
+Keskiarvot eivät kerro, kuinka varmoja voimme olla. Luokissa on vain muutama havainto, ja pisteiden välillä on paljon vaihtelua. Siksi sama asia mallinnetaan bayesilaisesti.
+
+Malli saa jokaiselta piste–suunta-parilta koko viikkosarjan, ei pelkkää keskiarvoa. Se tietää, mitkä havainnot kuuluvat samaan mittauspisteeseen, ja antaa jokaiselle pisteelle oman tasonsa — muuten saman pisteen kaksi suuntaa näyttäisivät kahdelta riippumattomalta todisteelta, vaikka ne jakavat saman tien, saman sään ja saman liikenteen.
+
+Kiinnostava luku on **yhdysvaikutus**: kuinka paljon enemmän ylitysosuus laski jälkijaksolla niissä suunnissa, joissa kamera on edessä, verrattuna niihin joissa kameraa ei ole lähellä.
+
+```{r}
+#| label: malli-etaisyys
+#| results: hide
+
+# HUOM: brms tallentaa mallin file-polkuun. Jos muutat kaavaa tai aineistoa,
+# POISTA tiedosto ensin - muuten vanha malli latautuu hiljaisesti.
+
+malli_data <- yoy_suunta |>
+  mutate(lam_id = factor(lam_id),
+         altistus = fct_relevel(altistus, "ei_kameraa"))
+
+priorit <- c(
+  prior(normal(0, 5), class = "b"),
+  prior(normal(0, 5), class = "Intercept"),
+  prior(exponential(1), class = "sd"),
+  prior(exponential(1), class = "sigma")
+)
+
+malli_alt <- brm(
+  d_yli6 ~ jalkeen * altistus + (1 + jalkeen | lam_id),
+  data = malli_data, family = student(), prior = priorit,
+  chains = 4, iter = 4000, warmup = 1000, seed = 20260825,
+  control = list(adapt_delta = 0.95),
+  file = file.path(PP_DATA, "malli_altistus")
+)
+```
+
+```{r}
+#| label: fig-malli
+#| fig-cap: "Mallin arvio siitä, kuinka paljon enemmän ylitysosuus laski kuhunkin altistusluokkaan kuuluvissa suunnissa verrattuna siihen, ettei kameraa ole lähellä. Käyrän leveys kertoo epävarmuuden: kapea käyrä tarkoittaa, että malli on asiasta melko varma."
+#| fig-height: 4
+
+draws <- as_draws_df(malli_alt)
+nimet <- names(draws)[str_detect(names(draws), "^b_jalkeen:altistus")]
+
+# TARKISTUS: molempien vertailuluokkien kertoimien pitää löytyä.
+stopifnot(length(nimet) == 2)
+
+yhdysvaikutukset <- map_dfr(nimet, function(nm) {
+  tunnus <- str_remove(nm, "^b_jalkeen:altistus")
+  tibble(luokka = unname(ALTISTUS_NIMET[tunnus]), arvo = draws[[nm]])
+})
+
+stopifnot(!any(is.na(yhdysvaikutukset$luokka)))
+
+yhdysvaikutukset <- yhdysvaikutukset |>
+  mutate(luokka = factor(luokka, levels = unname(ALTISTUS_NIMET)))
+
+yhdysvaikutukset |>
+  ggplot(aes(arvo, luokka, fill = luokka)) +
+  geom_vline(xintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  stat_halfeye(.width = c(0.5, 0.95), point_interval = "median_qi",
+               alpha = 0.8, slab_colour = NA) +
+  scale_fill_manual(values = varit_altistus, guide = "none") +
+  labs(
+    title = "Kameran suunta ratkaisee",
+    subtitle = "Lisävaikutus verrattuna suuntiin, joissa kameraa ei ole 600 metrin sisällä",
+    x = "Lisävaikutus ylitysosuuteen (pp, negatiivinen = enemmän hidastusta)",
+    y = NULL,
+    caption = "Bayesilainen hierarkkinen malli, Studentin t-jakauma. Mittauspisteet satunnaisvaikutuksena."
+  )
+```
+
+```{r}
+#| label: tbl-malli
+#| tbl-cap: "Yhdysvaikutukset numeroina. Uskottavuusväli kertoo, minkä välillä todellinen arvo on 95 %:n todennäköisyydellä."
+
+yhdysvaikutukset |>
+  group_by(luokka) |>
+  summarise(
+    mediaani = median(arvo),
+    ala = quantile(arvo, 0.025),
+    yla = quantile(arvo, 0.975),
+    p_neg = mean(arvo < 0),
+    .groups = "drop") |>
+  transmute(
+    Altistusluokka = luokka,
+    `Lisävaikutus (pp)` = sprintf("%.2f", mediaani),
+    `95 %:n uskottavuusväli` = sprintf("%.2f … %.2f", ala, yla),
+    `Todennäköisyys negatiiviselle` = sprintf("%.0f %%", 100 * p_neg)
+  ) |>
+  knitr::kable()
+```
+
+```{r}
+#| label: ero-laskenta
+
+edessa_draws <- yhdysvaikutukset |>
+  filter(str_detect(luokka, "edessä")) |> pull(arvo)
+takana_draws <- yhdysvaikutukset |>
+  filter(str_detect(luokka, "takana")) |> pull(arvo)
+
+ero <- edessa_draws - takana_draws
+p_kenguru <- mean(ero < 0)
+```
+
+## Kenguruhyppy
+
+Edellinen taulukko antaa suoran vastauksen kenguruhyppyyn. Jos kuljettajat hidastavat kameraa lähestyessään ja kiihdyttävät heti sen jälkeen, "kamera edessä" -suuntien vaikutuksen pitäisi olla selvästi suurempi kuin "kamera takana" -suuntien.
+
+Koska molemmista on posteriorijakauma, voin laskea niiden **erotuksen jakauman** suoraan — en vertaa kahta piste-estimaattia vaan kahta jakaumaa.
+
+Mallin mukaan todennäköisyys sille, että vaikutus on suurempi kameraa lähestyttäessä kuin sen ohitettua, on **`r sprintf("%.0f", 100 * p_kenguru)` %**. Erotuksen mediaani on `r sprintf("%.2f", median(ero))` prosenttiyksikköä.
+
+```{r}
+#| label: fig-kenguru
+#| fig-cap: "Erotuksen jakauma: kuinka paljon suurempi vaikutus on kameraa lähestyttäessä kuin sen ohitettua. Nollan vasemmalla puolella oleva massa tukee kenguruhyppyä, oikealla puolella oleva puhuu sitä vastaan."
+#| fig-height: 3.6
+
+tibble(ero = ero) |>
+  ggplot(aes(ero)) +
+  geom_vline(xintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  stat_halfeye(.width = c(0.5, 0.95), point_interval = "median_qi",
+               fill = PP_VARI_KOLMAS, alpha = 0.8, slab_colour = NA) +
+  labs(
+    title = "Hidastetaanko kameraa kohti enemmän kuin sen jälkeen?",
+    subtitle = sprintf("Todennäköisyys kenguruhypylle: %.0f %%", 100 * p_kenguru),
+    x = "Erotus: kamera edessä − kamera takana (pp)", y = NULL,
+    caption = "Erotus laskettu posteriorijakaumista havainto havainnolta, ei piste-estimaateista."
+  )
+```
+
+::: {.callout-note}
+## Faktalaatikko: mitä tutkimus sanoo etäisyydestä ja kenguruhypystä
+
+**Etäisyysvaimeneminen.** Alena Høyen meta-analyysi (Accident Analysis &
+Prevention 2014) kokosi 63 vaikutusarviota 15 tutkimuksesta ja havaitsi,
+että kiinteiden nopeuskameroiden onnettomuusvaikutus heikkenee sitä mukaa
+kun etäisyys kameraan kasvaa. Kamera ei paranna tietä, se parantaa kohtaa.
+
+**Kenguruhyppy.** Sama meta-analyysi nosti esiin kuljettajien
+sopeutumiskäyttäytymisen: hidastetaan kameran kohdalla ja kiihdytetään
+heti perään. Ilmiö on syy siihen, miksi kiinteiden kameroiden rinnalle on
+kehitetty keskinopeusvalvontaa, jossa nopeus mitataan kahden pisteen
+välisestä matka-ajasta eikä yhdestä kohdasta.
+
+**Keskinopeusvalvonta.** Høyen aineistossa keskinopeusvalvonnasta oli vain
+viisi vaikutusarviota neljästä tutkimuksesta, eli näyttö on selvästi
+ohuempaa kuin kiinteistä kameroista. Myöhemmät tutkimukset ovat tukeneet
+sitä, että keskinopeusvalvonta vaikuttaa pidemmälle matkalle.
+
+**Vaikutuksen suuruus.** Tuore systemaattinen katsaus (Accident Analysis &
+Prevention 2026) kävi läpi 94 tutkimusta ja sai kameran välittömän
+läheisyyden yhdistetyksi nopeusvaikutukseksi −7,57 km/h
+(95 %:n luottamusväli −10,48…−4,66).
+:::
+
+## Vaikutus jatkuvana etäisyyden funktiona
+
+Kuusisataa metriä on mielivaltainen raja. Entä jos etäisyyttä käsitellään jatkuvana?
+
+Tässä on vastassa aineiston todellinen rajoite. Kehä I:n varrella on kymmenen mittauspistettä, joista vakaita on `r length(intersect(pp_vakaat, pp_kehaI))`. Kun ne jaetaan kahteen suuntaan, havaintoja on `r nrow(ej_suunta)` — ja ne eivät jakaudu tasaisesti etäisyysakselille. Jatkuva käyrä olisi tällä aineistolla enimmäkseen mallin oletuksia, ei dataa.
+
+Piirrän silti hajontakuvan, koska se näyttää rehellisesti, mitä aineistossa on.
+
+```{r}
+#| label: fig-jatkuva
+#| fig-cap: "Vaikutus suhteessa etäisyyteen edessä olevaan kameraan. Vaaka-akseli on logaritminen, eli yhtä suuri siirtymä vastaa yhtä suurta suhteellista muutosta etäisyydessä. Suorat viivat ovat pelkkä apuviiva silmälle, eivät malliennuste."
+#| fig-height: 4.6
+
+ej_suunta |>
+  filter(!is.na(edessa_m)) |>
+  ggplot(aes(edessa_m, muutos_yli6)) +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, colour = PP_VARI_HIMMEA,
+              fill = "grey90", linewidth = 0.5, linetype = "22") +
+  geom_point(aes(colour = altistus_nimi), size = 3.2) +
+  geom_text(aes(label = lam_id), size = 3, vjust = -1.1,
+            colour = PP_VARI_HIMMEA) +
+  scale_x_log10(breaks = c(100, 300, 1000, 3000),
+                labels = scales::comma_format(big.mark = " ")) +
+  scale_colour_manual(values = varit_altistus, guide = "none") +
+  labs(
+    title = "Mitä kauempana kamera on edessä, sitä vähemmän se vaikuttaa",
+    subtitle = "Numerot ovat mittauspisteiden tunnuksia",
+    x = "Etäisyys edessä olevaan kameraan, metriä (logaritminen asteikko)",
+    y = "Ylitysosuuden muutos yli vuoden 2025 tason (pp)",
+    caption = "Lähde: Fintraffic / Digitraffic, OpenStreetMap."
+  )
+```
+
+## Mitä tämä muutti
+
+Ensimmäisessä osassa etäisyyden ja vaikutuksen yhteys jäi epäselväksi. Linnuntie-etäisyys antoi järjestyskorrelaatioksi noin 0,61, mikä ei seitsemällä pisteellä riittänyt mihinkään.
+
+Muuttujan vaihtaminen teki kaksi asiaa. Se **kaksinkertaisti havaintojen määrän**, koska jokainen piste on kaksi havaintoa — yksi kumpaankin suuntaan. Ja ennen kaikkea se **lopetti kahden erilaisen tilanteen sekoittamisen**: kameraa lähestyvä ja kameran ohittanut eivät ole sama asia, vaikka mittari onkin sama laite.
+
+Tämä on yleinen kuvio. Kun muuttujan ja tuloksen välinen yhteys näyttää heikolta, ensimmäinen kysymys ei ole "tarvitaanko lisää dataa" vaan **"mittaanko minä oikeaa asiaa"**. Lisädatan hankkiminen on kallista. Muuttujan uudelleenmäärittely on halpaa.
+
+## Mitä data ei kerro
+
+**Kameroiden suuntaa ei tiedetä.** OpenStreetMapin kamerapisteillä ei ole tässä aineistossa suuntatietoa, joten en tiedä, kumpaa ajosuuntaa kukin kamera valvoo. Oletan, että kamera vaikuttaa molempiin suuntiin — mikä on väärin, jos kamera valvoo vain yhtä. Tämä vaimentaa havaittua vaikutusta, ei vahvista sitä, eli tulos on pikemminkin aliarvio.
+
+**Kameroiden toiminnasta ei ole tietoa.** OSM kertoo, missä kameratolppa on. Se ei kerro, onko tolpassa kameraa tai onko se päällä. Poliisi ei julkista tätä. Osa "kamera edessä" -havainnoista voi siis olla tyhjiä tolppia.
+
+**Kuusisadan metrin raja on valinta.** Kokeilin sitä, ja tulos kestää rajan siirtelyn välillä 400–800 metriä. Sitä suuremmilla rajoilla luokat sekoittuvat, pienemmillä havaintoja jää liian vähän.
+
+**Kymmenen pistettä on vähän.** Etäisyysvaimenemisen muoto — onko se lineaarinen, eksponentiaalinen vai jyrkkä kynnys — ei ratkea tällä aineistolla. Siihen tarvittaisiin mittauspisteitä kymmenien metrien välein, ja niitä ei ole.
+
+::: {.callout-important}
+## Mitä tällä tekee yrityksessä
+
+Tämän osan menetelmä on **altistuksen mallintaminen etäisyyden ja suunnan
+avulla**, ja se siirtyy sellaisenaan moneen paikkaan.
+
+**Myymälän vaikutusalue.** Kuinka kauas uuden toimipisteen vaikutus yltää?
+Linnuntie-etäisyys asiakkaan kotiin on sama virhe kuin tässä: oikea
+muuttuja on matka-aika tieverkkoa pitkin, ja usein myös suunta —
+työmatkan varrella oleva kauppa on eri asia kuin vastakkaiseen suuntaan
+jäävä.
+
+**Markkinoinnin maantiede.** Ulkomainonnan, tapahtumien ja paikallisen
+kampanjoinnin vaikutus vaimenee etäisyyden mukana. Jos mittaat sen
+postinumeroalueittain, mittaat hallinnollista rajaa etkä altistusta.
+
+**Valvonnan kattavuus.** Jos vastaat riskienhallinnasta tai
+väärinkäytösten torjunnasta, sama kysymys on olemassa ilman maantiedettä:
+kuinka kauas tarkastuksen pelotevaikutus ulottuu — organisaatiossa,
+toimittajaverkostossa, asiakaskunnassa? Ja vaimeneeko se, kun
+tarkastuksesta on kulunut aikaa? Kenguruhyppy on tässä se olennainen
+kysymys: palautuuko käyttäytyminen heti, kun valvonta siirtyy muualle.
+
+**Ennen–jälkeen ei riitä, tarvitaan altistusgradientti.** Vahvin näyttö
+vaikutuksesta ei ole se, että jokin muuttui, vaan se että se muuttui
+enemmän siellä missä altistus oli suurempi. Jos pystyt järjestämään
+kohteesi altistuksen mukaan, saat kausaalipäätelmään tukea, jota pelkkä
+ennen–jälkeen-vertailu ei anna.
+
+Teen tämäntyyppisiä analyysejä toimeksiantoina.
+[Varaa puolen tunnin keskustelu](https://cal.com/kristianvepsalainen),
+niin katsotaan mihin kysymykseen sinun datassasi on vastaus.
+:::
+
+## Aineisto ja toistettavuus
+
+LAM-raakadata on Fintrafficin / Digitrafficin (CC BY 4.0), kamerasijainnit ja tiegeometria OpenStreetMapista (ODbL). Projisointi ja paaluluvut lasketaan `sf`-paketilla, kaikki vektorimuotoisena.
+

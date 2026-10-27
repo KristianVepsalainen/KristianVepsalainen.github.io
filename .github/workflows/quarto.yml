@@ -151,7 +151,10 @@ jobs:
             "dodgr",
             "lwgeom", 
             "spdep", 
-            "finlex" 
+            "finlex",
+            "coin",
+            "fixest",
+            "scoringRules"
           ))
 
         shell: Rscript {0}

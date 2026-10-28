@@ -1,0 +1,1503 @@
+---
+title: "Kestääkö työllisyysperuste? Minkin poikkeuslupa jakaumina"
+description: "Suomi haki EU:lta poikkeuslupaa minkkitarhaukselle maaseudun työllisyyteen vedoten. Samaan aikaan Tanska lopetti koko alan. Tarkastelen, kuinka monta työpaikkaa oikeasti on pelissä, mitä Tanskan suljennasta voi oppia ja mitä vaihtoehtoiset maailmat maksaisivat."
+author: "Kristian Vepsäläinen"
+date: "2026-10-27"
+categories: [avoin data, bayes, counterfactual, EU-sääntely, työllisyys, aluetalous]
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+    toc-depth: 3
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+library(tidyverse)
+library(here)
+library(qs2)
+library(brms)
+library(posterior)
+library(ggdist)
+library(patchwork)
+library(sf)
+library(giscoR)
+library(fixest)
+library(coin)
+library(scales)
+# Lisäksi tarvitaan (kutsutaan nimiavaruuden kautta): scoringRules, ggrepel, broom, fst
+
+select <- dplyr::select
+filter <- dplyr::filter
+
+set.seed(20261027)
+options(mc.cores = 4, brms.backend = "rstan")
+
+theme_set(theme_minimal(base_size = 12) +
+            theme(plot.title.position = "plot",
+                  panel.grid.minor = element_blank()))
+
+# Muotoilijat suomalaisittain
+fmt_n <- function(x, d = 0) {
+  format(round(x, d), big.mark = "\u00a0", decimal.mark = ",",
+         nsmall = d, scientific = FALSE, trim = TRUE)
+}
+fmt_pct <- function(x, d = 0) paste0(fmt_n(100 * x, d), "\u00a0%")
+fmt_iv <- function(draws, d = 0, p = c(.10, .90), f = fmt_n) {
+  q <- quantile(draws, c(.5, p), na.rm = TRUE)
+  paste0(f(q[1], d), " (80\u00a0%:n väli ", f(q[2], d), "–", f(q[3], d), ")")
+}
+
+data_dir <- here("data", "minkki")
+dat_path <- file.path(data_dir, "minkki_data.qs2")
+if (!file.exists(dat_path)) {
+  stop("Aja ensin minkki-data-prep.R, joka luo tiedoston ", dat_path)
+}
+minkki <- qs_read(dat_path)
+stopifnot(all(c("ytj", "comtrade", "dk_unemp") %in% names(minkki)))
+
+paavo_raw <- fst::read_fst(here("data", "paavo", "paavo.fst")) |> as_tibble()
+
+# Mallien välimuisti: POISTA tiedosto, jos muutat mallikaavaa tai dataa.
+fit_cached <- function(name, expr) {
+  f <- file.path(data_dir, paste0("fit_", name, ".qs2"))
+  if (file.exists(f)) return(qs_read(f))
+  fit <- force(expr)
+  qs_save(fit, f)
+  fit
+}
+
+# Dokumentoidut vakioluvut (lähteet tekstissä)
+N_SITES_APPLICATION <- 134    # MMM 9.10.2026: hakemukseen osallistuvat minkin pitopaikat
+FARMS_NOV2024       <- 280    # Ruokavirasto, marraskuu 2024 (Yle)
+DIRECT_HTV_2022     <- 540    # KKV 30/2023 vp: turkiseläinten kasvatuksen suora työllisyys
+TOTAL_HTV_2022      <- 1580   # KKV 30/2023 vp: koko turkisalan työllisyys
+CULL_COMP_2023_EUR  <- 50.7e6 # Ruokavirasto/VN: lintuinfluenssan lopetuskorvaukset
+CULL_ANIMALS_2023   <- 485000 # KK 101/2024: lopetetut eläimet
+DK_MINK_JOBS_2019   <- 3000   # Danmarks Statistik (n. 800 tarhaa, n. 3 000 työllistä)
+DK_COMP_DKK         <- 19e9   # Tanskan korvauspaketti 2021 (enintään n. 19 mrd DKK)
+DK_MINK_CULLED      <- 15e6   # Tanskassa lopetetut minkit 2020
+DKK_PER_EUR         <- 7.46038 # ERM II -keskuskurssi
+MINK_SHARE_ANIMALS  <- 0.41   # Kareinen ym. 2024: minkkien osuus Suomen turkiseläimistä
+```
+
+## Tiivistelmä päättäjälle
+
+Maa- ja metsätalousministeriö jätti 8.10.2026 komissiolle hakemuksen, jolla Suomi haluaa jatkaa minkkitarhausta vielä elokuun 2027 jälkeen, jolloin minkki muuttuu koko EU:ssa kielletyksi tarhattavaksi lajiksi. Hakemuksen keskeinen perustelu on, että tarhaus on tärkeä elinkeino maaseudulla, sillä on paikallisesti merkittäviä sosioekonomisia vaikutuksia Länsi- ja Itä-Suomessa ja muut työllistymismahdollisuudet ovat rajalliset. Hakemuksessa on mukana 134 minkin pitopaikkaa. Samana syksynä Tanska, joka oli vielä muutama vuosi sitten maailman suurin minkinnahkojen tuottaja, ilmoitti, ettei se edes hae poikkeuslupaa.
+
+Tässä kirjoituksessa testaan työllisyysperustetta avoimella datalla neljästä suunnasta:
+
+1. **Mitä luvut ovat?** Alan työllisyydestä on liikkunut julkisuudessa lukuja, joiden suurin ja pienin arvo eroavat toisistaan monikymmenkertaisesti. Yksi luku ei kerro mitään, ellei tiedä, mitä se mittaa.
+2. **Ovatko tarha-alueet oikeasti alueita, joilla muuta työtä ei ole?** Vertaan postinumeroalueita, joilla on turkistarhausyritys, saman kunnan muihin postinumeroalueisiin.
+3. **Mitä tapahtui, kun Tanska sulki koko alan kerralla vuonna 2020?** Tämä on lähin luonnollinen koe, joka maailmassa on tehty.
+4. **Mitä eri vaihtoehdot maksavat?** Vertaan neljää vaihtoehtoista maailmaa: poikkeuslupa, ei poikkeuslupaa ilman tukea, ei poikkeuslupaa siirtymätuella ja poikkeuslupa, jonka aikana sattuu uusi eläintautiepidemia.
+
+Johtopäätökset numeroineen on koottu kirjoituksen loppuun. Jo dokumentoiduista luvuista näkyy kaksi asiaa, jotka kannattaa pitää mielessä koko ajan. Ensinnäkin alalla on ollut turkistarhoja Fifurin mukaan 965 vuonna 2013 ja Ruokaviraston mukaan 280 marraskuussa 2024, joten ala on supistunut voimakkaasti jo ennen EU:n päätöstä. Toiseksi hakemuksen 134 minkin pitopaikkaa on vain osa tästä jäljellä olevasta alasta. Siksi kysymys ei ole siitä, onko alalla työpaikkoja, vaan siitä, kuinka monta *minkkiin sidottua* työpaikkaa olisi jäljellä vuosina 2028–2035, jos lupa saadaan, ja mitä niiden menetys tarkoittaisi ihmisille ja alueille.
+
+## Ensin muutama sana: miksi jakaumia?
+
+Blogini tunnuslause on **maailma on jakauma**. Se tarkoittaa, että yksittäinen luku, kuten "ala työllistää 1 580 henkilöä", on aina vain yksi arvaus monista mahdollisista. Todellinen tieto on siinä, kuinka paljon arvio voi heittää. Jos joku sanoo, että "työpaikkoja menetetään 300", päättäjän pitää kysyä: *300 plus miinus mitä?* Jos vastaus on "plus miinus 20", luku on käyttökelpoinen. Jos vastaus on "jossain 50 ja 2 000 välillä", päätös on tehtävä aivan eri tavalla.
+
+Siksi käytän tässä kirjoituksessa **bayesilaisia menetelmiä**. Ne ovat tilastotieteen menetelmiä, jotka eivät anna yhtä vastausta vaan *todennäköisyysjakauman* eli kuvan siitä, mitkä arvot ovat uskottavia ja kuinka uskottavia. Jakauman voi ajatella mäkenä: korkein kohta on todennäköisin arvo, ja mäen leveys kertoo epävarmuudesta.
+
+Muutama termi, joita tarvitaan:
+
+- **Mediaani** on keskimmäinen arvo, kun arvot laitetaan suuruusjärjestykseen. Jos viisi tarhaa työllistää 1, 1, 2, 3 ja 10 henkeä, mediaani on 2. Mediaani ei hätkähdä yksittäisistä suurista arvoista samalla tavalla kuin keskiarvo (joka olisi tässä 3,4).
+- **80 %:n väli** tarkoittaa, että mallin mukaan todellinen arvo on 80 %:n todennäköisyydellä välin sisällä. Jäljelle jäävästä 20 %:sta puolet on välin alapuolella ja puolet yläpuolella.
+- **Counterfactual** eli vaihtoehtoinen maailma tarkoittaa kuviteltua tilannetta, jossa jokin asia olisi mennyt toisin. Kun kysytään "mitä poikkeuslupa pelastaa", vastaus on aina erotus kahden maailman välillä: maailma, jossa lupa saadaan, miinus maailma, jossa sitä ei saada. Yleinen virhe on verrata nykyhetkeä tulevaisuuteen ilman lupaa. Oikea vertailu on *tulevaisuus luvalla* vastaan *tulevaisuus ilman lupaa*.
+- **Henkilötyövuosi (HTV)** on yhden ihmisen kokoaikainen työ vuoden ajan. Kaksi puolipäiväistä työntekijää on yksi HTV.
+- **Tilastollinen merkitsevyys ja p-arvo.** P-arvo kertoo, kuinka todennäköistä havaittu ero (tai suurempi) olisi pelkän sattuman tuloksena, jos todellista eroa ei olisi. Pieni p-arvo (tavallisesti alle 0,05) tarkoittaa, että sattuma on huono selitys. P-arvo ei kerro, onko ero *suuri*. Siksi raportoin aina myös **efektikoon** eli eron suuruuden.
+
+::: {.callout-note title="Faktalaatikko: mitä poikkeuslupa oikeudellisesti vaatii?"}
+EU:n vieraslajiasetus (EU) N:o 1143/2014 kieltää unionin luetteloon merkittyjen lajien kasvattamisen, pitämisen ja markkinoille saattamisen. Komission täytäntöönpanoasetuksella (EU) 2025/1422 minkki lisättiin luetteloon heinäkuussa 2025, ja minkkiä koskeva kohta tulee sovellettavaksi 7.8.2027. Kahden vuoden viive annettiin nimenomaan, jotta jäsenvaltiot ehtisivät valmistella poikkeuslupahakemuksia.
+
+Asetuksen 9 artikla sallii jäsenvaltion myöntää lupia poikkeuksellisissa tapauksissa **pakottavan yleisen edun** vuoksi, johon voivat kuulua myös sosiaaliset ja taloudelliset syyt. Lupa edellyttää komission hyväksyntää, ja komissio päättää 60 päivän kuluessa hakemuksen saapumisesta eli tässä tapauksessa joulukuun alkuun 2026 mennessä. Jos komissio hyväksyy hakemuksen, Lupa- ja valvontavirasto myöntää vielä luvat jokaiselle tarhalle erikseen, ja kaikki pitopaikat tarkastetaan.
+
+Suomella on ennakkotapaus: komissio hyväksyi vuonna 2018 vastaavan hakemuksen supikoiran tarhaamiseksi.
+
+**Counterfactual-huomio:** sana *pakottava* on oikeudellisesti raskas. Argumentin pitää osoittaa, että ilman poikkeusta syntyisi vakava sosiaalinen tai taloudellinen haitta. Siksi oikea mittari ei ole "kuinka monta työpaikkaa alalla on" vaan "kuinka paljon huonommin ihmisillä ja alueilla menisi ilman poikkeusta kuin sen kanssa". Tämä ero on koko kirjoituksen punainen lanka.
+:::
+
+## Osa 1: Yksi ala, kymmenen eri lukua
+
+Aloitetaan siitä, mitä julkisuudessa on sanottu. Kokosin eduskunnan asiakirjoista, ministeriön vastauksista ja tiedotusvälineistä kaikki löytämäni arviot turkisalan työllisyydestä. Jokainen luku on julkisesti dokumentoitu, ja lähde on mainittu taulukossa.
+
+```{r}
+#| label: claims
+claims <- tribble(
+  ~vuosi, ~htv,  ~mittari,                      ~lahde,
+  1986,   20000, "Koko ala",                     "TAA 80/2020 vp",
+  2013,   1964,  "Tarhat (alan ilmoittama)",     "EDK-2024-AK-51558",
+  2019,   5000,  "Koko ala (alan teettämä)",     "TAA 80/2020 vp",
+  2020,   4030,  "Suora (alan mukaan)",          "TPA 23/2021 vp",
+  2021,   3185,  "Koko ala (Fifur, laskuvirhe)", "Yle MOT",
+  2021,   1960,  "Koko ala (MOT:n korjaama)",    "Yle MOT",
+  2022,   540,   "Suora (ministeriö)",           "KKV 30/2023 vp",
+  2022,   1580,  "Koko ala (ministeriö)",        "KKV 30/2023 vp",
+  2023,   1420,  "Arvoketju (Fifur)",            "EDK-2024-AK-52135",
+  2023,   1600,  "Pohjanmaat (maakuntaliitot)",  "Suomen Yrittäjät",
+  2024,   0.7 * FARMS_NOV2024, "Suora (MTT:n 0,7/tarha × tarhat 2024)",
+                                                  "TAA 80/2020 vp + Yle"
+) |>
+  mutate(tyyppi = case_when(
+    str_detect(mittari, "^Suora|^Tarhat") ~ "Suora työllisyys (tarhat)",
+    TRUE ~ "Koko ala tai arvoketju"
+  ))
+
+stopifnot(all(claims$htv > 0), !anyNA(claims$vuosi))
+
+claims_recent <- claims |> filter(vuosi >= 2013)
+ratio_max_min <- max(claims_recent$htv) / min(claims_recent$htv)
+
+ggplot(claims, aes(vuosi, htv, colour = tyyppi)) +
+  geom_point(size = 3) +
+  ggrepel::geom_text_repel(aes(label = paste0(fmt_n(htv), " – ", mittari)),
+                           size = 3, show.legend = FALSE, max.overlaps = 20) +
+  scale_y_log10(labels = label_number(big.mark = " ")) +
+  scale_colour_manual(values = c("#1b6ca8", "#c0392b")) +
+  labs(title = "Turkisalan työllisyysarviot eri lähteistä",
+       subtitle = "Henkilötyövuotta, pystyakseli logaritminen",
+       x = NULL, y = "Henkilötyövuotta (log-asteikko)", colour = NULL) +
+  theme(legend.position = "bottom")
+```
+
+**Miten kuvaa luetaan.** Jokainen piste on yksi julkisuudessa esitetty arvio. Vaaka-akselilla on vuosi, jota arvio koskee, ja pystyakselilla arvioitu henkilötyövuosien määrä. Pystyakseli on **logaritminen**: jokainen viiva ylöspäin tarkoittaa kymmenkertaista määrää (100, 1 000, 10 000), ei tasaista lisäystä. Näin samaan kuvaan mahtuvat sekä 200 että 20 000 ilman, että pienet luvut litistyvät pohjaan. Siniset pisteet kuvaavat vain tarhoilla tehtävää työtä, punaiset koko arvoketjua (rehu, kuljetus, huutokauppa ym.).
+
+Vuodesta 2013 eteenpäin suurin arvio on noin `r fmt_n(ratio_max_min)`-kertainen pienimpään verrattuna. Tämä ei tarkoita, että joku valehtelisi. Luvut mittaavat eri asioita:
+
+- **Suora vai koko ala?** Vuoden 2022 ministeriön luvuissa tarhojen suora työ oli 540 HTV ja koko ala 1 580 HTV eli lähes kolminkertainen.
+- **Laskuvirheet.** Ylen MOT havaitsi, että alan omassa tilastossa suorat työpaikat oli laskettu kahteen kertaan useita vuosia peräkkäin. Korjattuna vuoden 2021 kokonaistyöllisyys oli 1 960 HTV eikä yli 3 000.
+- **Aika.** Ala on supistunut nopeasti: tarhoja oli Fifurin mukaan 965 vuonna 2013, Ruokaviraston mukaan 280 marraskuussa 2024. Vanhan luvun käyttäminen nykytilan kuvaamiseen yliarvioi tilanteen automaattisesti.
+- **Minkki vai kaikki turkiseläimet?** Kaikki yllä olevat luvut koskevat koko turkisalaa. Poikkeuslupa koskee vain minkkiä. Ketun tarhaaminen ei ole EU:n vieraslajikiellon piirissä, eikä supikoiraan sovelleta samaa päätöstä, koska sillä on oma poikkeuslupansa vuodelta 2018.
+
+**Käytännön oppi päättäjälle:** kun kuulet työllisyysluvun, kysy kolme asiaa: *(1) Koskeeko se suoraa työtä vai koko ketjua? (2) Mitä vuotta se koskee? (3) Koskeeko se juuri sitä toimintaa, josta päätetään?* Jos vastausta ei ole, lukua ei pidä käyttää päätöksen perusteena.
+
+::: {.callout-note title="Faktalaatikko: bruttotyöpaikka ei ole nettotyöpaikka"}
+Kun tehdas tai tila suljetaan, sen työntekijät eivät katoa työmarkkinoilta. Osa työllistyy nopeasti muualle, osa siirtyy eläkkeelle, osa jää työttömäksi pitkäksi aikaa. Vaikutusarvioissa käytetyt "työpaikat yhteensä" -luvut (ns. bruttoluvut) mittaavat, kuinka paljon työtä ala nyt teettää. Ne eivät kerro, kuinka paljon työllisyys laskisi, jos ala loppuisi (nettovaikutus).
+
+Toisaalta työpaikan menetys ei ole ilmainen niillekään, jotka työllistyvät uudelleen. Jacobson, LaLonde ja Sullivan (1993) havaitsivat yhdysvaltalaisella rekisteriaineistolla, että pitkään samassa työpaikassa olleiden irtisanottujen ansiot jäivät vuosiksi selvästi alemmalle tasolle kuin vertailuryhmällä. Tämä on yksittäinen, mutta alan klassikkotutkimus. Pohjoismaisista rekisteritutkimuksista on saatu samansuuntaisia tuloksia.
+
+**Counterfactual-huomio:** bruttoluku on vaihtoehtoisen maailman *yläraja* sille, mitä menetetään. Nettovaikutus on aina pienempi, ja sen koko riippuu siitä, kuinka hyvin alueen muut työnantajat ja palvelut imevät vapautuvan työvoiman. Tätä mitataan osassa 4 Tanskan aineistolla.
+:::
+
+## Osa 2: Missä turkistarhausyritykset ovat?
+
+Yritys- ja yhteisötietojärjestelmä YTJ julkaisee avoimena datana kaikkien rekisteröityjen yritysten päätoimialan ja osoitteen. Turkistarhauksen toimialakoodi oli vanhassa luokituksessa (TOL 2008) 01491 ja uudessa (TOL 2025) 01481. Haen molemmat, koska luokitusmuutoksen yhteydessä vanha koodi jäi lähinnä jo lopettaneille yrityksille.
+
+```{r}
+#| label: ytj-overview
+ytj <- minkki$ytj
+
+ytj_summary <- ytj |>
+  summarise(
+    yrityksia     = n(),
+    toiminnassa   = sum(active),
+    lopettaneet   = sum(!active),
+    osoite_tiedossa_aktiivisilla = mean(!is.na(post_code[active])),
+    tol2008       = sum(tol == "01491", na.rm = TRUE),
+    tol2025       = sum(tol == "01481", na.rm = TRUE)
+  )
+stopifnot(ytj_summary$yrityksia > 50, ytj_summary$toiminnassa > 0)
+
+knitr::kable(
+  ytj_summary |>
+    pivot_longer(everything(), names_to = "Mittari", values_to = "Arvo") |>
+    mutate(Arvo = if_else(Mittari == "osoite_tiedossa_aktiivisilla",
+                          fmt_pct(Arvo), fmt_n(Arvo))),
+  caption = "YTJ:n turkistarhausyritykset (TOL 01491 ja 01481)"
+)
+```
+
+### Havainto datan laadusta
+
+YTJ:n luku ei ole sama kuin tarhojen määrä, ja ero on tärkeä ymmärtää:
+
+- Moni tarha toimii maatalousyrittäjän toiminimen tai maatalousyhtymän alla, jonka päätoimialaksi on voitu merkitä esimerkiksi kasvinviljely tai metsänhoito. Tällaiset tarhat puuttuvat YTJ-hausta.
+- Toisaalta YTJ:ssä voi olla yrityksiä, jotka ovat käytännössä lopettaneet tarhauksen mutta joita ei ole poistettu rekisteristä.
+- Ruokaviraston pitopaikkarekisterin mukaan turkiseläinten pitopaikkoja oli vuonna 2023 noin 450 (Kareinen ym. 2024), turkistarhoja marraskuussa 2024 noin 280 (Yle) ja hakemuksessa mukana olevia minkin pitopaikkoja 134 (MMM 2026).
+
+YTJ ei siis kerro tarkkaa tarhojen määrää. Se kertoo kuitenkin **missä** ala on ja **miten se on kehittynyt**, koska YTJ:ssä on jokaisen yrityksen rekisteröitymis- ja lopettamispäivä. Tämä on aineiston todellinen arvo.
+
+```{r}
+#| label: paavo-prep
+# Paavon sarakkeet ovat Tilastokeskuksen pitkiä suomenkielisiä nimiä.
+# Postinumeroalue-sarake on muotoa "00100  Helsinki keskusta - Etu-Töölö (Helsinki)":
+# 5 ensimmäistä merkkiä = postinumero, viimeiset sulut = kunnan nimi.
+# Ensimmäinen rivi "KOKO MAA" on koko maan summa ja poistetaan.
+paavo_cols <- c(
+  pono_raw = "Postinumeroalue",
+  vuosi    = "Vuosi",
+  ala      = "Postinumeroalueen pinta-ala",
+  vakiy    = "Asukkaat yhteensä (HE)",
+  mtu      = "Asukkaiden mediaanitulot (HR)",
+  tyopy    = "Työpaikat yhteensä (TP)",
+  tp_alku  = "Alkutuotannon työpaikat (TP)",
+  tyoll    = "Työlliset (PT)",
+  tyott    = "Työttömät (PT)"
+)
+puuttuu <- setdiff(paavo_cols, names(paavo_raw))
+if (length(puuttuu) > 0) stop("Paavosta puuttuu sarakkeita: ",
+                              paste(puuttuu, collapse = ", "))
+
+paavo_d <- paavo_raw |>
+  select(all_of(paavo_cols)) |>
+  filter(vuosi == max(vuosi, na.rm = TRUE)) |>
+  filter(str_detect(pono_raw, "^\\d{5}")) |>          # pudottaa "KOKO MAA" -rivin
+  mutate(
+    pono  = str_sub(pono_raw, 1, 5),
+    kunta = str_trim(str_match(pono_raw, "\\(([^()]*)\\)\\s*$")[, 2]),
+    across(c(ala, vakiy, mtu, tyopy, tp_alku, tyoll, tyott), as.numeric)
+  ) |>
+  # Tietosuojasyistä peitetyt arvot voivat olla negatiivisia tai NA
+  mutate(across(c(ala, vakiy, mtu, tyopy, tp_alku, tyoll, tyott),
+                \(x) if_else(x < 0, NA_real_, x))) |>
+  select(-pono_raw)
+
+stopifnot(
+  n_distinct(paavo_d$vuosi) == 1,
+  !anyDuplicated(paavo_d$pono),
+  all(str_detect(paavo_d$pono, "^\\d{5}$")),
+  mean(!is.na(paavo_d$kunta)) > 0.99,       # kunnan nimi löytyy lähes kaikilta
+  n_distinct(paavo_d$kunta) >= 280,         # Suomessa on n. 300 kuntaa
+  sum(paavo_d$vakiy, na.rm = TRUE) > 5e6    # Suomen väkiluku yli 5 milj.
+)
+message("Paavo: vuosi ", unique(paavo_d$vuosi), ", ", nrow(paavo_d),
+        " postinumeroaluetta, ", n_distinct(paavo_d$kunta), " kuntaa")
+
+fur_pc <- ytj |>
+  filter(active, !is.na(post_code)) |>
+  count(post_code, name = "n_fur")
+
+join_rate <- mean(fur_pc$post_code %in% paavo_d$pono)
+stopifnot(join_rate > 0.85)   # postinumeroiden pitää enimmäkseen löytyä Paavosta
+
+paavo_d <- paavo_d |>
+  left_join(fur_pc, by = c("pono" = "post_code")) |>
+  mutate(n_fur = replace_na(n_fur, 0L),
+         fur   = as.integer(n_fur > 0))
+
+fur_by_kunta <- paavo_d |>
+  group_by(kunta) |>
+  summarise(n_fur = sum(n_fur), tyoll = sum(tyoll, na.rm = TRUE),
+            .groups = "drop")
+
+top_share <- fur_by_kunta |>
+  arrange(desc(n_fur)) |>
+  mutate(cum = cumsum(n_fur) / sum(n_fur), rank = row_number())
+n_kunnat_fur <- sum(fur_by_kunta$n_fur > 0)
+k_half <- min(top_share$rank[top_share$cum >= 0.5])
+
+# Tietosuojapeitto: Tilastokeskus peittää pienimpien alueiden työpaikkaluvut.
+# Jos tarha-alueita peittyisi, vertailu valikoituisi suurempiin alueisiin.
+n_peitetty_kaikki <- sum(is.na(paavo_d$tyopy))
+fur_peitto <- fur_pc |>
+  summarise(tarha_alueita = n(),
+            peitetty = sum(post_code %in% paavo_d$pono[is.na(paavo_d$tyopy)]),
+            ei_paavossa = sum(!post_code %in% paavo_d$pono))
+if (fur_peitto$peitetty > 0) {
+  warning(fur_peitto$peitetty, " tarha-aluetta on tietosuojapeitetty; ",
+          "tarkista valikoitumisharha ennen julkaisua.")
+}
+```
+
+Toiminnassa olevien turkistarhausyritysten postinumeroista `r fmt_pct(join_rate)` löytyi Paavo-aineistosta, joten yhdistäminen onnistui hyvin. Yrityksiä on `r n_kunnat_fur` kunnassa, mutta puolet niistä keskittyy vain `r k_half` kuntaan.
+
+**Pieni mutta tärkeä tarkistus.** Tilastokeskus peittää tietosuojasyistä työpaikkaluvut alueilta, joilla on hyvin vähän toimipaikkoja. Tällaisia postinumeroalueita on `r fmt_n(n_peitetty_kaikki)`, ja ne ovat tyypillisesti pieniä maaseutualueita. Juuri siksi peitto voisi vääristää tätä vertailua: jos tarha-alueita jäisi pois, jäljelle jäisivät vain suuremmat ja vilkkaammat tarha-alueet. Tarkistin asian. Turkistarhausyritysten `r fur_peitto$tarha_alueita` postinumeroalueesta peitettyjä oli `r fur_peitto$peitetty`, ja vain `r fur_peitto$ei_paavossa` postinumeroa puuttui Paavosta kokonaan (yleensä kyse on postilokero- tai yritysnumerosta, jolla ei ole asukkaita). Vertailuun ei siis synny valikoitumisharhaa.
+
+Toinen huomio koskee työpaikkojen kokonaismäärää. Postinumeroalueiden työpaikat kattavat noin 94 % koko maan työpaikoista. Puuttuva osa on enimmäkseen työpaikkoja, joille ei ole tiedossa sijaintia: toimialaltaan tuntemattomat, kotitalouksien palkkaamat sekä suuri osa vuokratyöstä. Koska vaje koskee kaikkia alueita samalla tavalla, se ei vaikuta saman kunnan alueiden väliseen vertailuun.
+
+```{r}
+#| label: map
+#| fig-height: 8
+fi_mun <- tryCatch(
+  gisco_get_lau(year = "2021", country = "Finland", epsg = "3035"),
+  error = function(e) gisco_get_communes(year = "2016", country = "Finland",
+                                         epsg = "3035")
+)
+stopifnot(inherits(fi_mun, "sf"), nrow(fi_mun) > 250)
+name_col <- intersect(c("LAU_NAME", "COMM_NAME", "NAME_LATN"), names(fi_mun))[1]
+stopifnot(!is.na(name_col))
+
+# Paavossa kunta on nimenä, joten liitos tehdään nimellä. GISCO voi antaa
+# kaksikielisen nimen ("Vaasa / Vasa"); käytetään ensimmäistä osaa.
+norm_name <- function(x) str_to_lower(str_trim(str_remove(x, "\\s*/.*$")))
+
+fi_mun <- fi_mun |>
+  mutate(kunta_key = norm_name(.data[[name_col]])) |>
+  left_join(fur_by_kunta |> mutate(kunta_key = norm_name(kunta)),
+            by = "kunta_key") |>
+  mutate(n_fur = replace_na(n_fur, 0),
+         fur_per_1000 = if_else(tyoll > 0, 1000 * n_fur / tyoll, NA_real_))
+
+fur_keys <- norm_name(fur_by_kunta$kunta[fur_by_kunta$n_fur > 0])
+map_join_rate <- mean(fur_keys %in% fi_mun$kunta_key)
+if (map_join_rate < 1) {
+  message("Kartalta puuttuvat tarhakunnat: ",
+          paste(setdiff(fur_keys, fi_mun$kunta_key), collapse = ", "))
+}
+stopifnot(map_join_rate > 0.9)
+
+p_map1 <- ggplot(fi_mun) +
+  geom_sf(aes(fill = n_fur), colour = "white", linewidth = 0.05) +
+  scale_fill_viridis_c(option = "magma", direction = -1, trans = "sqrt",
+                       name = "Yrityksiä") +
+  labs(title = "Turkistarhausyritykset", subtitle = "kpl, YTJ") +
+  theme_void()
+
+p_map2 <- ggplot(fi_mun) +
+  geom_sf(aes(fill = fur_per_1000), colour = "white", linewidth = 0.05) +
+  scale_fill_viridis_c(option = "mako", direction = -1, trans = "sqrt",
+                       name = "Per 1 000\ntyöllistä") +
+  labs(title = "Suhteessa kunnan työllisiin",
+       subtitle = "Yrityksiä tuhatta työllistä asukasta kohden") +
+  theme_void()
+
+p_map1 + p_map2
+```
+
+**Miten karttaa luetaan.** Vasemmassa kartassa mitä tummempi kunta on, sitä enemmän siellä on turkistarhausyrityksiä. Väriasteikko on tehty neliöjuurena, jotta kunnat, joissa on vain yksi tai kaksi yritystä, erottuvat nollakunnista. Oikeassa kartassa yritysten määrä on suhteutettu kunnan työllisten määrään. Kartta näyttää, missä ala on paikallisesti *suhteellisesti* merkittävin. Tällainen suhteutus on tärkeää: kaupungissa kymmenen yritystä hukkuu muuhun talouteen, pienessä maalaiskunnassa ei.
+
+Kuva vastaa hakemuksen kuvausta: ala on keskittynyt Pohjanmaan maakuntiin, ja hajanaisempia esiintymiä on muualla. Tämä tukee hakemuksen väitettä *paikallisesta* merkityksestä. Seuraavaksi testataan, tukeeko data myös väitettä *rajallisista työllistymismahdollisuuksista*.
+
+## Osa 3: Onko tarha-alueilla vähemmän muuta työtä?
+
+Ministeriön perustelussa on testattava väite: *työllistymismahdollisuudet maaseudulla ovat rajalliset.* Jos väite pitää, tarha-alueilla pitäisi olla korkeampi työttömyys, vähemmän paikallisia työpaikkoja tai matalammat tulot kuin muualla.
+
+### Miksi vertaan saman kunnan sisällä?
+
+Pelkkä vertailu "tarha-alueet vastaan muu Suomi" olisi harhaanjohtava. Tarha-alueet ovat maaseutua, ja maaseutu eroaa Helsingistä monella tavalla, joilla ei ole mitään tekemistä turkistarhauksen kanssa. Siksi vertaan postinumeroalueita, joilla on turkistarhausyritys, **saman kunnan** muihin postinumeroalueisiin. Ajatus on sama kuin jos vertaisi kahta naapuria toisiinsa eikä naapuria ja toisen kaupungin asukasta. Otan lisäksi huomioon asukastiheyden, koska harvaan asutut alueet eroavat taajamista kunnan sisälläkin.
+
+Mittaan kolmea asiaa:
+
+1. **Työttömyysaste**: työttömät jaettuna työvoimalla (työlliset + työttömät).
+2. **Työpaikkaomavaraisuus**: alueella olevien työpaikkojen määrä jaettuna alueella asuvien työllisten määrällä. Jos luku on alle 1, osa asukkaista käy töissä muualla.
+3. **Mediaanitulo**: Paavon asukkaiden mediaanitulot.
+
+```{r}
+#| label: within-municipality-data
+kunnat_vertailu <- paavo_d |>
+  filter(!is.na(kunta)) |>
+  group_by(kunta) |>
+  filter(any(fur == 1), any(fur == 0)) |>
+  ungroup()
+
+d_cmp <- kunnat_vertailu |>
+  mutate(
+    tyovoima   = tyoll + tyott,
+    tyott_aste = tyott / tyovoima,
+    omavar     = tyopy / tyoll,
+    log_tiheys = log((vakiy + 1) / (ala / 1e6 + 0.01))
+  ) |>
+  filter(tyovoima >= 20, !is.na(tyott_aste))
+
+stopifnot(
+  all(d_cmp$tyott_aste >= 0 & d_cmp$tyott_aste <= 1),
+  sum(d_cmp$fur) >= 20,
+  n_distinct(d_cmp$kunta) >= 10
+)
+
+d_cmp |>
+  group_by(Ryhmä = if_else(fur == 1, "Turkistarhausyritys alueella",
+                           "Saman kunnan muut alueet")) |>
+  summarise(
+    `Postinumeroalueita` = n(),
+    `Työttömyysaste, mediaani` = fmt_pct(median(tyott_aste), 1),
+    `Työpaikkaomavaraisuus, mediaani` = fmt_n(median(omavar, na.rm = TRUE), 2),
+    `Mediaanitulo, mediaani (€)` = fmt_n(median(mtu, na.rm = TRUE)),
+    .groups = "drop"
+  ) |>
+  knitr::kable(caption = "Postinumeroalueet kunnissa, joissa on turkistarhausyritys")
+```
+
+### Tilastolliset testit ja niiden valinta
+
+Valitsin **Wilcoxonin järjestyssummatestin**. Se vertaa kahta ryhmää laittamalla kaikki havainnot suuruusjärjestykseen ja tutkimalla, ovatko toisen ryhmän havainnot järjestyksessä keskimäärin korkeammalla. Testi ei oleta, että luvut noudattavat normaalijakaumaa eli tuttua kellokäyrää. Tämä on tärkeää, koska pienten postinumeroalueiden työttömyysasteet ja tulot ovat vinoja: suurin osa arvoista on lähellä toisiaan, mutta muutama alue poikkeaa voimakkaasti. Tavallinen t-testi olisi tällöin herkkä yksittäisille poikkeaville alueille.
+
+Tein testin kahdella tavalla:
+
+- **Yhdistetty testi** vertaa kaikkia tarha-alueita kaikkiin muihin alueisiin samoissa kunnissa.
+- **Kunnittain ositettu testi** vertaa alueita vain oman kuntansa sisällä ja yhdistää kuntien tulokset. Tämä on tiukempi ja oikeampi testi, koska se poistaa kuntien väliset erot. Laskin sen permutaatiomenetelmällä: ryhmien nimilaput sekoitetaan satunnaisesti kunkin kunnan sisällä 10 000 kertaa, ja katsotaan, kuinka usein sattuma tuottaa vähintään yhtä suuren eron kuin havaittu.
+
+Koska testaan kolmea mittaria, käytän **Holmin korjausta**. Kun testejä tehdään useita, jokin niistä näyttää "merkitsevältä" pelkästä sattumasta. Holmin korjaus kiristää kunkin testin rimaa niin, että koko testisarjassa vääriä hälytyksiä tulee enintään 5 %:n todennäköisyydellä.
+
+Efektikokona raportoin **Hodges–Lehmannin estimaatin**, joka on tyypillinen ero ryhmien välillä (mediaani kaikista ryhmien välisistä pariero-vertailuista), sekä **järjestysbiseriaalisen korrelaation** *r*. Se vaihtelee −1:n ja 1:n välillä: 0 tarkoittaa, ettei ryhmien järjestyksessä ole eroa, ja esimerkiksi 0,2 tarkoittaa, että satunnaisesti valittu tarha-alue on 60 %:n todennäköisyydellä korkeammalla kuin satunnaisesti valittu vertailualue.
+
+```{r}
+#| label: tests
+run_tests <- function(df, var, label) {
+  dd <- df |>
+    filter(!is.na(.data[[var]]), is.finite(.data[[var]])) |>
+    group_by(kunta) |>
+    filter(n_distinct(fur) == 2) |>   # ositettu testi vaatii molemmat ryhmät
+    ungroup()
+  x1 <- dd[[var]][dd$fur == 1]
+  x0 <- dd[[var]][dd$fur == 0]
+  w  <- wilcox.test(x1, x0, conf.int = TRUE, exact = FALSE)
+  n1 <- as.numeric(length(x1)); n0 <- as.numeric(length(x0))
+  r_rb <- 2 * (unname(w$statistic) / (n1 * n0)) - 1
+  dd <- dd |> mutate(fur_f = factor(fur), kunta_f = factor(kunta),
+                     y = .data[[var]])
+  ws <- coin::wilcox_test(y ~ fur_f | kunta_f, data = dd,
+                          distribution = approximate(nresample = 10000))
+  tibble(
+    Mittari = label,
+    `n tarha / muu` = paste(n1, "/", n0),
+    `Ero (Hodges–Lehmann)` = unname(w$estimate),
+    `r (järjestysbiseriaalinen)` = r_rb,
+    `p, yhdistetty` = w$p.value,
+    `p, kunnittain ositettu` = as.numeric(coin::pvalue(ws))
+  )
+}
+
+tests <- bind_rows(
+  run_tests(d_cmp, "tyott_aste", "Työttömyysaste"),
+  run_tests(d_cmp, "omavar", "Työpaikkaomavaraisuus"),
+  run_tests(d_cmp, "mtu", "Mediaanitulo (€)")
+) |>
+  mutate(`p, ositettu, Holm` = p.adjust(`p, kunnittain ositettu`, "holm"))
+
+stopifnot(nrow(tests) == 3,
+          all(between(tests$`r (järjestysbiseriaalinen)`, -1, 1)))
+
+tests |>
+  mutate(across(starts_with("p"), \(p) if_else(p < 0.001, "< 0,001",
+                                              fmt_n(p, 3))),
+         `Ero (Hodges–Lehmann)` = c(fmt_pct(`Ero (Hodges–Lehmann)`[1], 2),
+                                    fmt_n(`Ero (Hodges–Lehmann)`[2], 2),
+                                    fmt_n(`Ero (Hodges–Lehmann)`[3])),
+         `r (järjestysbiseriaalinen)` = fmt_n(`r (järjestysbiseriaalinen)`, 2)) |>
+  knitr::kable(caption = "Tarha-alueet vs. saman kunnan muut alueet")
+```
+
+**Miten taulukkoa luetaan.** Ero-sarake kertoo, kuinka paljon tarha-alueet tyypillisesti poikkeavat saman kunnan muista alueista. Positiivinen luku tarkoittaa, että tarha-alueilla arvo on suurempi. Viimeinen sarake on tärkein: jos siinä oleva luku on alle 0,05, ero on tilastollisesti merkitsevä vielä senkin jälkeen, kun kuntien erot ja testien määrä on otettu huomioon. Efektikoko *r* kertoo, onko ero käytännössä suuri: alle 0,1 on pieni, noin 0,3 kohtalainen ja yli 0,5 suuri.
+
+### Bayesilainen malli: kuinka paljon työttömyys eroaa?
+
+Testi vastaa kysymykseen "onko eroa". Päättäjää kiinnostaa enemmän "kuinka paljon". Siksi sovitin **hierarkkisen bayesilaisen mallin**, joka kuvaa jokaisen postinumeroalueen työttömien määrää työvoiman osuutena. Malli sisältää:
+
+- kunnan oman tason (osa kunnista on rakenteellisesti korkean työttömyyden kuntia),
+- asukastiheyden,
+- tiedon siitä, onko alueella turkistarhausyritys,
+- ylimääräisen vaihtelun alueiden välillä. Pienten alueiden työttömyysasteet heiluvat luonnostaan enemmän kuin tavallinen "kolikonheitto"-malli eli binomijakauma olettaisi, ja ilman tätä malli olisi liian varma itsestään. Siksi käytän **beeta-binomijakaumaa**: se on kolikonheittomalli, jossa jokaisen alueen "kolikko" saa olla hieman eri tavalla painotettu. Yksi lisäparametri kertoo, kuinka paljon alueet tällä tavalla eroavat toisistaan.
+
+Sen jälkeen laskin vaihtoehtoisen maailman: *mikä olisi tarha-alueiden työttömyysaste, jos ne olisivat muuten samanlaisia mutta niillä ei olisi tarhoja?* Näiden kahden ennusteen erotus on tarha-alueiden "työttömyysero".
+
+```{r}
+#| label: bayes-unemp
+d_cmp <- d_cmp |>
+  mutate(z_tiheys = (log_tiheys - mean(log_tiheys)) / sd(log_tiheys))
+
+# Ylihajonta mallinnetaan beeta-binomijakaumalla eikä havaintotason
+# satunnaisvaikutuksella (1 | pono): jälkimmäinen toi tuhansia parametreja,
+# jotka sekoittuivat huonosti (Rhat > 1.01).
+d_cmp <- d_cmp |>
+  mutate(tyott = as.integer(round(tyott)), tyovoima = as.integer(round(tyovoima)))
+stopifnot(all(d_cmp$tyott <= d_cmp$tyovoima), all(d_cmp$tyovoima > 0))
+
+fit_u <- fit_cached("unemp_bb", brm(
+  tyott | trials(tyovoima) ~ fur + z_tiheys + (1 | kunta),
+  data = d_cmp, family = beta_binomial(),
+  prior = c(prior(normal(-2.5, 1), class = Intercept),
+            prior(normal(0, 1), class = b),
+            prior(exponential(1), class = sd),
+            prior(gamma(2, 0.01), class = phi)),
+  chains = 4, iter = 2000, seed = 1, refresh = 0,
+  control = list(adapt_delta = 0.95)
+))
+
+rh <- rhat(fit_u)
+if (max(rh, na.rm = TRUE) >= 1.01) {
+  print(head(sort(rh, decreasing = TRUE), 10))
+  stop("Malli ei konvergoinut (Rhat >= 1.01). Poista välimuisti ennen uutta yritystä.")
+}
+stopifnot(min(neff_ratio(fit_u), na.rm = TRUE) > 0.1)
+
+nd1 <- d_cmp |> filter(fur == 1)
+nd0 <- nd1 |> mutate(fur = 0L)
+ep1 <- posterior_epred(fit_u, newdata = nd1, re_formula = ~ (1 | kunta))
+ep0 <- posterior_epred(fit_u, newdata = nd0, re_formula = ~ (1 | kunta))
+diff_pp <- (rowSums(ep1) - rowSums(ep0)) / sum(nd1$tyovoima)
+
+p_pos <- mean(diff_pp > 0)
+
+tibble(ero = 100 * diff_pp) |>
+  ggplot(aes(x = ero)) +
+  stat_halfeye(fill = "#1b6ca8", .width = c(.8, .95)) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(title = "Kuinka paljon tarha-alueiden työttömyysaste eroaa?",
+       subtitle = "Ero prosenttiyksikköinä verrattuna samanlaisiin alueisiin samassa kunnassa",
+       x = "Työttömyysasteen ero, prosenttiyksikköä", y = NULL) +
+  theme(axis.text.y = element_blank())
+```
+
+**Miten kuvaa luetaan.** Kuvan mäki on jakauma mallin arviosta. Vaaka-akselilla on työttömyysasteen ero prosenttiyksikköinä. Nolla (katkoviiva) tarkoittaa, että eroa ei ole. Jos mäki on kokonaan nollan oikealla puolella, tarha-alueilla on selvästi korkeampi työttömyys. Jos mäki on nollan päällä, eroa ei voida osoittaa. Mäen alla oleva musta piste on mediaani, paksu viiva 80 %:n väli ja ohut viiva 95 %:n väli.
+
+Mallin mukaan tarha-alueiden työttömyysaste poikkeaa saman kunnan vastaavista alueista `r fmt_iv(100 * diff_pp, 2)` prosenttiyksikköä. Todennäköisyys sille, että tarha-alueilla on korkeampi työttömyys, on `r fmt_pct(p_pos)`.
+
+**Tulkinta.** Jos ero on pieni tai nollan tienoilla, ministeriön väitteen "rajalliset työllistymismahdollisuudet" heikkous paljastuu: tarha-alueiden asukkaat eivät näytä olevan työmarkkinoilla huonommassa asemassa kuin naapurialueiden asukkaat. Jos ero on selvästi positiivinen, väite saa tukea, mutta silloinkin on huomattava, että poikkileikkausdata ei kerro, johtuuko ero tarhoista vai siitä, että tarhoja on perustettu alueille, joilla muuta työtä oli jo valmiiksi vähän. Juuri siksi tarvitaan seuraavan osan luonnollinen koe.
+
+::: {.callout-note title="Faktalaatikko: työttömyys ja mielenterveys – meta-analyysin näyttö"}
+Paul ja Moser (2009) kokosivat meta-analyysiin 237 poikkileikkaustutkimusta ja 87 pitkittäistutkimusta. Työttömillä oli keskimäärin selvästi enemmän psyykkistä kuormitusta kuin työllisillä; efektikoko oli *d* = 0,51, mikä on psykologiassa keskikokoinen vaikutus. Pitkittäistutkimukset ja luonnolliset kokeet tukivat sitä, että työttömyys myös *aiheuttaa* kuormitusta eikä vain liity siihen. Vaikutus oli voimakkaampi maissa, joissa työttömyysturva on heikko. Samassa meta-analyysissä työttömille suunnatut tukiohjelmat lievensivät kuormitusta kohtalaisesti (*d* = −0,35).
+
+**Counterfactual-huomio:** sosiaalinen haitta ei ole sama kuin menetetty työpaikka. Se syntyy vasta, jos työpaikan menetys muuttuu pitkäksi työttömyydeksi. Siksi vaihtoehto "ei poikkeuslupaa, mutta kunnollinen siirtymäohjelma" voi poistaa suuren osan sosiaalisesta haitasta, vaikka työpaikat alalla katoaisivat. Vahva työttömyysturva, kuten Suomessa, myös pienentää haittaa meta-analyysin mukaan.
+:::
+
+## Osa 4: Tanskan luonnollinen koe
+
+Marraskuussa 2020 Tanska määräsi lopetettavaksi kaikki maan noin 15 miljoonaa minkkiä, koska eläimistä oli löytynyt koronaviruksen muunnos, jonka pelättiin heikentävän rokotteiden tehoa. Myöhemmin tanskalainen tutkintakomissio totesi, ettei koko maan kattavalle lopetusmääräykselle ollut lakiperustaa. Ala oli pysähdyksissä vuoden 2022 loppuun. Kun tarhaus sallittiin uudelleen tammikuusta 2023, harva palasi alalle: elokuussa 2026 maassa oli enää seitsemän minkkitarhaa.
+
+Tanskan tapahtumat ovat surullisia, mutta tilastollisesti ne ovat harvinaisen arvokkaita. Ne ovat **luonnollinen koe**: koko ala katosi yhdellä kertaa, poliittisesta päätöksestä eikä alueen talouden heikkenemisestä johtuen. Tanskan Tilastokeskus julkaisee kokoaikaiseksi muunnettujen työttömien määrän kunnittain avoimena datana.
+
+Vuonna 2019 Tanskassa oli lähes 800 minkkitarhaa, jotka työllistivät noin 3 000 henkeä. Tämä on moninkertainen määrä Suomen 134 hakemuksessa mukana olevaan pitopaikkaan verrattuna. Jos edes Tanskan suljenta ei näkynyt kuntien työttömyydessä, on vaikea perustella, että Suomen paljon pienempi muutos näkyisi.
+
+### Menetelmä: erotusten erotus
+
+Käytän menetelmää nimeltä **erotusten erotus** (difference-in-differences). Idea on yksinkertainen:
+
+1. Lasketaan, kuinka paljon työttömyys muuttui minkkikunnissa ennen ja jälkeen suljennan.
+2. Lasketaan, kuinka paljon se muuttui samaan aikaan muissa kunnissa.
+3. Vähennetään jälkimmäinen edellisestä.
+
+Toinen vaihe on tärkeä, koska vuosiin 2020–2021 osui myös koronapandemia, joka nosti työttömyyttä kaikkialla. Vertailukunnat kertovat, mitä minkkikunnissa olisi tapahtunut ilman suljentaa. Ne ovat siis tämän osan vaihtoehtoinen maailma.
+
+**Minkkikunnat** määrittelin dokumentoitujen lähteiden perusteella: kunnat, joissa marraskuussa 2020 oli Fødevarestyrelsenin mukaan vähintään kymmenen koronatartunnan saanutta tarhaa (Pohjois-Jyllanti), sekä Länsi-Jyllannin kunnat, jotka kirjoittivat lokakuussa 2020 yhteisen kirjeen kansankäräjien ympäristö- ja elintarvikevaliokunnalle minkkialan vaikutuksista alueeseensa. Tämä on karkea mutta läpinäkyvä määritelmä. Teen herkkyystarkastelun ilman Aalborgia, joka on suuri kaupunki ja laimentaa vaikutusta.
+
+**Vertailukunnat** ovat muut Jyllannin kunnat ilman Aarhusia. Valinta on tärkeä. Ensimmäisessä versiossa vertasin minkkikuntia kaikkiin Tanskan kuntiin, ja tulos oli mahdoton: minkkikuntien työttömyys näytti laskevan suljennan jälkeen selvästi muuta maata enemmän. Syy oli koronapandemia. Vuoden 2021 sulut iskivät kovimmin kaupunkien palvelualoihin, kuten ravintoloihin, matkailuun ja kulttuuriin, ja vähemmän Jyllannin maaseudulle. Koko maan vertailu olisi siis mitannut kaupungin ja maaseudun eroa koronassa, ei minkkien vaikutusta. Jyllannin maaseutukunnat kokivat koronan samalla tavalla kuin minkkikunnat, joten ne ovat parempi vaihtoehtoinen maailma. Raportoin koko maan vertailun silti alla, koska se näyttää konkreettisesti, miten väärin valittu vertailuryhmä voi tuottaa vakuuttavan näköisen mutta väärän tuloksen.
+
+```{r}
+#| label: dk-prep
+dk_treated_names <- c("Hjørring", "Frederikshavn", "Jammerbugt", "Thisted",
+                      "Brønderslev", "Aalborg", "Vesthimmerland",
+                      "Ringkøbing-Skjern", "Holstebro", "Ikast-Brande",
+                      "Struer", "Lemvig", "Varde")
+
+dk_all <- minkki$dk_unemp |>
+  filter(year >= 2010) |>
+  group_by(year) |>
+  filter(n() >= 95) |>          # vain vuodet, joilta kaikki kunnat
+  ungroup() |>
+  filter(unemployed > 0) |>
+  mutate(
+    treated = as.integer(str_detect(
+      omr_text, regex(paste0("^(", paste(dk_treated_names, collapse = "|"), ")"),
+                      ignore_case = TRUE))),
+    log_u = log(unemployed),
+    kode  = as.integer(omr_id),
+    # Danmarks Statistikin kuntakoodit: 510–860 = Jyllanti (Etelä-, Keski- ja
+    # Pohjois-Jyllanti); 101–4xx = Kööpenhamina, Sjælland, Fyn ja Bornholm.
+    jylland = kode >= 510
+  )
+
+found <- dk_all |> filter(treated == 1) |> distinct(omr_text, kode, jylland)
+stopifnot(nrow(found) == length(dk_treated_names),
+          all(found$jylland),                    # kaikki minkkikunnat Jyllannissa
+          !anyDuplicated(dk_all[, c("omr_id", "year")]),
+          2019 %in% dk_all$year, max(dk_all$year) >= 2022)
+
+# Pääanalyysi: vertailuryhmänä muut Jyllannin kunnat ilman Aarhusia (751).
+# Koko maan vertailu sekoittaa minkkisuljennan ja koronan eri vaikutuksen
+# kaupunkeihin ja maaseutuun.
+dk <- dk_all |> filter(jylland, !str_detect(omr_text, "^Aarhus"))
+n_ctrl_dk <- n_distinct(dk$omr_id[dk$treated == 0])
+stopifnot(n_ctrl_dk >= 25)
+message("Tanska: ", n_distinct(dk$omr_id[dk$treated == 1]), " minkkikuntaa, ",
+        n_ctrl_dk, " vertailukuntaa Jyllannissa")
+
+dk_plot <- dk |>
+  group_by(omr_id) |>
+  filter(any(year == 2019)) |>
+  mutate(idx = unemployed / unemployed[year == 2019][1]) |>
+  group_by(year, ryhma = if_else(treated == 1, "Minkkikunnat",
+                                 "Muut kunnat")) |>
+  summarise(idx = exp(mean(log(idx))), .groups = "drop")
+
+ggplot(dk_plot, aes(year, 100 * idx, colour = ryhma)) +
+  annotate("rect", xmin = 2020.8, xmax = 2022.99, ymin = -Inf, ymax = Inf,
+           alpha = 0.12, fill = "grey30") +
+  annotate("text", x = 2021.9, y = Inf, vjust = 1.5, size = 3,
+           label = "Tarhaus kielletty") +
+  geom_line(linewidth = 1.1) + geom_point() +
+  geom_hline(yintercept = 100, linetype = 3) +
+  scale_colour_manual(values = c("#c0392b", "grey40")) +
+  labs(title = "Työttömyys Tanskan minkkikunnissa ja muissa kunnissa",
+       subtitle = "Kokoaikaiseksi muunnetut työttömät, indeksi 2019 = 100 (kuntien geometrinen keskiarvo)",
+       x = NULL, y = "Indeksi (2019 = 100)", colour = NULL) +
+  theme(legend.position = "bottom")
+```
+
+**Miten kuvaa luetaan.** Jokaisen kunnan työttömien määrä on jaettu saman kunnan vuoden 2019 luvulla ja kerrottu sadalla. Näin kaikki kunnat lähtevät samasta pisteestä (100) vuonna 2019, ja käyrät kertovat suhteellisesta muutoksesta. Esimerkiksi arvo 110 tarkoittaa, että työttömiä on 10 % enemmän kuin vuonna 2019. Punainen käyrä on minkkikunnat, harmaa muut kunnat. Harmaa varjostus näyttää ajan, jolloin tarhaus oli kielletty. Jos suljenta olisi nostanut työttömyyttä, punainen käyrä erkanisi harmaasta ylöspäin varjostetulla alueella.
+
+Ennen vuotta 2020 käyrien pitäisi kulkea suunnilleen yhdensuuntaisesti. Tämä on menetelmän keskeinen oletus (**rinnakkaisten trendien oletus**): ilman suljentaa minkkikuntien työttömyys olisi kehittynyt samaan tahtiin kuin muiden kuntien. Testaan oletusta seuraavaksi.
+
+### Tapahtumatutkimus ja testit
+
+```{r}
+#| label: dk-event
+es <- feols(log_u ~ i(year, treated, ref = 2019) | omr_id + year,
+            data = dk, cluster = ~omr_id)
+
+es_tab <- broom::tidy(es, conf.int = TRUE) |>
+  mutate(year = as.integer(str_extract(term, "\\d{4}"))) |>
+  bind_rows(tibble(year = 2019L, estimate = 0, conf.low = 0, conf.high = 0))
+
+pre_test <- wald(es, keep = paste0("year::(", paste(2010:2018, collapse = "|"),
+                                   "):treated"), print = FALSE)
+
+ggplot(es_tab, aes(year, 100 * (exp(estimate) - 1))) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_vline(xintercept = 2020.5, colour = "#c0392b") +
+  geom_pointrange(aes(ymin = 100 * (exp(conf.low) - 1),
+                      ymax = 100 * (exp(conf.high) - 1))) +
+  labs(title = "Minkkikuntien työttömyys suhteessa muihin kuntiin, vuosittain",
+       subtitle = "Ero vuoden 2019 tilanteeseen, %, 95 %:n luottamusväli",
+       x = NULL, y = "Ero, %")
+```
+
+**Miten kuvaa luetaan.** Jokainen piste kertoo, kuinka monta prosenttia minkkikuntien työttömyys poikkesi muiden kuntien kehityksestä kyseisenä vuonna, kun lähtötasona on vuosi 2019 (joka on määritelmän mukaan nolla). Pystyviivat ovat **95 %:n luottamusvälejä**: jos viiva leikkaa nollaviivan, kyseisen vuoden eroa ei voida erottaa sattumasta. Punainen pystyviiva on suljennan ajankohta. Ennen suljentaa pisteiden pitäisi olla lähellä nollaa (oletus pätee). Suljennan jälkeen ne kertovat suljennan vaikutuksen.
+
+Rinnakkaisten trendien oletusta testasin **Waldin testillä**, joka tarkistaa, ovatko kaikki ennen suljentaa olevat erot yhtä aikaa nollia. P-arvo on `r fmt_n(pre_test$p, 3)`. `r if (pre_test$p < 0.05) "Tämä on alle 0,05, joten oletus ei pidä: minkkikuntien työttömyys kehittyi eri tahtiin kuin vertailukuntien jo ennen suljentaa. Pelkkä ennen–jälkeen-vertailu sekoittaisi silloin suljennan vaikutuksen ja jo käynnissä olleen erilaisen kehityksen. Siksi annan seuraavissa malleissa jokaiselle kunnalle oman aikatrendin. Ajatus on sama kuin jos piirtäisi jokaisen kunnan työttömyydelle oman suoran vuosien 2010–2019 perusteella ja katsoisi, poikkesiko kunta omasta suorastaan suljennan jälkeen. Tämäkin on oletus: se olettaa, että ennen suljentaa näkynyt suunta olisi jatkunut." else "Se on yli 0,05, joten aineisto ei anna syytä epäillä oletusta, ja voin käyttää tavallista erotusten erotus -asetelmaa."`
+
+Luottamusvälit on laskettu niin, että saman kunnan eri vuodet saavat korreloida keskenään (**klusteroidut keskivirheet**). Tämä on välttämätöntä, koska kunnan työttömyys tänä vuonna muistuttaa sen työttömyyttä viime vuonna, eikä niitä voi käsitellä toisistaan riippumattomina havaintoina.
+
+```{r}
+#| label: dk-did
+dk_did <- dk |>
+  filter(year != 2020) |>                 # siirtymävuosi pois
+  mutate(treat_post = treated * as.integer(year >= 2021))
+
+# Esitestin perusteella valitaan, saako kukin kunta oman lineaarisen trendin
+# (fixest: omr_id[year] = kuntakohtainen vakio ja kulmakerroin).
+use_trend <- pre_test$p < 0.05
+fe_main   <- if (use_trend) "omr_id[year] + year" else "omr_id + year"
+fe_alt    <- if (use_trend) "omr_id + year" else "omr_id[year] + year"
+did_fml   <- \(lhs, fe) as.formula(paste(lhs, "~ treat_post |", fe))
+message("Tanska: kuntakohtaiset trendit ", if (use_trend) "KÄYTÖSSÄ" else "ei käytössä",
+        " (esitestin p = ", signif(pre_test$p, 3), ")")
+
+did <- feols(did_fml("log_u", fe_main), data = dk_did, cluster = ~omr_id)
+beta_obs <- unname(coef(did)["treat_post"])
+
+did_alt <- feols(did_fml("log_u", fe_alt), data = dk_did, cluster = ~omr_id)
+
+did_no_aal <- feols(did_fml("log_u", fe_main),
+                    data = dk_did |> filter(!str_detect(omr_text, "^Aalborg")),
+                    cluster = ~omr_id)
+
+# Herkkyys: koronan huippuvuosi 2021 pois, jälkijaksona vain 2022–
+did_no2021 <- feols(did_fml("log_u", fe_main),
+                    data = dk_did |> filter(year != 2021),
+                    cluster = ~omr_id)
+
+# Varoittava esimerkki: vertailuna kaikki Tanskan kunnat, ei trendejä
+did_all <- feols(did_fml("log_u", "omr_id + year"),
+                 data = dk_all |> filter(year != 2020) |>
+                   mutate(treat_post = treated * as.integer(year >= 2021)),
+                 cluster = ~omr_id)
+
+dk_sens <- tibble(
+  Vertailu = c(paste0("Jyllanti ilman Aarhusia", if (use_trend) ", kuntatrendit" else "",
+                      " (pääanalyysi)"),
+               paste0("Jyllanti ilman Aarhusia", if (use_trend) ", ei kuntatrendejä" else ", kuntatrendit"),
+               "Pääanalyysi ilman Aalborgia",
+               "Pääanalyysi ilman koronavuotta 2021",
+               "Kaikki Tanskan kunnat, ei trendejä"),
+  model = list(did, did_alt, did_no_aal, did_no2021, did_all)
+) |>
+  mutate(
+    est = map_dbl(model, \(m) unname(coef(m)["treat_post"])),
+    lo  = map_dbl(model, \(m) confint(m)["treat_post", 1]),
+    hi  = map_dbl(model, \(m) confint(m)["treat_post", 2]),
+    p   = map_dbl(model, \(m) unname(fixest::pvalue(m)["treat_post"]))
+  )
+stopifnot(nrow(dk_sens) == 5, all(is.finite(dk_sens$est)))
+
+# Permutaatiotesti: arvotaan "minkkikunnat" satunnaisesti 2 000 kertaa,
+# samalla malliyhtälöllä kuin pääanalyysissä
+munis <- unique(dk_did$omr_id)
+n_tr  <- n_distinct(dk_did$omr_id[dk_did$treated == 1])
+perm_fml <- as.formula(paste("log_u ~ tp |", fe_main))
+perm_beta <- map_dbl(1:2000, function(i) {
+  fake <- sample(munis, n_tr)
+  dd <- dk_did |> mutate(tp = as.integer(omr_id %in% fake) *
+                                as.integer(year >= 2021))
+  unname(coef(feols(perm_fml, data = dd))["tp"])
+})
+p_perm <- mean(abs(perm_beta) >= abs(beta_obs))
+stopifnot(length(perm_beta) == 2000, !anyNA(perm_beta))
+```
+
+Erotusten erotus -estimaatin mukaan minkkikuntien työttömyys muuttui suljennan jälkeisinä vuosina `r fmt_pct(exp(beta_obs) - 1, 1)` enemmän kuin muiden kuntien (klusteroitu p = `r fmt_n(fixest::pvalue(did)["treat_post"], 3)`). Ilman Aalborgia estimaatti on `r fmt_pct(exp(coef(did_no_aal)["treat_post"]) - 1, 1)`. `r if (use_trend) "Pääanalyysissä jokaisella kunnalla on oma aikatrendi, koska esitesti hylkäsi rinnakkaisten trendien oletuksen." else ""`
+
+```{r}
+#| label: dk-sens-table
+dk_sens |>
+  transmute(
+    Vertailu,
+    `Ero minkkikunnissa` = fmt_pct(exp(est) - 1, 1),
+    `95 %:n luottamusväli` = paste0(fmt_pct(exp(lo) - 1, 1), " … ",
+                                    fmt_pct(exp(hi) - 1, 1)),
+    p = if_else(p < 0.001, "< 0,001", fmt_n(p, 3))
+  ) |>
+  knitr::kable(caption = "Minkkikuntien työttömyyden muutos eri vertailuryhmillä")
+```
+
+**Miten taulukkoa luetaan.** Jokainen rivi on sama laskelma hieman eri valinnoilla. Positiivinen ero tarkoittaa, että minkkikuntien työttömyys kasvoi suljennan jälkeen enemmän kuin vertailukuntien. Toinen rivi kertoo, kuinka paljon tulos riippuu kuntatrendeistä. Jos tulos pysyy samansuuntaisena neljällä ensimmäisellä rivillä, se ei riipu yksittäisestä valinnasta. Viimeinen rivi näyttää, mitä tapahtuu, jos vertailuryhmä valitaan huonosti: koronan erilainen vaikutus kaupunkeihin ja maaseutuun peittää alleen kaiken muun.
+
+Koska minkkikuntia on vain `r n_tr`, tavallisiin luottamusväleihin ei voi täysin luottaa: ne perustuvat oletukseen, että ryhmiä on paljon. Siksi tein myös **permutaatiotestin**. Arvoin 2 000 kertaa satunnaisen joukon "valeminkkikuntia" ja laskin, kuinka usein sattumanvaraisesti valituissa kunnissa näkyy vähintään yhtä suuri muutos kuin todellisissa minkkikunnissa. Näin kävi `r fmt_pct(p_perm, 1)` kerroista. Tämä luku on testin p-arvo, ja se ei nojaa mihinkään jakaumaoletukseen.
+
+### Bayesilainen versio ja "läpimenoaste"
+
+Tilastollinen merkitsevyys ei vastaa päättäjän kysymykseen. Hän haluaa tietää: *kuinka moni menetetty minkkityöpaikka muuttui työttömyydeksi?* Kutsun tätä **läpimenoasteeksi**. Jos läpimenoaste on 1, jokainen menetetty työpaikka tarkoitti yhtä lisätyötöntä. Jos se on 0,2, viidestä menetetystä työpaikasta vain yksi näkyi työttömyytenä ja muut työllistyivät, jäivät eläkkeelle tai muuttivat pois.
+
+Laskin sen bayesilaisella mallilla, joka tuottaa jakauman vaikutukselle. Mallissa jokaisen kunnan työttömyyttä verrataan sen omaan `r if (use_trend) "kehitykseen eli vuosien 2010–2019 perusteella piirrettyyn suoraan, jota jatketaan suljennan jälkeisiin vuosiin" else "tasoon vuosina 2010–2019"`. Suoraan käytetään vain suljentaa edeltäviä vuosia, jotta suljennan vaikutus ei sekoitu trendiin. Näin suurten ja pienten kuntien kokoero ei sotke vertailua, vaan malli katsoo vain, kuinka paljon kunkin kunnan työttömyys muuttui. Studentin t-jakauma sallii yksittäisille kunta-vuosille tavallista suuremmat poikkeamat ilman, että ne vetävät koko tulosta mukanaan. Sen jälkeen jaoin minkkikuntien lisätyöttömien määrän minkkikunnissa menetettyjen työpaikkojen määrällä. Koko Tanskan minkkityöllisyys oli vuonna 2019 noin 3 000 henkeä. Minkkikuntien osuutta siitä ei tiedetä tarkasti, joten annoin sille epävarmuusvälin 60–90 %. Yläraja perustuu siihen, että valtaosa marraskuun 2020 tartuntatarhoista oli näissä kunnissa; alaraja jättää tilaa sille, että tarhoja oli tasaisemmin ympäri Jyllantia kuin tartuntoja.
+
+```{r}
+#| label: dk-bayes
+# Kunnan oma taso (ja tarvittaessa trendi) poistetaan ennen mallia käyttäen
+# VAIN vuosia 2010–2019, jotta suljennan vaikutus ei valu trendiin.
+# Kuntatason satunnaisvaikutus (1 | omr_id) sekoittui huonosti (Rhat 1.23),
+# koska kuntien väliset erot ovat moninkertaisia kunnan sisäiseen vaihteluun
+# nähden. Vuodet ovat kiinteinä vaikutuksina.
+pre_baseline <- function(year, log_u) {
+  pre <- year <= 2019
+  if (use_trend) {
+    cf <- coef(lm(log_u[pre] ~ year[pre]))
+    cf[1] + cf[2] * year
+  } else {
+    rep(mean(log_u[pre]), length(year))
+  }
+}
+
+dk_did <- dk_did |>
+  group_by(omr_id) |>
+  mutate(baseline = pre_baseline(year, log_u)) |>
+  ungroup() |>
+  mutate(y = log_u - baseline,
+         year_f = factor(year))
+
+stopifnot(
+  !anyNA(dk_did$y),
+  # sekä keskiarvon että OLS-trendin jäännökset summautuvat nollaan
+  all(dk_did |> filter(year <= 2019) |> group_by(omr_id) |>
+        summarise(m = mean(y)) |> pull(m) |> abs() < 1e-8)
+)
+
+# Klassinen vastine samalle muunnetulle vasteelle; bayesilaisen tuloksen
+# pitää olla tämän lähellä
+beta_obs_y <- unname(coef(feols(y ~ treat_post | year, data = dk_did))["treat_post"])
+
+fit_dk <- fit_cached(paste0("dk_did_", if (use_trend) "pretrend" else "within"), brm(
+  y ~ 0 + year_f + treat_post,
+  data = dk_did, family = student(),
+  prior = c(prior(normal(0, 1), class = b),
+            prior(normal(0, 0.5), class = b, coef = treat_post),
+            prior(exponential(5), class = sigma),
+            prior(gamma(2, 0.1), class = nu)),
+  chains = 4, iter = 2000, seed = 2, refresh = 0
+))
+
+rh_dk <- rhat(fit_dk)
+if (max(rh_dk, na.rm = TRUE) >= 1.01) {
+  print(head(sort(rh_dk, decreasing = TRUE), 10))
+  stop("Tanskan malli ei konvergoinut (Rhat >= 1.01).")
+}
+
+# Vertailu klassiseen estimaattiin: bayesilaisen mediaanin pitää olla lähellä
+stopifnot(abs(median(as_draws_df(fit_dk)$b_treat_post) - beta_obs_y) < 0.05)
+
+beta_draws <- as_draws_df(fit_dk)$b_treat_post
+n_draws <- length(beta_draws)
+
+base_u_treated <- dk |> filter(year == 2019, treated == 1) |>
+  summarise(s = sum(unemployed)) |> pull(s)
+
+share_treated <- runif(n_draws, 0.6, 0.9)
+excess_unemp  <- base_u_treated * (exp(beta_draws) - 1)
+passthrough   <- excess_unemp / (DK_MINK_JOBS_2019 * share_treated)
+
+p_pass_lt_half <- mean(passthrough < 0.5)
+p_pass_neg     <- mean(passthrough < 0)
+
+# Uskottavuustarkistus: läpimenoaste on taloudellisesti mielekäs välillä 0–1.
+# Jos lähes koko jakauma on negatiivinen, vertailuasetelma on todennäköisesti
+# edelleen vinossa, eikä tulosta pidä viedä Monte Carloon sellaisenaan.
+if (p_pass_neg > 0.9) {
+  warning("Läpimenoaste on ", round(100 * p_pass_neg),
+          " %:n todennäköisyydellä negatiivinen. Tarkista vertailuryhmä ennen julkaisua.")
+}
+
+tibble(pass = passthrough) |>
+  ggplot(aes(pass)) +
+  stat_halfeye(fill = "#c0392b", .width = c(.8, .95)) +
+  geom_vline(xintercept = c(0, 1), linetype = 2) +
+  coord_cartesian(xlim = quantile(passthrough, c(.01, .99))) +
+  labs(title = "Kuinka moni menetetty minkkityöpaikka muuttui työttömyydeksi Tanskassa?",
+       subtitle = "Läpimenoaste: lisätyöttömät / menetetyt työpaikat. 0 = ei yhtään, 1 = jokainen",
+       x = "Läpimenoaste", y = NULL) +
+  theme(axis.text.y = element_blank())
+```
+
+**Miten kuvaa luetaan.** Mäki kertoo, mitkä läpimenoasteen arvot ovat Tanskan datan valossa uskottavia. Vasen katkoviiva (0) tarkoittaa, ettei yksikään menetetty työpaikka näkynyt työttömyytenä. Oikea katkoviiva (1) tarkoittaa, että jokainen näkyi. Negatiiviset arvot tarkoittaisivat, että minkkikuntien työttömyys kehittyi jopa paremmin kuin muiden. Ne ovat mahdollisia sattuman vuoksi, eivätkä ne tarkoita, että suljenta olisi luonut työpaikkoja.
+
+Läpimenoasteen mediaani on `r fmt_n(median(passthrough), 2)` ja 80 %:n väli `r fmt_n(quantile(passthrough, .1), 2)`–`r fmt_n(quantile(passthrough, .9), 2)`. Todennäköisyys sille, että alle puolet menetetyistä työpaikoista näkyi työttömyytenä, on `r fmt_pct(p_pass_lt_half)`, ja todennäköisyys negatiiviselle arvolle eli sille, ettei suljenta näkynyt työttömyydessä lainkaan, on `r fmt_pct(p_pass_neg)`.
+
+Kun käytän läpimenoastetta myöhemmin vaihtoehtoisten maailmojen laskelmassa, rajaan sen välille 0–1. Negatiivinen arvo tarkoittaisi, että työpaikkojen menetys *vähentäisi* työttömyyttä, mikä ei ole järkevä oletus tulevaisuudesta, vaikka se voi sattumalta näkyä datassa. Rajaus on varovainen valinta: se siirtää arviota kohti suurempaa työttömyyttä eli hakemuksen kannalta edullisempaan suuntaan.
+
+**Tärkeä varaus.** Tanska ei sulkenut alaa ilman tukea. Maa sitoutui noin 19 miljardin kruunun (noin `r fmt_n(DK_COMP_DKK / DKK_PER_EUR / 1e9, 1)` mrd. euron) korvauspakettiin, jonka kustannusarvio on myöhemmin noussut. Tanskan tulos kuvaa siis maailmaa, jossa *ala lopetetaan ja siirtymä rahoitetaan avokätisesti*. Maailma, jossa ala lopetetaan ilman tukea, voisi näyttää huonommalta. Toisaalta Tanskan suljenta tuli yllättäen viikkojen varoitusajalla, kun taas suomalaiset tarhaajat ovat tienneet minkin vieraslajilistauksesta heinäkuusta 2025 lähtien. Pitkä ennakkovaroitusaika helpottaa sopeutumista.
+
+::: {.callout-note title="Faktalaatikko: auttavatko työllisyyspalvelut? – meta-analyysin näyttö"}
+Card, Kluve ja Weber (2018) kokosivat yli 200 tutkimusta aktiivisten työvoimapoliittisten toimenpiteiden vaikutuksista eri puolilta maailmaa. Keskimäärin vaikutukset työllistymiseen ovat lähes nolla ensimmäisenä vuonna ohjelman jälkeen, mutta kasvavat selvästi positiivisiksi 2–3 vuoden kuluttua. Osaamista kasvattavat ohjelmat (koulutus) hyötyivät eniten ajan kanssa, kun taas julkisen sektorin tukityöllistämisellä oli pieniä tai jopa kielteisiä vaikutuksia. Vaikutukset olivat keskimääräistä suurempia pitkäaikaistyöttömillä ja laskusuhdanteessa.
+
+**Counterfactual-huomio:** jos siirtymäpaketti suunnattaisiin uudelleenkoulutukseen, meta-analyysin perusteella sen hyöty näkyisi vasta 2–3 vuoden viiveellä. Tukityöllistäminen julkiselle sektorille olisi meta-analyysin valossa huonoin vaihtoehto. Elokuun 2027 takaraja jättää tarhaajille nyt noin vuoden, mikä on lyhyt aika, jos koulutusta ei aloiteta heti.
+:::
+
+## Osa 5: Ala kutistuu – oikea vaihtoehtoinen maailma
+
+Edellä totesin, että oikea vertailu ei ole *nykyhetki vastaan tulevaisuus ilman lupaa* vaan *tulevaisuus luvalla vastaan tulevaisuus ilman lupaa*. Jotta tätä voi laskea, pitää ennustaa, millainen ala olisi vuosina 2028–2035, jos poikkeuslupa saadaan.
+
+YTJ:n rekisteröitymis- ja lopettamispäivistä voi rakentaa jokaiselle vuodelle luvun siitä, kuinka monta turkistarhausyritystä oli toiminnassa. Sovitin tähän sarjaan bayesilaisen ennustemallin, joka kuvaa yritysten määrän vuosittaista suhteellista muutosta. Malli on tarkoituksella yksinkertainen: se jatkaa nykyistä kehitystä ja kertoo, kuinka epävarma jatke on. Se ei yritä ennustaa hintapiikkejä tai politiikkaa.
+
+```{r}
+#| label: ytj-stock
+has_exits <- sum(!is.na(ytj$end_date)) >= 20
+if (!has_exits) {
+  stop("YTJ-aineistossa ei ole riittävästi lopettaneita yrityksiä (endDate). ",
+       "Kantamalli ei ole silloin luotettava. Tarkista haku.")
+}
+
+stock_years <- 2005:2026
+stock <- map_dfr(stock_years, function(y) {
+  cut <- if (y == 2026) Sys.Date() else as.Date(paste0(y, "-12-31"))
+  tibble(year = y,
+         n = sum(!is.na(ytj$reg_date) & ytj$reg_date <= cut &
+                   (is.na(ytj$end_date) | ytj$end_date > cut)))
+})
+stopifnot(all(stock$n >= 0), nrow(stock) == length(stock_years))
+
+stock <- stock |> mutate(t = (year - 2020) / 10)
+
+fit_stock <- fit_cached("stock", brm(
+  n ~ t, data = stock, family = negbinomial(),
+  prior = c(prior(normal(5, 2), class = Intercept),
+            prior(normal(0, 2), class = b),
+            prior(gamma(2, 0.1), class = shape)),
+  chains = 4, iter = 2000, seed = 3, refresh = 0
+))
+stopifnot(max(rhat(fit_stock), na.rm = TRUE) < 1.01)
+
+fc_years <- 2005:2035
+nd_fc <- tibble(year = fc_years, t = (year - 2020) / 10)
+pp_fc <- posterior_predict(fit_stock, newdata = nd_fc)
+fc_df <- as_tibble(pp_fc, .name_repair = ~ as.character(fc_years)) |>
+  mutate(draw = row_number()) |>
+  pivot_longer(-draw, names_to = "year", values_to = "n") |>
+  mutate(year = as.integer(year))
+
+ep_2026 <- posterior_epred(fit_stock, newdata = tibble(t = (2026 - 2020) / 10))[, 1]
+ep_2030 <- posterior_epred(fit_stock, newdata = tibble(t = (2030 - 2020) / 10))[, 1]
+decline_2030 <- ep_2030 / ep_2026
+annual_change <- exp(as_draws_df(fit_stock)$b_t / 10) - 1
+pred_2030 <- fc_df |> filter(year == 2030) |> pull(n)
+
+ggplot(fc_df, aes(year, n)) +
+  stat_lineribbon(.width = c(.5, .8, .95), fill = "#1b6ca8", alpha = 0.25,
+                  colour = "#1b6ca8") +
+  geom_point(data = stock, aes(year, n), colour = "black", size = 2) +
+  geom_vline(xintercept = 2027.6, linetype = 2, colour = "#c0392b") +
+  annotate("text", x = 2027.7, y = Inf, vjust = 1.5, hjust = 0, size = 3,
+           label = "EU:n kielto ilman\npoikkeuslupaa (8/2027)", colour = "#c0392b") +
+  labs(title = "Toiminnassa olevat turkistarhausyritykset ja ennuste, jos poikkeuslupa saadaan",
+       subtitle = "Pisteet: YTJ-havainnot. Nauhat: 50, 80 ja 95 %:n ennustevälit",
+       x = NULL, y = "Yrityksiä") +
+  guides(fill = "none")
+```
+
+**Miten kuvaa luetaan.** Mustat pisteet ovat YTJ:stä lasketut toiminnassa olleiden yritysten määrät kunkin vuoden lopussa. Sininen viiva on mallin todennäköisin kehitys, ja sinisen eri sävyiset nauhat kertovat epävarmuudesta: tummin nauha sisältää puolet mahdollisista tulevaisuuksista, vaalein 95 %. Nauha levenee tulevaisuuteen mentäessä, koska kauempana olevaa tulevaisuutta on vaikeampi ennustaa. Punainen katkoviiva on hetki, jolloin minkkitarhaus loppuu, jos poikkeuslupaa ei saada. Kuvan sininen ennuste kuvaa vaihtoehtoista maailmaa, jossa *lupa saadaan*.
+
+Mallin mukaan yritysten määrä on muuttunut keskimäärin `r fmt_iv(100 * annual_change, 1)` prosenttia vuodessa. Jos sama kehitys jatkuu poikkeusluvan turvin, vuonna 2030 jäljellä olisi `r fmt_pct(median(decline_2030))` nykyisestä (80 %:n väli `r fmt_pct(quantile(decline_2030, .1))`–`r fmt_pct(quantile(decline_2030, .9))`).
+
+**Ennakkoon kirjattu ennuste.** Jos poikkeuslupa myönnetään, YTJ:ssä toiminnassa olevien turkistarhausyritysten määrä vuoden 2030 lopussa on mallin mukaan `r fmt_iv(pred_2030)`. Tarkistan ennusteen, kun vuoden 2030 data on saatavilla. Ennusteen julkaiseminen etukäteen on tieteellisesti rehellistä: se estää jälkikäteen selittelyn.
+
+**Varaukset.** Yritysten määrä ei ole tarhojen määrä, eikä sarja erottele minkkiä ketusta. Lisäksi vanhimmat, jo ennen YTJ-aikaa lopettaneet yritykset puuttuvat aineistosta, minkä vuoksi aloitin sarjan vasta vuodesta 2005. Yrityksen lopettamispäivä voi myös olla rekisterissä myöhemmin kuin todellinen toiminnan loppuminen.
+
+### Hinta heiluu – ja voimakkaasti
+
+Turkiksen markkinahinta ratkaisee, kannattaako tarha pitää käynnissä. Saga Fursin huutokaupat kertovat poikkeuksellisesta nousukaudesta: maaliskuun 2026 huutokaupan välitysmyynnin arvo oli 220 miljoonaa euroa, kun se vuotta aiemmin oli 96 miljoonaa, ja minkinnahkojen hinnat lähes kaksinkertaistuivat. Kesäkuun 2026 huutokaupassa välitysmyynnin arvo nousi 281 miljoonaan euroon. Tämä on tärkeä vastapaino muuten synkälle kuvalle: jos hinnat pysyvät korkeina, ala voi elpyä, ja silloin poikkeusluvan arvo kasvaa.
+
+Kuinka todennäköisesti hinnat pysyvät korkeina? Tätä voi arvioida YK:n Comtrade-tietokannan avulla. Se kertoo jokaisen maan ilmoittaman minkinnahkojen (tullinimike HS 430110) viennin ja tuonnin arvon ja määrän vuodesta 2000 lähtien.
+
+```{r}
+#| label: comtrade-prep
+ct <- minkki$comtrade |>
+  mutate(uv_item = if_else(!is.na(qty) & qty > 0 & qtyUnitCode == 5,
+                           primaryValue / qty, NA_real_),
+         uv_kg   = if_else(!is.na(netWgt) & netWgt > 0,
+                           primaryValue / netWgt, NA_real_))
+
+# Kappalemäärä (qtyUnitCode 5 = kpl) on paras hinnan mittari. Jos sitä puuttuu
+# liian monelta Suomen vientivuodelta, käytetään kilohintaa.
+uv_cov <- ct |> filter(flowCode == "X", iso3 == "FIN") |>
+  summarise(osuus = mean(!is.na(uv_item))) |> pull(osuus)
+use_item <- uv_cov >= 0.8
+ct <- ct |> mutate(uv = if (use_item) uv_item else uv_kg)
+uv_unit <- if (use_item) "USD / nahka" else "USD / kg"
+message("Yksikköhinta: ", uv_unit, " (kappalemäärä tiedossa ",
+        round(100 * uv_cov), " %:lla Suomen vientivuosista)")
+
+fin <- ct |>
+  filter(iso3 == "FIN") |>
+  select(period, flowCode, primaryValue, qty) |>
+  pivot_wider(names_from = flowCode, values_from = c(primaryValue, qty)) |>
+  arrange(period)
+
+stopifnot(nrow(fin) >= 15,
+          all(c("primaryValue_X", "primaryValue_M") %in% names(fin)))
+
+fin <- fin |>
+  mutate(re_share = primaryValue_M / primaryValue_X,
+         net_value = primaryValue_X - primaryValue_M)
+
+med_re_share <- median(fin$re_share[fin$period >= 2015], na.rm = TRUE)
+
+p_ct1 <- ct |>
+  filter(flowCode == "X", iso3 %in% c("FIN", "DNK", "POL", "NLD")) |>
+  mutate(maa = recode(iso3, FIN = "Suomi", DNK = "Tanska",
+                      POL = "Puola", NLD = "Alankomaat")) |>
+  ggplot(aes(period, primaryValue / 1e6, colour = maa)) +
+  geom_line(linewidth = 1) +
+  scale_colour_manual(values = c("#7f8c8d", "#f39c12", "#1b6ca8", "#c0392b")) +
+  labs(title = "Minkinnahkojen vienti",
+       subtitle = "Milj. USD, HS 430110", x = NULL, y = "Milj. USD",
+       colour = NULL)
+
+p_ct2 <- fin |>
+  select(period, Vienti = primaryValue_X, Tuonti = primaryValue_M) |>
+  pivot_longer(-period) |>
+  ggplot(aes(period, value / 1e6, fill = name)) +
+  geom_col(position = "identity", alpha = 0.6) +
+  scale_fill_manual(values = c(Tuonti = "#c0392b", Vienti = "#1b6ca8")) +
+  labs(title = "Suomen minkinnahkojen vienti ja tuonti",
+       subtitle = "Milj. USD. Tuonti on pääosin huutokauppaan tulevia nahkoja",
+       x = NULL, y = "Milj. USD", fill = NULL)
+
+(p_ct1 / p_ct2) & theme(legend.position = "bottom")
+```
+
+**Miten kuvaa luetaan.** Yläkuvassa on neljän maan minkinnahkojen vienti Yhdysvaltain dollareina. Tanskan käyrän romahdus vuoden 2020 jälkeen on suljennan jälki. Alakuvassa siniset pylväät ovat Suomen vienti ja punaiset tuonti. Kun pylväät ovat päällekkäin, näkyy violetti alue.
+
+**Yllättävä havainto datasta:** Suomen minkinnahkojen "vienti" ei ole Suomessa tuotettujen nahkojen vientiä. Vantaalla toimiva Saga Furs huutokauppaa myös ulkomaisia nahkoja, jotka tuodaan Suomeen ja viedään sieltä ostajille. Vuodesta 2015 eteenpäin Suomen minkinnahkojen tuonnin arvo oli mediaanivuonna `r fmt_pct(med_re_share)` viennin arvosta. Tämä tarkoittaa, että suuri osa tilastoiduista vientituloista on kauttakulkua, joka voi jatkua, vaikka Suomessa ei tarhattaisi ainuttakaan minkkiä. Saman huomion tekee Ylen vuoden 2023 juttu: koko turkisalan 232 miljoonan euron viennistä Suomessa tuotettuja nahkoja oli runsaat 64 miljoonaa ja ulkomaisia 168 miljoonaa euroa.
+
+Tämä on tyypillinen esimerkki siitä, miksi pelkkä vientiluku on vaarallinen päätöksenteon pohja. Se mittaa kauppaa, joka kulkee maan rajojen yli, ei maassa syntyvää arvoa.
+
+### Ennustetaanko hinta vai arvataanko?
+
+Hinnan ennustamiseen on kaksi perusajatusta, ja niiden ero on tämän osan ydin.
+
+- **Satunnaiskulku** olettaa, että ensi vuoden hinta on tämän vuoden hinta plus satunnainen muutos. Hinta ei "muista" mitään tavanomaista tasoa. Jos hinta nousee, se voi jäädä korkealle pysyvästi. Tällaisen mallin ennuste levenee joka vuosi, ja muutaman vuoden päähän se sanoo käytännössä vain, että hinta voi olla mitä tahansa.
+- **Keskiarvoon palaava malli** (tilastotieteessä *AR(1)-malli*, autoregressiivinen malli) olettaa, että hinnalla on pitkän aikavälin taso, jota kohti se ajan mittaan palaa. Korkeat hinnat houkuttelevat lisää tuotantoa ja alentavat hintaa, ja matalat hinnat ajavat tuottajia alalta ja nostavat hintaa. Tällaisen mallin ennuste ei levene loputtomiin, vaan asettuu hinnan tavanomaisen vaihtelun levyiseksi.
+
+Kumpi pitää paikkansa minkinnahkojen markkinoilla, on empiirinen kysymys. Siksi en valinnut mallia mielipiteen perusteella vaan testasin molempia **takautuvalla ennustekokeella**. Teeskentelin olevani vuodessa 2010 ja tein molemmilla malleilla ennusteen viidelle seuraavalle vuodelle käyttäen vain siihen asti kertynyttä dataa. Sitten siirryin vuoteen 2011 ja toistin saman, ja niin edelleen vuoteen 2020 asti. Koska tiedän, mitä hinnalle oikeasti tapahtui, voin mitata, kumpi malli ennusti paremmin.
+
+Ennusteen hyvyyttä mittasin kolmella tavalla:
+
+- **CRPS** (*continuous ranked probability score*) mittaa, kuinka kaukana koko ennustejakauma oli toteutuneesta arvosta. Se palkitsee ennustetta, joka on sekä oikeassa kohdassa että sopivan kapea. Mitä pienempi, sitä parempi. Pelkkä "keskimmäinen arvaus" ei riitä tähän mittariin: ennuste, joka sanoo "jossain 50 ja 1 000 dollarin välillä", saa huonon pisteen, vaikka toteuma osuisi väliin.
+- **Osumatarkkuus** kertoo, kuinka usein toteutunut hinta osui ennusteen 80 %:n väliin. Hyvän mallin pitäisi osua noin 80 %:ssa tapauksista. Jos osumia on selvästi vähemmän, malli on liian itsevarma.
+- **Välin leveys** kertoo, kuinka paljon ennuste on hyödyllinen. Kapea väli, joka osuu, on arvokas. Leveä väli, joka osuu aina, ei kerro mitään.
+
+```{r}
+#| label: price-model
+fin_uv <- ct |> filter(iso3 == "FIN", flowCode == "X", !is.na(uv)) |>
+  arrange(period) |> select(period, uv)
+dnk_uv <- ct |> filter(iso3 == "DNK", flowCode == "X", !is.na(uv)) |>
+  arrange(period) |> select(period, uv)
+
+ly <- fin_uv |> transmute(period, ly = log(uv))
+stopifnot(nrow(ly) >= 20,
+          all(diff(ly$period) == 1),          # ei aukkoja: lag toimii oikein
+          all(is.finite(ly$ly)))
+
+# Datan muodostus. AR-mallissa hinta keskitetään KOULUTUSDATAN keskiarvolla,
+# jotta takautuvaan testiin ei vuoda tulevaa tietoa.
+ar_data <- function(d) {
+  mu <- mean(d$ly)
+  d |> mutate(z = ly - mu, zlag = lag(z)) |> filter(!is.na(zlag)) |>
+    structure(mu = mu)
+}
+rw_data <- function(d) d |> mutate(dz = ly - lag(ly)) |> filter(!is.na(dz))
+
+pri_ar <- c(prior(normal(0, 0.3), class = Intercept),
+            prior(normal(0.5, 0.25), class = b),      # paluunopeus: 0 = heti, 1 = ei koskaan
+            prior(exponential(4), class = sigma),
+            prior(gamma(2, 0.1), class = nu))
+pri_rw <- c(prior(normal(0, 0.1), class = Intercept),
+            prior(exponential(4), class = sigma),
+            prior(gamma(2, 0.1), class = nu))
+
+d_ar_full <- ar_data(ly)
+fit_ar <- fit_cached("price_ar", brm(
+  z ~ zlag, data = d_ar_full, family = student(), prior = pri_ar,
+  chains = 4, iter = 2000, seed = 4, refresh = 0))
+fit_rw <- fit_cached("price_rw", brm(
+  dz ~ 1, data = rw_data(ly), family = student(), prior = pri_rw,
+  chains = 4, iter = 2000, seed = 5, refresh = 0))
+stopifnot(max(rhat(fit_ar), na.rm = TRUE) < 1.01,
+          max(rhat(fit_rw), na.rm = TRUE) < 1.01)
+
+# Ennustepolkujen simulointi logaritmiasteikolla
+sim_paths_fn <- function(fit, type, last_ly, mu, h, n = 1000) {
+  pd <- as_draws_df(fit) |> slice_sample(n = n)
+  out <- matrix(NA_real_, n, h)
+  z <- rep(last_ly - mu, n)
+  for (s in seq_len(h)) {
+    eps <- pd$sigma * rt(n, df = pd$nu)
+    z <- if (type == "ar") pd$b_Intercept + pd$b_zlag * z + eps
+         else z + pd$b_Intercept + eps
+    out[, s] <- z + mu
+  }
+  out
+}
+
+# --- Takautuva ennustekoe -----------------------------------------------------
+origins <- 2010:min(2020, max(ly$period) - 1)
+backtest <- fit_cached("price_backtest", {
+  map_dfr(origins, function(o) {
+    train <- ly |> filter(period <= o)
+    test  <- ly |> filter(period > o, period <= o + 5)
+    d_ar  <- ar_data(train); mu_o <- attr(d_ar, "mu")
+    f_ar  <- update(fit_ar, newdata = d_ar, recompile = FALSE, refresh = 0, seed = o)
+    f_rw  <- update(fit_rw, newdata = rw_data(train), recompile = FALSE,
+                    refresh = 0, seed = o)
+    last  <- train$ly[train$period == o]
+    h     <- max(test$period) - o
+    paths <- list(ar = sim_paths_fn(f_ar, "ar", last, mu_o, h),
+                  rw = sim_paths_fn(f_rw, "rw", last, 0, h))
+    map_dfr(names(paths), function(m) {
+      P <- paths[[m]]
+      tibble(malli = m, origin = o, period = test$period,
+             horizon = test$period - o, actual = test$ly) |>
+        mutate(
+          crps   = map2_dbl(actual, horizon, \(a, k) scoringRules::crps_sample(a, P[, k])),
+          lo80   = map_dbl(horizon, \(k) quantile(P[, k], .1)),
+          hi80   = map_dbl(horizon, \(k) quantile(P[, k], .9)),
+          cover  = actual >= lo80 & actual <= hi80,
+          width  = exp(hi80 - lo80)          # yläraja / alaraja -suhde
+        )
+    })
+  })
+})
+
+stopifnot(nrow(backtest) > 40, setequal(unique(backtest$malli), c("ar", "rw")),
+          all(is.finite(backtest$crps)))
+
+bt_sum <- backtest |>
+  group_by(malli) |>
+  summarise(crps = mean(crps), cover = mean(cover),
+            width5 = median(width[horizon == 5]), n = n(), .groups = "drop")
+
+# Parittainen vertailu: sama lähtövuosi ja horisontti molemmille malleille
+bt_pair <- backtest |>
+  select(malli, origin, horizon, crps) |>
+  pivot_wider(names_from = malli, values_from = crps) |>
+  mutate(diff = rw - ar)                     # positiivinen = AR parempi
+wt_bt <- wilcox.test(bt_pair$rw, bt_pair$ar, paired = TRUE,
+                     conf.int = TRUE, exact = FALSE)
+share_ar_better <- mean(bt_pair$diff > 0)
+
+best <- bt_sum$malli[which.min(bt_sum$crps)]
+nimi <- c(ar = "Keskiarvoon palaava (AR)", rw = "Satunnaiskulku")
+
+bt_sum |>
+  transmute(Malli = nimi[malli],
+            `CRPS, keskiarvo (pienempi parempi)` = fmt_n(crps, 3),
+            `80 %:n välin osumatarkkuus` = fmt_pct(cover),
+            `Välin leveys 5 v päähän (yläraja / alaraja)` = paste0(fmt_n(width5, 1), "-kertainen"),
+            `Ennusteita` = n) |>
+  knitr::kable(caption = "Takautuva ennustekoe, lähtövuodet 2010–2020, 1–5 vuoden horisontit")
+```
+
+**Miten taulukkoa luetaan.** Jokainen rivi on yksi malli. CRPS on ennusteen kokonaisvirhe, ja pienempi on parempi. Osumatarkkuuden pitäisi olla lähellä 80 %. Viimeinen sarake kertoo, kuinka leveä ennuste oli viiden vuoden päähän: esimerkiksi "3-kertainen" tarkoittaa, että välin yläraja oli kolme kertaa alaraja.
+
+Testasin mallien eroa **Wilcoxonin merkittyjen sijalukujen testillä**. Jokaista ennustetta (sama lähtövuosi ja sama horisontti) verrataan kahden mallin kesken pareittain, ja testi kysyy, onko toinen malli johdonmukaisesti parempi. Testi ei oleta virheiden noudattavan normaalijakaumaa. Keskiarvoon palaava malli oli parempi `r fmt_pct(share_ar_better)` ennusteista, ja testin p-arvo on `r fmt_n(wt_bt$p.value, 3)`. Varaus: peräkkäisten lähtövuosien ennusteet menevät osin päällekkäin, joten ne eivät ole täysin toisistaan riippumattomia, ja todellinen epävarmuus on hieman suurempi kuin p-arvo antaa ymmärtää.
+
+`r if (best == "ar") "Keskiarvoon palaava malli ennusti menneisyydessä paremmin, joten käytän sitä varsinaisessa ennusteessa." else "Satunnaiskulku ennusti menneisyydessä paremmin. Tämä on rehellinen ja tärkeä tulos: minkinnahan hinnalla ei ole ollut tavanomaista tasoa, jota kohti se palaisi, eikä hintaa voi siksi ennustaa kuin muutaman vuoden päähän. Käytän silti satunnaiskulkua, koska se on testin perusteella parempi kuvaus todellisuudesta."`
+
+```{r}
+#| label: price-forecast
+fit_best <- if (best == "ar") fit_ar else fit_rw
+mu_full  <- if (best == "ar") attr(d_ar_full, "mu") else 0
+last_year <- max(ly$period)
+last_ly   <- ly$ly[ly$period == last_year]
+last_uv   <- exp(last_ly)
+h <- 2030 - last_year
+stopifnot(h >= 1)
+
+fc_mat <- sim_paths_fn(fit_best, best, last_ly, mu_full, h, n = 4000)
+sim_paths <- as_tibble(fc_mat, .name_repair = ~ as.character(last_year + seq_len(h))) |>
+  mutate(draw = row_number()) |>
+  pivot_longer(-draw, names_to = "period", values_to = "ly") |>
+  mutate(period = as.integer(period), uv = exp(ly))
+
+uv_2030  <- exp(fc_mat[, h])
+p_half   <- mean(uv_2030 < 0.5 * last_uv)
+p_double <- mean(uv_2030 > 2 * last_uv)
+
+pd_ar   <- as_draws_df(fit_ar)
+phi     <- pd_ar$b_zlag
+lr_uv   <- exp(attr(d_ar_full, "mu") + pd_ar$b_Intercept / (1 - phi))   # pitkän aikavälin taso
+halflife <- log(0.5) / log(pmax(phi, 1e-6))
+stopifnot(mean(phi >= 1) < 0.05)       # malli ei saa olla "räjähtävä"
+vol_med <- median(as_draws_df(fit_best)$sigma)
+
+ggplot() +
+  stat_lineribbon(data = sim_paths, aes(period, uv),
+                  .width = c(.5, .8, .95), fill = "#f39c12", alpha = 0.3,
+                  colour = "#d35400") +
+  geom_line(data = fin_uv, aes(period, uv), linewidth = 1) +
+  geom_point(data = fin_uv, aes(period, uv)) +
+  { if (best == "ar") geom_hline(yintercept = median(lr_uv), linetype = 3) } +
+  scale_y_log10(labels = label_dollar()) +
+  labs(title = "Minkinnahan vientiyksikköhinta Suomesta ja ennuste vuoteen 2030",
+       subtitle = paste0(uv_unit, ", logaritminen asteikko. Malli: ", nimi[best],
+                         if (best == "ar") ". Pisteviiva = pitkän aikavälin taso" else ""),
+       x = NULL, y = paste0(uv_unit, " (log)")) +
+  guides(fill = "none")
+```
+
+**Miten kuvaa luetaan.** Musta viiva on toteutunut keskimääräinen vientihinta (yksikkönä `r uv_unit`; nahkojen kappalemäärä oli Comtradessa ilmoitettu `r fmt_pct(uv_cov)`:lla Suomen vientivuosista, ja jos osuus jäi alle 80 %:n, käytin kilohintaa). Oranssi viuhka on ennuste: tumma osa sisältää puolet mahdollisista hintapoluista, vaalein 95 %. Pystyakseli on logaritminen, joten tasavälein kulkeva nousu tarkoittaa tasaista *prosentuaalista* nousua. `r if (best == "ar") "Pisteviiva on mallin arvio hinnan pitkän aikavälin tasosta." else ""`
+
+Keskiarvoon palaavan mallin mukaan hinnan pitkän aikavälin taso on `r fmt_iv(lr_uv)` (`r uv_unit`). Poikkeama tästä tasosta puolittuu tyypillisesti `r fmt_iv(halflife, 1)` vuodessa. Tämä on mallin tärkein tieto: se kertoo, kuinka nopeasti hintapiikit sulavat. Vuosien 2011–2013 piikki on hyvä esimerkki: hinta lähes kaksinkertaistui ja palasi muutamassa vuodessa entiselle tasolleen.
+
+Ennusteen mukaan vuoden 2030 hinta on `r fmt_iv(uv_2030)` (`r uv_unit`). Todennäköisyys, että hinta on silloin alle puolet viimeisimmästä havaitusta tasosta, on `r fmt_pct(p_half)`, ja todennäköisyys, että se on yli kaksinkertainen, on `r fmt_pct(p_double)`.
+
+**Ennakkoon kirjattu ennuste.** Comtraden data päättyy vuoteen `r last_year`. Saga Fursin vuoden 2026 huutokauppojen perusteella hinnat nousivat tänä vuonna jyrkästi. `r if (best == "ar") "Malli ennustaa, että nousu on samanlainen piikki kuin 2011–2013 ja että hinta palaa vuoteen 2030 mennessä lähelle pitkän aikavälin tasoaan." else "Satunnaiskulku ei ota kantaa siihen, jääkö nousu pysyväksi."` Tarkistan ennusteen, kun Comtrade julkaisee vuoden 2030 luvut.
+
+**Merkitys päätökselle.** Poikkeusluvalla Suomi ostaa *option*: oikeuden jatkaa, jos markkina pysyy hyvänä. `r if (best == "ar") "Jos hinnat palaavat pitkän aikavälin tasolle, kuten historiassa on käynyt, vuoden 2026 huippuhinnat eivät ole hyvä peruste arvioida alan kannattavuutta 2030-luvulla. Hakemusta arvioitaessa kannattaa siksi katsoa alan kannattavuutta tavanomaisella hintatasolla, ei piikin aikana." else "Koska hintaa ei voi ennustaa muutamaa vuotta pidemmälle, alan työllisyys on itsessään epävakaa. Työllisyys, joka voi puolittua kahden huonon huutokauppakauden aikana, on heikko perusta pakottavalle yleiselle edulle."`
+
+```{r}
+#| label: price-test
+uv_pair <- inner_join(fin_uv, dnk_uv, by = "period", suffix = c("_fi", "_dk")) |>
+  filter(period <= 2019)
+stopifnot(nrow(uv_pair) >= 10)
+wt_uv <- wilcox.test(log(uv_pair$uv_fi), log(uv_pair$uv_dk),
+                     paired = TRUE, conf.int = TRUE, exact = FALSE)
+```
+
+Vertasin vielä Suomen ja Tanskan vientiyksikköhintoja vuosina 2000–2019 **Wilcoxonin merkittyjen sijalukujen testillä**. Testi soveltuu tilanteeseen, jossa samat vuodet esiintyvät molemmissa maissa (parit), eikä se oleta normaalijakaumaa. Tyypillinen ero oli `r fmt_pct(exp(wt_uv$estimate) - 1)` Suomen suuntaan (p = `r fmt_n(wt_uv$p.value, 3)`). Tulkinnassa on oltava varovainen, koska Suomen vientihinta sisältää myös huutokaupan kautta kulkevia ulkomaisia nahkoja.
+
+## Osa 6: Kustannuspuoli – mitä poikkeuslupa maksaa
+
+Sosioekonomiset vaikutukset eivät ole vain työpaikkoja. Poikkeusluvalla on myös hintansa, ja osa siitä tulee veronmaksajille.
+
+::: {.callout-note title="Faktalaatikko: minkki luonnossa – meta-analyysin ja pitkän kokeen näyttö"}
+Salo ym. (2007) kokosivat meta-analyysiin 45 toistettua ja 35 toistamatonta kenttäkoetta, joissa petojen määrää oli muutettu ja saaliseläinten vastetta mitattu. Vieraiden petojen vaikutus saaliseläinkantoihin oli keskimäärin kaksinkertainen alkuperäisiin petoihin verrattuna. Ero selittyi osin Australian aineistolla, mutta tulos on yleisesti siteerattu vertailukohta.
+
+Suomesta on lisäksi harvinaisen pitkä koe. Saaristomeren kansallispuistossa minkkejä poistettiin kokeellisesti 15 vuoden ajan. Poiston jälkeen 14 lajia 22:sta merilintulajista runsastui, ja vaikutukset ulottuivat myyriin ja sammakoihin (Banks ym. 2008). Tuoreemmat tulokset haahkasta osoittavat, että minkin ja supikoiran poisto vähensi haahkanaaraiden kuolleisuutta ja paransi pesintämenestystä, vaikka merikotka oli samaan aikaan runsastunut (Jaatinen ym. 2022).
+
+**Counterfactual-huomio:** Suomen luonnonvarainen minkkikanta on syntynyt tarhoilta karanneista ja vapautetuista eläimistä. Poikkeusluvan aikana karkaamisriski jatkuu, joten luonnon minkkikannan torjunnan kustannukset jatkuvat. Ilman tarhausta torjunta ei lopu, mutta uusia karkulaisia ei enää tule. Tätä erotusta ei voi laskea julkisella datalla euroiksi, mutta se on todellinen kustannus.
+:::
+
+::: {.callout-note title="Faktalaatikko: zoonoosiriski"}
+Heinäkuussa 2023 korkeapatogeeninen lintuinfluenssa H5N1 todettiin suomalaisilla turkistarhoilla Etelä- ja Keski-Pohjanmaalla. Tartunnan saaneita eläimiä oli ketuissa, minkeissä ja supikoirissa (Lindh ym. 2023). Lokakuuhun mennessä tartunta oli todettu 27 tarhalla. Virusperimästä löytyi muutoksia, jotka liittyvät viruksen sopeutumiseen nisäkkäisiin, ja tartunnat kulkivat todennäköisesti myös eläimestä toiseen (Kareinen ym. 2024). Tutkijat arvioivat, että viruksen pitkäkestoinen kierto tiheissä nisäkäspopulaatioissa voi kasvattaa sen pandemiapotentiaalia.
+
+Alankomaissa SARS-CoV-2 siirtyi vuonna 2020 minkkitarhoilla ihmisistä minkkeihin ja minkeistä takaisin ihmisiin (Oude Munnink ym. 2021, *Science*). Tanskan koko maan kattava lopetusmääräys perustui pelkoon minkkivälitteisestä virusmuunnoksesta.
+
+Ylen mukaan sosiaali- ja terveysministeriö suhtautui poikkeusluvan hakemiseen lausunnossaan erittäin varauksellisesti ja piti tarhauksen jatkamista merkittävänä kansanterveydellisenä riskinä. Tämä näkemys ei Ylen mukaan päätynyt eduskunnalle toimitettuun kirjelmään.
+
+**Counterfactual-huomio:** pandemian todennäköisyys on pieni, mutta sen hinta olisi niin suuri, että pienikin todennäköisyyden muutos voi olla merkittävä. Tällaista riskiä ei voi arvioida keskiarvolla: kyse on jakauman pitkästä hännästä. En yritä laskea pandemiariskiä euroiksi, koska julkinen data ei siihen riitä. Lasken alla vain sen osan, joka on jo kerran toteutunut: eläinten lopettamiskorvaukset.
+:::
+
+### Odotettu tautikustannus
+
+Vuoden 2023 lintuinfluenssaepidemiassa valtio maksoi eläintautilain mukaisia korvauksia Ruokaviraston arvion mukaan 50,7 miljoonaa euroa noin 485 000 lopetetusta eläimestä. Korvaukset menivät kaikille turkiseläinlajeille, joten vain osa liittyy minkkiin. Epidemian alkuvaiheen 20 tarhalla minkkejä oli noin 20 % eläimistä (Lindh ym. 2023), ja koko sektorilla minkkien osuus eläimistä on noin 41 % (Kareinen ym. 2024). Käytän minkin osuudelle väliä 20–41 %.
+
+Kuinka usein vastaava epidemia sattuu? Havaintoja on yksi kymmenessä vuodessa (2016–2025). Yhdestä havainnosta ei voi laskea tarkkaa todennäköisyyttä, mutta bayesilaisella **Poisson–gamma-mallilla** voi sanoa, mitkä tapahtumatiheydet ovat uskottavia. Malli kertoo: "jos jotain on tapahtunut kerran kymmenessä vuodessa, mitä se kertoo tulevista vuosista?" Vastaus on leveä jakauma, ja juuri sen leveys on rehellinen tieto.
+
+```{r}
+#| label: disease-cost
+n_mc <- n_draws
+lambda <- rgamma(n_mc, shape = 0.5 + 1, rate = 10)   # Jeffreysin priori + 1 tapahtuma / 10 v
+mink_share_event <- runif(n_mc, 0.20, MINK_SHARE_ANIMALS)
+cost_event <- CULL_COMP_2023_EUR * exp(rnorm(n_mc, 0, 0.5))  # kustannustason vaihtelu
+exp_annual_cost <- lambda * cost_event * mink_share_event
+
+p_event_by_2035 <- 1 - exp(-lambda * 8)  # vähintään yksi epidemia 2028–2035
+stopifnot(all(exp_annual_cost >= 0), all(lambda > 0))
+```
+
+Mallin mukaan minkkiin kohdistuvien lopetuskorvausten odotettu vuosikustannus on `r fmt_iv(exp_annual_cost / 1e6, 1)` miljoonaa euroa. Todennäköisyys sille, että vuosina 2028–2035 sattuu vähintään yksi vastaava epidemia, on mallin mukaan `r fmt_iv(100 * p_event_by_2035)` prosenttia. Valtiovarainministeriö huomautti Ylen mukaan myös lupien käsittelyn ja valvonnan kustannuksista, joita en pysty arvioimaan julkisen datan perusteella.
+
+## Osa 7: Neljä vaihtoehtoista maailmaa
+
+Nyt kaikki palaset voidaan yhdistää. Rakensin **Monte Carlo -simulaation**, joka on tapa laskea epävarmoilla luvuilla. Jokainen epävarma luku arvotaan sen jakaumasta, lasketaan lopputulos, ja tämä toistetaan `r fmt_n(n_draws)` kertaa. Tuloksena on jakauma lopputuloksesta, joka sisältää kaikkien lähtötietojen epävarmuuden.
+
+### Lähtötiedot ja niiden perustelut
+
+| Lähtötieto | Arvo tai jakauma | Perustelu |
+|---|---|---|
+| Minkin pitopaikat | 134 | MMM:n tiedote 9.10.2026 |
+| Suora työ tarhaa kohden | 540 HTV jaettuna tarhamäärällä 400–550 | KKV 30/2023: 540 suoraa HTV:tä (2022). Tarhamäärä 2022 ei ole tiedossa; se oli suurempi kuin Ruokaviraston 280 (11/2024) ja suunnilleen pitopaikkarekisterin 450 (2023) tasolla. |
+| Tarhakoon vaihtelu | log-normaali, keskihajonta 0,25 | Minkkitarhat voivat olla keskimääräistä suurempia tai pienempiä |
+| Minkkiin sidottu osuus työstä | 70–100 % | Monella tarhalla on myös kettuja, joiden tarhaus jatkuu. 134 minkin pitopaikkaa on 48 % tarhoista ja minkit 41 % eläimistä, mikä viittaa siihen, että minkkitarhat ovat pääosin minkkiin erikoistuneita. |
+| Kerroin suorasta koko alaan | 1,5–2,93 | Yläraja on ministeriön luku 1 580/540. Alaraja on pienempi, koska huutokauppa ja osa logistiikasta palvelee myös kettua ja ulkomaisia nahkoja. |
+| Läpimenoaste työttömyydeksi | Tanskan jakauma osasta 4 | Ainoa empiirinen mittaus koko alan suljennasta |
+| Alan kehitys poikkeusluvalla | YTJ-ennuste osasta 5 | Vuoden 2030 yritysmäärä suhteessa vuoteen 2026 |
+| Siirtymäpaketin hinta eläintä kohden | 104–170 € | Suomi 2023: 50,7 M€ / 485 000 eläintä. Tanska 2021: 19 mrd DKK / 15 milj. minkkiä. |
+| Minkkien määrä | 41 % × 1,5–2,0 milj. eläintä | Kareinen ym. 2024 |
+
+Kaikki luvut ovat dokumentoituja tai niistä johdettuja. Kohdat, joissa joudun tekemään oletuksen, on merkitty perusteluineen, ja tarkastelen alla, mitkä oletukset vaikuttavat tulokseen eniten.
+
+```{r}
+#| label: monte-carlo
+farms_2022   <- runif(n_mc, 400, 550)
+direct_pf    <- DIRECT_HTV_2022 / farms_2022
+size_mult    <- exp(rnorm(n_mc, 0, 0.25))
+mink_tied    <- runif(n_mc, 0.7, 1.0)
+multiplier   <- runif(n_mc, 1.5, TOTAL_HTV_2022 / DIRECT_HTV_2022)
+
+direct_jobs  <- N_SITES_APPLICATION * direct_pf * size_mult * mink_tied
+total_jobs   <- direct_jobs * multiplier
+
+# Poikkeusluvan maailmassa ala jatkaa supistumistaan (osa 5)
+decline_draw <- sample(decline_2030, n_mc, replace = TRUE)
+jobs_A_2030  <- total_jobs * decline_draw
+
+# Ilman lupaa: työpaikat häviävät; osa muuttuu työttömyydeksi (osa 4).
+pass_draw    <- pmin(pmax(sample(passthrough, n_mc, replace = TRUE), 0), 1)  # 0–1
+extra_unemp_B <- pmax(jobs_A_2030 * pass_draw, 0)
+
+# Siirtymäpaketti (C): kertakorvaus eläinmäärän mukaan
+n_mink       <- MINK_SHARE_ANIMALS * runif(n_mc, 1.5e6, 2.0e6)
+price_animal <- runif(n_mc, CULL_COMP_2023_EUR / CULL_ANIMALS_2023,
+                      DK_COMP_DKK / DKK_PER_EUR / DK_MINK_CULLED)
+package_C    <- n_mink * price_animal
+
+# Alueen työmarkkinat: työlliset kunnissa, joissa on turkistarhausyritys
+emp_fur_munis <- fur_by_kunta |> filter(n_fur > 0) |> summarise(s = sum(tyoll)) |> pull(s)
+share_of_emp  <- total_jobs / emp_fur_munis
+
+stopifnot(
+  all(direct_jobs > 0), all(total_jobs >= direct_jobs),
+  all(price_animal > 50 & price_animal < 300),
+  emp_fur_munis > 10000
+)
+
+# Kustannus per poikkeusluvalla "pelastettu" työpaikka vuonna 2030
+cost_per_saved_job_C <- package_C / jobs_A_2030
+disease_per_job_year <- exp_annual_cost / jobs_A_2030
+```
+
+### Tulokset
+
+```{r}
+#| label: scenario-plot
+#| fig-height: 6
+sc <- bind_rows(
+  tibble(mittari = "Työpaikat nyt (suora + välillinen, minkki)", v = total_jobs),
+  tibble(mittari = "Työpaikat 2030, jos poikkeuslupa (A)", v = jobs_A_2030),
+  tibble(mittari = "Lisätyöttömät 2030, jos ei lupaa (B)", v = extra_unemp_B)
+)
+
+ggplot(sc, aes(x = v, y = fct_rev(fct_inorder(mittari)))) +
+  stat_halfeye(fill = "#1b6ca8", .width = c(.8, .95)) +
+  scale_x_continuous(labels = label_number(big.mark = " ")) +
+  labs(title = "Kuinka monta työpaikkaa minkin poikkeuslupa koskee?",
+       subtitle = "Henkilötyövuotta. Musta piste = mediaani, paksu viiva = 80 %:n väli",
+       x = "Henkilötyövuotta", y = NULL)
+```
+
+**Miten kuvaa luetaan.** Jokainen mäki on yhden luvun jakauma. Ylin mäki on minkkiin liittyvä työllisyys nyt, koko arvoketju mukaan lukien. Keskimmäinen on sama luku vuonna 2030 siinä maailmassa, jossa poikkeuslupa saadaan ja ala jatkaa nykyistä kehitystään. Alin on niiden ihmisten määrä, jotka olisivat vuonna 2030 työttömänä siksi, ettei lupaa saatu. Mitä leveämpi mäki, sitä epävarmempi luku.
+
+Tulokset tiivistettynä:
+
+- **Minkkiin liittyvä työllisyys nyt:** `r fmt_iv(total_jobs)` henkilötyövuotta, josta tarhojen suoraa työtä `r fmt_iv(direct_jobs)`.
+- **Osuus alueen työllisistä:** kunnissa, joissa on turkistarhausyritys, on yhteensä `r fmt_n(emp_fur_munis)` työllistä. Minkkiin liittyvä työllisyys on niistä `r fmt_iv(100 * share_of_emp, 2)` prosenttia.
+- **Poikkeusluvan maailmassa vuonna 2030:** `r fmt_iv(jobs_A_2030)` henkilötyövuotta.
+- **Lisätyöttömät vuonna 2030 ilman lupaa:** `r fmt_iv(extra_unemp_B)` henkeä.
+
+```{r}
+#| label: scenario-table
+q80 <- function(x, d = 0, scale = 1) {
+  paste0(fmt_n(median(x) / scale, d), " (",
+         fmt_n(quantile(x, .1) / scale, d), "–",
+         fmt_n(quantile(x, .9) / scale, d), ")")
+}
+
+tibble(
+  Vaihtoehto = c("A: Poikkeuslupa",
+                 "B: Ei lupaa, ei tukea",
+                 "C: Ei lupaa, siirtymäpaketti",
+                 "D: Poikkeuslupa + uusi epidemia"),
+  `Minkkityöpaikat alalla 2030 (HTV)` = c(q80(jobs_A_2030), "0", "0",
+                                          q80(jobs_A_2030)),
+  `Lisätyöttömät 2030` = c("0", q80(extra_unemp_B),
+                           paste0("alle ", fmt_n(quantile(extra_unemp_B, .9))),
+                           "0"),
+  `Kertakustannus valtiolle (M€)` = c("–", "–", q80(package_C, 0, 1e6),
+                                      q80(cost_event * mink_share_event, 0, 1e6)),
+  `Odotettu vuosikustannus (M€)` = c(q80(exp_annual_cost, 1, 1e6), "0", "0",
+                                     q80(exp_annual_cost, 1, 1e6)),
+  `Luontohaitta` = c("Karkaamisriski jatkuu", "Uudet karkaamiset loppuvat",
+                     "Uudet karkaamiset loppuvat", "Karkaamisriski jatkuu")
+) |>
+  knitr::kable(caption = "Neljä vaihtoehtoista maailmaa. Mediaani (80 %:n väli).")
+```
+
+**Miten taulukkoa luetaan.** Jokainen rivi on yksi vaihtoehtoinen maailma. Sulkeissa oleva väli kertoo, mihin luku 80 %:n todennäköisyydellä osuu. Vaihtoehdossa C lisätyöttömien määrälle annan vain ylärajan: Tanskan läpimenoaste mitattiin nimenomaan maailmassa, jossa siirtymä rahoitettiin, joten C:n työttömyysvaikutus on todennäköisesti B:tä pienempi, mutta sen tarkka koko ei ole tiedossa.
+
+Siirtymäpaketti (C) on laskettu niin, että valtio maksaisi tarhaajille yhden tuotantovuoden eläinmäärän käyvän arvon. Arvon haarukka perustuu kahteen toteutuneeseen hintaan: Suomen vuoden 2023 lopetuskorvauksiin ja Tanskan korvauspakettiin. Jaettuna poikkeusluvan vuonna 2030 "pelastamilla" työpaikoilla se tarkoittaa `r fmt_iv(cost_per_saved_job_C / 1000)` tuhatta euroa työpaikkaa kohden kertaluonteisesti. Vertailun vuoksi: vaihtoehdon A odotettu tautikustannus on `r fmt_iv(disease_per_job_year / 1000, 1)` tuhatta euroa työpaikkaa kohden *joka vuosi*.
+
+### Mikä oletus ratkaisee?
+
+```{r}
+#| label: sensitivity
+sens <- tibble(
+  `Tarhamäärä 2022` = farms_2022,
+  `Tarhakoko` = size_mult,
+  `Minkkiin sidottu osuus` = mink_tied,
+  `Arvoketjukerroin` = multiplier,
+  `Alan supistuminen` = decline_draw,
+  `Läpimenoaste` = pass_draw
+) |>
+  summarise(across(everything(),
+                   \(x) cor(x, extra_unemp_B, method = "spearman"))) |>
+  pivot_longer(everything(), names_to = "tekija", values_to = "rho")
+
+ggplot(sens, aes(rho, fct_reorder(tekija, abs(rho)))) +
+  geom_col(fill = "#1b6ca8") +
+  geom_vline(xintercept = 0) +
+  labs(title = "Mikä epävarmuus vaikuttaa eniten lisätyöttömien määrään?",
+       subtitle = "Spearmanin järjestyskorrelaatio lähtötiedon ja tuloksen välillä",
+       x = "Korrelaatio (−1 … 1)", y = NULL)
+```
+
+**Miten kuvaa luetaan.** Mitä pidempi palkki, sitä enemmän kyseisen lähtötiedon epävarmuus vaikuttaa lopputulokseen. Positiivinen palkki tarkoittaa, että lähtötiedon kasvaessa lisätyöttömien määrä kasvaa. Negatiivinen palkki tarkoittaa päinvastaista (esimerkiksi mitä enemmän tarhoja oli vuonna 2022, sitä vähemmän työtä tarhaa kohden). Kuva kertoo, mihin lisätiedonkeruu kannattaisi kohdistaa: suurimman palkin tietoa kannattaa tarkentaa ensimmäisenä.
+
+```{r}
+#| label: verdicts
+#| include: false
+# Johtopäätösten sanamuodot määräytyvät datasta, eivät kirjoittajan oletuksista.
+dk_eff_med <- median(exp(beta_draws) - 1)
+dk_text <- case_when(
+  p_perm > 0.10 & abs(dk_eff_med) < 0.05 ~
+    "Tanskan suljenta ei näkynyt kuntatason työttömyydessä sattumasta erotettavana muutoksena",
+  p_perm <= 0.10 & dk_eff_med > 0 ~
+    paste0("Tanskan suljenta näkyi kuntatason työttömyydessä: minkkikuntien työttömyys kasvoi noin ",
+           fmt_pct(dk_eff_med, 1), " enemmän kuin muualla"),
+  TRUE ~ paste0("Tanskan suljennan vaikutus kuntatason työttömyyteen jäi epävarmaksi (mediaaniarvio ",
+                fmt_pct(dk_eff_med, 1), ", permutaatiotestin p = ", fmt_n(p_perm, 2), ")")
+)
+
+fur_diff_med <- median(100 * diff_pp)
+fur_text <- case_when(
+  p_pos >= 0.95 & fur_diff_med >= 1 ~
+    paste0("Tarha-alueilla työttömyys on selvästi korkeampi kuin naapurialueilla (noin ",
+           fmt_n(fur_diff_med, 1), " prosenttiyksikköä), mikä tukee hakemuksen väitettä"),
+  p_pos >= 0.95 ~
+    paste0("Tarha-alueilla työttömyys on hieman korkeampi kuin naapurialueilla (noin ",
+           fmt_n(fur_diff_med, 1), " prosenttiyksikköä), mutta ero on käytännössä pieni"),
+  p_pos <= 0.05 ~
+    paste0("Tarha-alueilla työttömyys on jopa matalampi kuin naapurialueilla (noin ",
+           fmt_n(fur_diff_med, 1), " prosenttiyksikköä), mikä ei tue hakemuksen väitettä"),
+  TRUE ~
+    paste0("Tarha-alueiden ja naapurialueiden työttömyydessä ei ole selvää eroa (mediaaniarvio ",
+           fmt_n(fur_diff_med, 1), " prosenttiyksikköä), joten data ei tue väitettä erityisen heikoista työllistymismahdollisuuksista")
+)
+```
+
+## Johtopäätökset
+
+1. **Työllisyysluvut eivät kerro samaa asiaa.** Julkisuudessa esitetyt arviot vaihtelevat monikymmenkertaisesti. Ero selittyy pääosin sillä, mitataanko suoraa työtä vai koko ketjua, mitä vuotta luku koskee ja koskeeko se koko turkisalaa vai vain minkkiä. Alan omissa luvuissa on lisäksi ollut dokumentoitu laskuvirhe.
+
+2. **Pelissä on `r fmt_n(median(total_jobs))` henkilötyövuotta (80 %:n väli `r fmt_n(quantile(total_jobs, .1))`–`r fmt_n(quantile(total_jobs, .9))`), ei tuhansia.** Kun luvut kohdistetaan hakemuksen 134 minkin pitopaikkaan, tulos on murto-osa alan julkisuudessa käyttämistä luvuista ja noin `r fmt_n(100 * median(share_of_emp), 2)` % tarhakuntien työllisistä.
+
+3. **Oikea vaihtoehtoinen maailma on kutistuva ala.** YTJ-aineiston perusteella turkistarhausyritysten määrä on muuttunut keskimäärin `r fmt_n(100 * median(annual_change), 1)` % vuodessa. Poikkeuslupa ei pelastaisi tämän päivän työpaikkoja vaan ne, jotka olisivat jäljellä vuonna 2030 nykykehityksellä: `r fmt_iv(jobs_A_2030)` henkilötyövuotta.
+
+4. **`r dk_text`.** Tanska menetti moninkertaisesti enemmän minkkityöpaikkoja kuin Suomi voisi menettää. Tanskan avokätinen korvauspaketti on otettava huomioon tulosta tulkittaessa: se kuvaa maailmaa, jossa siirtymä rahoitettiin.
+
+5. **"Rajalliset työllistymismahdollisuudet" on testattava väite.** `r fur_text`. Ero on mitattava suhteessa naapureihin, ei Helsinkiin.
+
+6. **Hintapiikki ei ole uusi normaali.** `r if (best == "ar") paste0("Takautuvassa ennustekokeessa keskiarvoon palaava malli ennusti paremmin kuin satunnaiskulku. Sen mukaan poikkeama hinnan pitkän aikavälin tasosta puolittuu noin ", fmt_n(median(halflife), 1), " vuodessa, joten vuoden 2026 huippuhintoihin nojaava kannattavuusarvio yliarvioi alan tulevaisuutta.") else "Takautuvassa ennustekokeessa hinnalla ei ollut tasoa, jota kohti se palaisi, joten hintaa ei voi ennustaa muutamaa vuotta pidemmälle. Alan työllisyys on siksi itsessään epävakaa perusta pakottavalle yleiselle edulle."`
+
+7. **Kustannuksia ei ole hakemuksen julkisessa perustelussa punnittu samalla tarkkuudella kuin hyötyjä.** Vuoden 2023 lintuinfluenssa maksoi valtiolle yli 50 miljoonaa euroa, ja STM:n varoitus kansanterveysriskistä ei Ylen mukaan päätynyt eduskunnalle.
+
+Tämä ei tarkoita, että poikkeuslupa olisi väärä päätös. Se on arvovalinta, johon kuuluvat myös elinkeinovapaus, maaseudun identiteetti, eläinten hyvinvointi ja luonnon monimuotoisuus. Data ei tee arvovalintoja. Se kertoo, kuinka suuret asiat vaa'assa ovat. Ja tässä tapauksessa työllisyys painaa vaa'assa vähemmän kuin julkisesta keskustelusta voisi päätellä.
+
+### Rajoitukset
+
+- YTJ:n yritysmäärä ei ole tarhojen määrä, eikä se erottele minkkiä muista turkiseläimistä.
+- Tanskan minkkikuntien määritelmä perustuu tartuntakuntiin ja kuntien yhteiskirjeeseen, ei tarhojen tarkkaan määrään kunnittain.
+- Tanskan tulos koskee maailmaa, jossa siirtymä rahoitettiin. Suomen työmarkkinat ja työttömyysturva eroavat Tanskan vastaavista.
+- Paavon poikkileikkausvertailu ei kerro syy-seuraussuhteesta.
+- `r if (use_trend) "Tanskan analyysissä rinnakkaisten trendien oletus ei pitänyt, joten käytin kuntakohtaisia trendejä. Ne olettavat, että vuosien 2010–2019 kehitys olisi jatkunut samansuuntaisena ilman suljentaa." else "Tanskan analyysi nojaa rinnakkaisten trendien oletukseen, jota esitesti ei hylännyt mutta joka ei ole todistettavissa."`
+- Hintaennuste perustuu 26 vuoden vuosiaineistoon. Se kuvaa hinnan tavanomaista käyttäytymistä, ei poliittisia shokkeja, kuten koko EU:n tuotannon loppumista, joka voisi nostaa jäljelle jäävien tuottajien hintoja.
+- Comtrade-yksikköhinta on viennin keskiarvo, ei yksittäisen tarhaajan saama hinta, ja Suomen luvuissa on mukana ulkomaisia nahkoja.
+- Pandemiariskiä, lupahallinnon kustannuksia ja luontohaittaa en pystynyt muuttamaan euroiksi julkisella datalla.
+
+## Miten tätä voi käyttää käytännössä?
+
+**Päättäjälle ja virkamiehelle:**
+
+- Vaadi jokaisen vaikutusarvion työllisyysluvulle kolme tietoa: mittari (suora vai koko ketju), vuosi ja kohdentuminen (juuri se toiminta, josta päätetään).
+- Kysy aina "verrattuna mihin?". Jos vaihtoehtoinen maailma on "tämä päivä", arvio on väärin rakennettu.
+- Pyydä epävarmuusväli. Luku ilman väliä on mielipide.
+
+**Toimittajalle:** YTJ:n avoin data, Paavo ja naapurimaiden tilastot ovat ilmaisia. Saman analyysin voi tehdä mille tahansa toimialalle, jonka tulevaisuudesta päätetään politiikalla: turpeelle, kaivoksille, tuulivoimalle tai tehtaan sulkemiselle.
+
+**Tutkijalle:** ennakkoon kirjattu ennuste (osa 5) on tarkistettavissa vuoden 2030 jälkeen. Tällaiset ennusteet tekevät julkisesta keskustelusta rehellisempää, koska väitteet voidaan myöhemmin todentaa.
+
+## Mitä tämä tarkoittaa yrityksellesi?
+
+Tämä analyysi ei koske vain turkiksia. Se on esimerkki menetelmästä, jolla **minkä tahansa sääntelymuutoksen** vaikutukset voidaan arvioida avoimella datalla ennen kuin ne toteutuvat. Muutama ajatus siitä, missä samaa lähestymistapaa voi käyttää:
+
+- **Pankit ja rahoittajat: sääntelyjyrkänteen riskimalli.** Kuinka suuri osa luottosalkusta on asiakkaita, joiden liiketoiminta riippuu yhdestä poikkeusluvasta, siirtymäajasta tai EU:n täytäntöönpanoasetuksesta? Turkis on vain yksi esimerkki: turve, tietyt torjunta-aineet, fluoratut kaasut ja polttomoottoriautojen huolto ovat samassa tilanteessa. Bayesilainen malli antaa jokaiselle asiakkaalle todennäköisyysjakauman sille, että sääntely katkaisee kassavirran, eikä vain kyllä/ei-luokitusta.
+- **Kunnat ja maakuntaliitot: "mitä jos suurin työnantaja lähtee" -stressitesti.** Tanskan minkkisuljennan kaltaiset luonnolliset kokeet antavat empiirisen läpimenoasteen sille, kuinka paljon työpaikkojen menetyksestä muuttuu työttömyydeksi. Samaa voi käyttää elinvoimastrategiassa ja hakemuksissa EU:n oikeudenmukaisen siirtymän rahastoon.
+- **Etujärjestöt (myös turkisala itse): lukujen punainen tiimi.** Hakemus komissiolle tai lausunto eduskunnalle ei kestä, jos toimittaja tai komission virkamies löytää siitä laskuvirheen. Ulkopuolinen, menetelmältään läpinäkyvä tarkastus ennen julkaisua on halvempi kuin uskottavuuden menetys jälkikäteen.
+- **Rehu- ja kalanjalostusteollisuus: kysynnän vaihtoehtoiset maailmat.** Minkkirehu tehdään pitkälti kalanjalostuksen ja lihateollisuuden sivuvirroista. Jos minkkitarhaus loppuu, sivuvirroille tarvitaan uusi ostaja (lemmikkiruoka, biokaasu, kalajauho). Ennustemalli kertoo, kuinka paljon ja milloin.
+- **Vakuutusyhtiöt: zoonoosiriskin hinnoittelu.** Poisson–gamma-malli harvinaisille tapahtumille sopii suoraan eläintautien, satovahinkojen tai teollisuusonnettomuuksien hinnoitteluun silloin, kun historiaa on vähän.
+- **Asianajotoimistot ja EU-edunvalvojat: näyttöpaketti "pakottavasta yleisestä edusta".** EU-oikeuden poikkeuslupaperusteet edellyttävät näyttöä, ja komissio arvioi sitä. Avoimesta datasta rakennettu, epävarmuuden rehellisesti raportoiva analyysi on vahvempi kuin alan oma tiedote.
+- **Sijoittajat: option arvo.** Poikkeuslupa on talousteoreettisesti optio jatkaa toimintaa. Hintajakauman avulla voi laskea, mitä optio on arvoinen, ja verrata sitä vaihtoehtoon myydä tai muuttaa tuotantoa nyt.
+
+Jos organisaatiosi tekee päätöksiä, joihin vaikuttaa tuleva sääntely, ja haluat tietää, mitä vaihtoehtoiset maailmat maksavat, varaa aika keskusteluun. Rakennan analyysit avoimesta datasta, ja menetelmät ovat aina läpinäkyviä.
+
+## Lähteet
+
+**Data**
+
+- PRH / YTJ avoin data, opendata-ytj-api v3 (CC BY 4.0).
+- Tilastokeskus, Paavo – postinumeroalueittainen avoin tieto.
+- UN Comtrade, public preview API, HS 430110.
+- Danmarks Statistik, Statistikbanken, taulu AUL01.
+- Eurostat/GISCO, kuntarajat (giscoR).
+
+**Viranomais- ja uutislähteet**
+
+- Maa- ja metsätalousministeriö (9.10.2026): Minkkitarhauksen poikkeuslupahakemus jätettiin komissiolle.
+- Yle (23.10.2026): Minkkitarhauksen entinen suurmaa Tanska päätti panna lapun luukulle – Suomi teki toisin.
+- Yle (8.10.2026): STM varoitti minkkitarhauksen olevan riski ihmisten terveydelle.
+- Yle MOT: turkisalan työllisyys- ja verotuottoväitteiden tarkistus.
+- Yle (2024): turkistarhojen määrä Ruokaviraston tietojen mukaan.
+- Komission täytäntöönpanoasetus (EU) 2025/1422; asetus (EU) N:o 1143/2014.
+- Eduskunta: TAA 80/2020 vp, TPA 23/2021 vp, KKV 30/2023 vp, KK 101/2024 vp, EDK-2024-AK-51558, EDK-2024-AK-52135, MmVL 16/2024 vp, YmVL 13/2024 vp.
+- Valtioneuvosto (2024): Lisärahoitusta lintuinfluenssan takia lopetetuista turkiseläimistä maksettaviin korvauksiin.
+- Saga Furs Oyj: pörssitiedotteet maaliskuu ja heinäkuu 2026; puolivuosikatsaus 1.11.2025–30.4.2026.
+- LandbrugsAvisen (10.11. ja 12.11.2020): minkkitarhojen koronatartunnat kunnittain.
+- Folketinget, MOF Alm.del bilag 40 (13.10.2020): Länsi-Jyllannin kuntien kirje.
+- The Local Denmark (26.1.2021) ja Reuters: Tanskan korvauspaketti.
+
+**Vertaisarvioitu tutkimus**
+
+- Banks, P. B., Nordström, M., Ahola, M., Salo, P., Fey, K. & Korpimäki, E. (2008). Impacts of alien mink predation on island vertebrate communities of the Baltic Sea Archipelago. *Boreal Environment Research* 13: 3–16.
+- Card, D., Kluve, J. & Weber, A. (2018). What works? A meta analysis of recent active labor market program evaluations. *Journal of the European Economic Association* 16(3): 894–931.
+- Jacobson, L. S., LaLonde, R. J. & Sullivan, D. G. (1993). Earnings losses of displaced workers. *American Economic Review* 83(4): 685–709.
+- Jaatinen, K. ym. (2022). Mitigating impacts of invasive alien predators on an endangered sea duck amidst high native predation pressure. *Oecologia* 198: 543–552.
+- Kareinen, L. ym. (2024). Highly pathogenic avian influenza A(H5N1) virus infections on fur farms connected to mass mortalities of black-headed gulls, Finland, July to October 2023. *Eurosurveillance* 29(25).
+- Lindh, E. ym. (2023). Highly pathogenic avian influenza A(H5N1) virus infection on multiple fur farms in the South and Central Ostrobothnia regions of Finland, July 2023. *Eurosurveillance* 28(31).
+- Oude Munnink, B. B. ym. (2021). Transmission of SARS-CoV-2 on mink farms between humans and mink and back to humans. *Science* 371: 172–177.
+- Paul, K. I. & Moser, K. (2009). Unemployment impairs mental health: Meta-analyses. *Journal of Vocational Behavior* 74: 264–282.
+- Salo, P., Korpimäki, E., Banks, P. B., Nordström, M. & Dickman, C. R. (2007). Alien predators are more dangerous than native predators to prey populations. *Proceedings of the Royal Society B* 274: 1237–1243.

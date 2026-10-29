@@ -3,7 +3,6 @@ title: "Ketkä hidastivat? Valvonnan vaikutus ei jakaudu tasan"
 subtitle: "Kaista, kellonaika ja ajoneuvoluokka — ja mitä hierarkkinen malli korjaa, mitä ei"
 date: 2026-10-29
 categories: [avoin data, liikenne, bayes, hierarkkiset mallit, LAM]
-draft: true
 format:
   html:
     toc: true

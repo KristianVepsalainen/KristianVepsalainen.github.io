@@ -1,0 +1,538 @@
+---
+title: "Ketkä hidastivat? Valvonnan vaikutus ei jakaudu tasan"
+subtitle: "Kaista, kellonaika ja ajoneuvoluokka — ja mitä hierarkkinen malli korjaa, mitä ei"
+date: 2026-10-29
+categories: [avoin data, liikenne, bayes, hierarkkiset mallit, LAM]
+draft: true
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Näytä koodi"
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 200
+execute:
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R","peltipoliisi" ,"peltipoliisi-yhteiset.R"))
+library(patchwork)
+library(brms)
+library(ggdist)
+
+theme_set(pp_teema())
+
+kehaI_vakaat <- intersect(pp_vakaat, pp_kehaI)
+```
+
+Kun Kehä I:n nopeusvalvonta käynnistyi uudelleen elokuun lopussa 2026, ylitysosuus laski. Mutta kysymys "kuinka paljon" on vähemmän kiinnostava kuin kysymys **"keneltä"**.
+
+Jos valvonta hidastaa niitä, jotka ajoivat vaarallisen kovaa, se tekee tehtävänsä. Jos se hidastaa niitä, jotka ajoivat jo valmiiksi rauhallisesti, se tuottaa harmia ilman turvallisuushyötyä. Keskiarvo ei erota näitä toisistaan.
+
+Tämä osa purkaa vaikutuksen osiin kolmella tavalla: kaistoittain, kellonajan mukaan ja ajoneuvoluokittain. Lopuksi katson, keitä ne ovat, jotka yhä ylittävät rajan reilusti — ja käyn läpi yhden yleisen väärinkäsityksen siitä, mitä hierarkkinen malli korjaa.
+
+## Kaistat kaikilla pisteillä
+
+Kaistanumerot eivät tarkoita samaa eri mittauspisteillä. Jollain pisteellä kaista 1 on oikeanpuoleisin, toisella kaista 4 on vasemmanpuoleisin toiseen suuntaan. Numeroita ei siis voi verrata suoraan.
+
+Ratkaisu on järjestää kaistat **niiden oman nopeuden mukaan**. Lasken jokaiselle mittauspisteelle ja suunnalle, mikä kaista oli nopein ennen elokuun loppua, ja annan sille järjestysluvun 1. Toiseksi nopein saa luvun 2 ja niin edelleen. Näin "nopein kaista" tarkoittaa samaa asiaa kaikkialla riippumatta numeroinnista.
+
+Pudotan pois kaistat, joiden osuus suunnan liikenteestä on alle viisi prosenttia. Ne ovat liittymä- ja ramppikaistoja, joilla nopeus kertoo liittymän geometriasta eikä kuljettajan valinnasta.
+
+```{r}
+#| label: kaistajarjestys
+
+kaista_pohja <- pp_pohja |> filter(lam_id %in% kehaI_vakaat)
+
+# Kaistojen osuudet ja nopeusjärjestys ennen-jaksolta.
+kaista_perus <- kaista_pohja |>
+  mutate(vk = isoweek(pvm)) |>
+  filter(year(pvm) == 2026, vk %in% PP_VK_ENNEN) |>
+  pp_tunnusluvut(lam_id, suunta, kaista) |>
+  group_by(lam_id, suunta) |>
+  mutate(osuus_suunnasta = havainnot / sum(havainnot)) |>
+  filter(osuus_suunnasta >= 0.05) |>
+  mutate(kaistasija = rank(-ka, ties.method = "first")) |>
+  ungroup() |>
+  select(lam_id, suunta, kaista, kaistasija, osuus_suunnasta, ka_ennen = ka)
+
+# TARKISTUS: jokaisella suunnalla pitää olla vähintään kaksi kaistaa,
+# muuten järjestysluku ei kerro mitään.
+tarkistus <- kaista_perus |> count(lam_id, suunta)
+if (any(tarkistus$n < 2))
+  warning("Näillä piste-suuntapareilla on vain yksi kaista: ",
+          paste(tarkistus$lam_id[tarkistus$n < 2], collapse = ", "))
+
+kaista_perus <- kaista_perus |>
+  mutate(kaistaryhma = factor(
+    if_else(kaistasija == 1, "nopein", "muut"),
+    levels = c("muut", "nopein")))
+```
+
+```{r}
+#| label: kaista-yoy
+
+yoy_kaista <- kaista_pohja |>
+  semi_join(kaista_perus, by = c("lam_id", "suunta", "kaista")) |>
+  pp_yoy(lam_id, suunta, kaista) |>
+  left_join(kaista_perus, by = c("lam_id", "suunta", "kaista"))
+
+ej_kaista <- yoy_kaista |>
+  pp_ennen_jalkeen(lam_id, suunta, kaista) |>
+  left_join(kaista_perus, by = c("lam_id", "suunta", "kaista"))
+```
+
+```{r}
+#| label: fig-kaistat
+#| fig-cap: "Ylitysosuuden muutos kaistan nopeusjärjestyksen mukaan. Järjestysluku 1 tarkoittaa suunnan nopeinta kaistaa. Jokainen piste on yksi kaista yhdellä mittauspisteellä yhteen suuntaan; musta vaakaviiva on ryhmän keskiarvo."
+#| fig-height: 4.6
+
+ej_kaista |>
+  mutate(sija = factor(pmin(kaistasija, 3),
+                       labels = c("1 — nopein kaista", "2 — keskimmäinen",
+                                  "3 tai hitaampi"))) |>
+  ggplot(aes(sija, muutos_yli6, colour = sija)) +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_point(size = 3, alpha = 0.8,
+             position = position_jitter(width = 0.1, height = 0, seed = 1)) +
+  stat_summary(fun = mean, geom = "crossbar", width = 0.45,
+               linewidth = 0.4, colour = PP_VARI_MUSTE, fatten = 0) +
+  scale_colour_manual(values = c(PP_VARI_KEHA, PP_VARI_KOLMAS,
+                                 PP_VARI_HIMMEA), guide = "none") +
+  labs(
+    title = "Mitä nopeampi kaista, sitä suurempi vaikutus",
+    subtitle = "Kaikki Kehä I:n vakaat mittauspisteet, molemmat ajosuunnat",
+    x = "Kaistan nopeusjärjestys ennen elokuun loppua",
+    y = "Ylitysosuuden muutos yli vuoden 2025 tason (pp)",
+    caption = "Lähde: Fintraffic / Digitraffic. Vapaa liikennevirta, henkilöautot, arkipäivät. Ramppikaistat poistettu."
+  )
+```
+
+```{r}
+#| label: kaista-luvut
+
+kaista_ka <- ej_kaista |>
+  mutate(ryhma = if_else(kaistasija == 1, "nopein", "muut")) |>
+  group_by(ryhma) |>
+  summarise(havaintoja = n(), ka = mean(muutos_yli6),
+            ka_nopeus = mean(muutos_ka), .groups = "drop")
+
+nopein_ka <- kaista_ka$ka[kaista_ka$ryhma == "nopein"]
+muut_ka   <- kaista_ka$ka[kaista_ka$ryhma == "muut"]
+suhde_kaista <- nopein_ka / muut_ka
+```
+
+Nopeimmilla kaistoilla ylitysosuus laski keskimäärin `r sprintf("%.2f", nopein_ka)` prosenttiyksikköä yli vuoden 2025 tason, muilla kaistoilla `r sprintf("%.2f", muut_ka)`. Suhde on `r sprintf("%.1f", suhde_kaista)`-kertainen.
+
+Ensimmäisessä osassa sama suhde laskettiin yhdeltä mittauspisteeltä. Nyt se on laskettu kaikilta, ja kuvio toistuu.
+
+Tämä on tärkeä havainto kahdesta syystä. Turvallisuuden kannalta: vaikutus kohdistuu sinne, missä nopeudet olivat suurimmat, eli sinne missä onnettomuuden seuraukset olisivat vakavimmat. Menetelmän kannalta: tien kaventaminen tai nopeusrajoituksen lasku hidastaisi kaikkia kaistoja suunnilleen yhtä paljon. Kaistojen välinen ero on se, mikä erottaa valvonnan muista selityksistä.
+
+## Kellonaika
+
+Yöllä tie on tyhjä ja ylinopeudet ovat suurimmillaan. Ruuhka-aikaan nopeutta rajoittaa liikenne, ei kuljettaja. Jos valvonta vaikuttaa kuljettajan valintaan, vaikutuksen pitäisi olla suurin silloin, kun kuljettajalla on valinnanvaraa.
+
+Leppäsolmun pisteeltä on tallessa tuntitason jakaumat, joten siltä voin laskea ylitysosuuden tunneittain tarkasti.
+
+```{r}
+#| label: tunnit-116
+
+tunti_116 <- pp$hist_h |>
+  filter(lk_ryhma == 1L, vapaa == 1L, pvm %in% pp_arkipv) |>
+  left_join(pp_rajoitus, by = "lam_id")
+
+stopifnot(nrow(tunti_116) > 0, all(tunti_116$lam_id == 116L))
+
+yoy_tunti <- tunti_116 |>
+  pp_yoy(tunti, min_havainnot = 150)
+
+ej_tunti <- yoy_tunti |> pp_ennen_jalkeen(tunti)
+```
+
+```{r}
+#| label: fig-tunnit
+#| fig-cap: "Ylitysosuuden muutos kellonajan mukaan Leppäsolmun pisteellä. Vaaka-akselilla vuorokauden tunti, pystyakselilla muutos yli vuoden 2025 tason. Alempi paneeli näyttää, kuinka paljon liikennettä kullakin tunnilla on — harva havainto tarkoittaa epävarmaa arviota."
+#| fig-height: 6.2
+
+liikenne_tunneittain <- tunti_116 |>
+  filter(year(pvm) == 2026) |>
+  group_by(tunti) |>
+  summarise(ajoneuvoja = sum(as.numeric(n)) / n_distinct(pvm),
+            .groups = "drop")
+
+p_yla <- ej_tunti |>
+  ggplot(aes(tunti, muutos_yli6)) +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  annotate("rect", xmin = c(6.5, 14.5), xmax = c(9.5, 17.5),
+           ymin = -Inf, ymax = Inf, fill = "grey92", alpha = 0.7) +
+  annotate("text", x = 8, y = Inf, label = "aamuruuhka", vjust = 1.6,
+           size = 3.2, colour = PP_VARI_HIMMEA) +
+  annotate("text", x = 16, y = Inf, label = "iltaruuhka", vjust = 1.6,
+           size = 3.2, colour = PP_VARI_HIMMEA) +
+  geom_line(colour = PP_VARI_KEHA, linewidth = 1) +
+  geom_point(colour = PP_VARI_KEHA, size = 2.4) +
+  scale_x_continuous(breaks = seq(0, 23, 3)) +
+  labs(title = "Milloin valvonta puri eniten?",
+       subtitle = "Leppäsolmu, ylitysosuuden muutos yli vuoden 2025 tason",
+       x = NULL, y = "Muutos (pp)")
+
+p_ala <- liikenne_tunneittain |>
+  ggplot(aes(tunti, ajoneuvoja)) +
+  geom_col(fill = PP_VARI_HIMMEA, width = 0.7) +
+  scale_x_continuous(breaks = seq(0, 23, 3)) +
+  labs(x = "Vuorokauden tunti", y = "Ajoneuvoa\ntunnissa",
+       caption = "Lähde: Fintraffic / Digitraffic. Vapaa liikennevirta, henkilöautot, arkipäivät.")
+
+p_yla / p_ala + plot_layout(heights = c(2.4, 1))
+```
+
+Tuntitason luvut ovat levottomia, koska yötunneilla havaintoja on vähän. Siksi sama asia kannattaa katsoa myös karkeammalla jaolla, jossa jokaisessa luokassa on riittävästi dataa — ja kaikilta Kehä I:n pisteiltä, ei vain yhdeltä.
+
+```{r}
+#| label: aikaluokat
+
+AIKA_NIMET <- c("1" = "Aamuruuhka klo 6–9", "2" = "Päivä klo 9–15",
+                "3" = "Iltaruuhka klo 15–18", "4" = "Ilta ja yö klo 18–6")
+
+# Tuntiaineisto kattaa kaikki pisteet, mutta vain tunnusluvut - ei jakaumia.
+# Siksi mittarina on vapaan virran keskinopeus, joka on tallessa sellaisenaan.
+aika_yoy <- pp$tunti |>
+  filter(lam_id %in% kehaI_vakaat, pvm %in% pp_arkipv, n_vapaa >= 10) |>
+  mutate(vuosi = year(pvm), vk = isoweek(pvm)) |>
+  group_by(lam_id, aikaluokka, vuosi, vk) |>
+  summarise(
+    havainnot = sum(as.numeric(n_vapaa)),
+    ka = sum(as.numeric(n_vapaa) * ka_nopeus_vapaa) / sum(as.numeric(n_vapaa)),
+    .groups = "drop") |>
+  filter(havainnot > 500) |>
+  select(lam_id, aikaluokka, vuosi, vk, ka) |>
+  pivot_wider(names_from = vuosi, values_from = ka, names_prefix = "ka_") |>
+  filter(!is.na(ka_2025), !is.na(ka_2026)) |>
+  mutate(d_ka = ka_2026 - ka_2025,
+         jakso = case_when(vk %in% PP_VK_ENNEN   ~ "ennen",
+                           vk %in% PP_VK_JALKEEN ~ "jalkeen",
+                           TRUE ~ NA_character_))
+
+ej_aika <- aika_yoy |>
+  filter(!is.na(jakso)) |>
+  group_by(lam_id, aikaluokka, jakso) |>
+  summarise(d_ka = mean(d_ka), .groups = "drop") |>
+  pivot_wider(names_from = jakso, values_from = d_ka) |>
+  mutate(muutos_ka = jalkeen - ennen,
+         aika = factor(AIKA_NIMET[as.character(aikaluokka)],
+                       levels = unname(AIKA_NIMET)))
+```
+
+```{r}
+#| label: fig-aikaluokat
+#| fig-cap: "Keskinopeuden muutos vuorokaudenajan mukaan kaikilla Kehä I:n vakailla mittauspisteillä. Jokainen piste on yksi mittauspiste yhdessä aikaluokassa. Musta vaakaviiva on luokan keskiarvo."
+#| fig-height: 4.6
+
+ej_aika |>
+  ggplot(aes(aika, muutos_ka, colour = aika)) +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_point(size = 3, alpha = 0.8,
+             position = position_jitter(width = 0.1, height = 0, seed = 1)) +
+  stat_summary(fun = mean, geom = "crossbar", width = 0.5,
+               linewidth = 0.4, colour = PP_VARI_MUSTE, fatten = 0) +
+  scale_colour_manual(values = c(PP_VARI_KOLMAS, PP_VARI_KEHA,
+                                 PP_VARI_KOLMAS, PP_VARI_VERROKKI),
+                      guide = "none") +
+  coord_flip() +
+  labs(
+    title = "Vaikutus vuorokaudenajan mukaan",
+    subtitle = "Vapaan liikennevirran keskinopeuden muutos yli vuoden 2025 tason",
+    x = NULL, y = "Keskinopeuden muutos (km/h)",
+    caption = "Lähde: Fintraffic / Digitraffic. Kaikki Kehä I:n vakaat mittauspisteet."
+  )
+```
+
+```{r}
+#| label: aika-luvut
+
+aika_ka <- ej_aika |>
+  group_by(aika) |>
+  summarise(ka = mean(muutos_ka), n = n(), .groups = "drop") |>
+  arrange(ka)
+```
+
+Suurin muutos osuu luokkaan **`r as.character(aika_ka$aika[1])`** (`r sprintf("%.2f", aika_ka$ka[1])` km/h) ja pienin luokkaan **`r as.character(aika_ka$aika[nrow(aika_ka)])`** (`r sprintf("%.2f", aika_ka$ka[nrow(aika_ka)])` km/h).
+
+## Ajoneuvoluokka
+
+Raskaalla kalustolla on omat nopeusrajoituksensa ja ajopiirturi, joka tallentaa nopeudet joka tapauksessa. Jos valvonnan pelotevaikutus toimii, sen pitäisi vaikuttaa vähemmän niihin, joita valvotaan jo muutenkin.
+
+```{r}
+#| label: luokat
+
+LUOKKA_NIMET <- c("1" = "Henkilö- ja pakettiautot",
+                  "2" = "Raskas kalusto ja perävaunulliset")
+
+luokka_pohja <- pp$hist_pv |>
+  filter(lk_ryhma %in% c(1L, 2L), vapaa == 1L, pvm %in% pp_arkipv,
+         lam_id %in% kehaI_vakaat) |>
+  left_join(pp_rajoitus, by = "lam_id")
+
+yoy_luokka <- luokka_pohja |> pp_yoy(lam_id, lk_ryhma)
+ej_luokka  <- yoy_luokka |>
+  pp_ennen_jalkeen(lam_id, lk_ryhma) |>
+  mutate(luokka = factor(LUOKKA_NIMET[as.character(lk_ryhma)],
+                         levels = unname(LUOKKA_NIMET)))
+```
+
+```{r}
+#| label: fig-luokat
+#| fig-cap: "Ylitysosuuden muutos ajoneuvoluokittain. Jokainen piste on yksi mittauspiste. Viiva yhdistää saman mittauspisteen kaksi ajoneuvoluokkaa, jotta näkyy, muuttuivatko ne samaan suuntaan."
+#| fig-height: 4.6
+
+ej_luokka |>
+  ggplot(aes(luokka, muutos_yli6)) +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_line(aes(group = lam_id), colour = "grey80", linewidth = 0.4) +
+  geom_point(aes(colour = luokka), size = 3.2, alpha = 0.85) +
+  stat_summary(fun = mean, geom = "crossbar", width = 0.4,
+               linewidth = 0.4, colour = PP_VARI_MUSTE, fatten = 0) +
+  scale_colour_manual(values = c(PP_VARI_KEHA, PP_VARI_VERROKKI),
+                      guide = "none") +
+  labs(
+    title = "Vaikutus ajoneuvoluokittain",
+    subtitle = "Harmaa viiva yhdistää saman mittauspisteen",
+    x = NULL, y = "Ylitysosuuden muutos yli vuoden 2025 tason (pp)",
+    caption = "Lähde: Fintraffic / Digitraffic. Kehä I:n vakaat mittauspisteet."
+  )
+```
+
+```{r}
+#| label: luokka-testi
+
+# Parittainen vertailu: sama mittauspiste, kaksi ajoneuvoluokkaa.
+# Wilcoxonin merkittyjen sijalukujen testi, koska havaintoja on vähän
+# eikä erotusten normaalisuutta voi olettaa. Vaikutuskoko raportoidaan
+# erikseen, koska p-arvo ei kerro suuruudesta mitään.
+parit <- ej_luokka |>
+  select(lam_id, lk_ryhma, muutos_yli6) |>
+  pivot_wider(names_from = lk_ryhma, values_from = muutos_yli6,
+              names_prefix = "lk") |>
+  filter(!is.na(lk1), !is.na(lk2)) |>
+  mutate(erotus = lk1 - lk2)
+
+testi <- wilcox.test(parit$lk1, parit$lk2, paired = TRUE, exact = FALSE)
+
+# Vaikutuskoko: sijalukukorrelaatio r = Z / sqrt(N).
+z <- qnorm(testi$p.value / 2, lower.tail = FALSE)
+r_efekti <- z / sqrt(nrow(parit))
+```
+
+Vertailu on **parittainen**: jokaiselta mittauspisteeltä verrataan henkilöautojen muutosta saman pisteen raskaan kaluston muutokseen. Näin tien, sään ja liikenteen vaikutukset kumoutuvat, koska molemmat luokat kokivat ne samalla tiellä samaan aikaan.
+
+Käytän Wilcoxonin merkittyjen sijalukujen testiä enkä t-testiä, koska mittauspisteitä on vain `r nrow(parit)` eikä erotusten normaalijakautuneisuutta voi näin pienellä aineistolla tarkistaa luotettavasti. Sijalukutesti ei oleta jakaumasta mitään.
+
+Erotuksen mediaani on `r sprintf("%.2f", median(parit$erotus))` prosenttiyksikköä (p = `r sprintf("%.3f", testi$p.value)`, vaikutuskoko r = `r sprintf("%.2f", r_efekti)`).
+
+P-arvo kertoo, kuinka epätodennäköistä havaittu ero olisi, jos todellista eroa ei olisi. Se **ei** kerro, kuinka suuri ero on. Siksi mukana on vaikutuskoko r, joka asettuu välille 0–1: noin 0,1 on pieni, 0,3 keskisuuri ja 0,5 suuri.
+
+## Keitä ovat ne, jotka yhä ylittävät
+
+Valvonta ei poistanut ylinopeuksia. Se pienensi niiden osuutta. Keitä jäljelle jääneet ovat?
+
+```{r}
+#| label: fig-profiili
+#| fig-cap: "Reilusti ylinopeutta ajavien jakautuminen kaistoittain ennen ja jälkeen. Pylväät kertovat, kuinka suuri osuus kaikista vähintään 11 km/h ylittäneistä ajoi kullakin kaistalla. Jos pylväät siirtyvät, ylinopeuksien painopiste muuttui kaistojen välillä."
+#| fig-height: 4.4
+
+profiili <- kaista_pohja |>
+  semi_join(kaista_perus, by = c("lam_id", "suunta", "kaista")) |>
+  left_join(kaista_perus |> select(lam_id, suunta, kaista, kaistasija),
+            by = c("lam_id", "suunta", "kaista")) |>
+  mutate(vk = isoweek(pvm),
+         jakso = case_when(vk %in% PP_VK_ENNEN   ~ "Ennen",
+                           vk %in% PP_VK_JALKEEN ~ "Jälkeen",
+                           TRUE ~ NA_character_)) |>
+  filter(!is.na(jakso), year(pvm) == 2026, nopeus >= raja + 11) |>
+  mutate(sija = factor(pmin(kaistasija, 3),
+                       labels = c("Nopein kaista", "Keskimmäinen",
+                                  "Hitaampi"))) |>
+  group_by(jakso, sija) |>
+  summarise(n = sum(as.numeric(n)), .groups = "drop") |>
+  group_by(jakso) |>
+  mutate(osuus = 100 * n / sum(n)) |>
+  ungroup()
+
+profiili |>
+  ggplot(aes(sija, osuus, fill = jakso)) +
+  geom_col(position = position_dodge(width = 0.72), width = 0.62) +
+  geom_text(aes(label = sprintf("%.0f %%", osuus)),
+            position = position_dodge(width = 0.72),
+            vjust = -0.5, size = 3.3, colour = PP_VARI_MUSTE) +
+  scale_fill_manual(values = c("Ennen" = PP_VARI_VERROKKI,
+                               "Jälkeen" = PP_VARI_KEHA)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title = "Reilut ylinopeudet keskittyvät nopeimmalle kaistalle",
+    subtitle = "Vähintään 11 km/h rajoituksen yli ajaneiden jakautuminen",
+    x = NULL, y = "Osuus kaikista reiluista ylinopeuksista (%)",
+    caption = "Lähde: Fintraffic / Digitraffic. Kehä I:n vakaat mittauspisteet, vuosi 2026."
+  )
+```
+
+## Mitä hierarkkinen malli korjaa — ja mitä ei
+
+Tässä sarjassa on käytetty hierarkkisia malleja, joissa jokainen mittauspiste saa oman tasonsa mutta lainaa tietoa muilta. Vaikutus on se, että yksittäisen pisteen poikkeuksellinen arvio **kutistuu** kohti ryhmän keskiarvoa. Mitä vähemmän pisteellä on dataa, sitä enemmän se kutistuu.
+
+Tämä on usein juuri oikea korjaus. Mutta siitä seuraa väärinkäsitys, joka kannattaa purkaa auki.
+
+```{r}
+#| label: kutistus
+#| results: hide
+
+kutistus_data <- pp_pohja |>
+  filter(lam_id %in% kehaI_vakaat) |>
+  pp_yoy(lam_id) |>
+  mutate(lam_id = factor(lam_id))
+
+malli_kutistus <- brm(
+  d_yli6 ~ jalkeen + (1 + jalkeen | lam_id),
+  data = kutistus_data, family = student(),
+  prior = c(prior(normal(0, 5), class = "b"),
+            prior(normal(0, 5), class = "Intercept"),
+            prior(exponential(1), class = "sd"),
+            prior(exponential(1), class = "sigma")),
+  chains = 4, iter = 4000, warmup = 1000, seed = 20260825,
+  control = list(adapt_delta = 0.95),
+  file = file.path(PP_DATA, "malli_kutistus")
+)
+```
+
+```{r}
+#| label: fig-kutistus
+#| fig-cap: "Jokaisen mittauspisteen oma arvio ennen ja jälkeen kutistuksen. Vasemmalla pisteen oma raaka arvio, oikealla mallin antama arvio. Viiva näyttää, kuinka paljon arvio muuttui."
+#| fig-height: 5
+
+raaka <- kutistus_data |>
+  filter(!is.na(jakso)) |>
+  group_by(lam_id, jakso) |>
+  summarise(d = mean(d_yli6), .groups = "drop") |>
+  pivot_wider(names_from = jakso, values_from = d) |>
+  mutate(arvio = jalkeen - ennen, tyyppi = "Oma arvio") |>
+  select(lam_id, arvio, tyyppi)
+
+kertoimet <- coef(malli_kutistus)$lam_id[, "Estimate", "jalkeen"]
+kutistettu <- tibble(lam_id = factor(names(kertoimet)),
+                     arvio = as.numeric(kertoimet),
+                     tyyppi = "Mallin arvio")
+
+vertailu <- bind_rows(raaka, kutistettu) |>
+  mutate(tyyppi = factor(tyyppi, levels = c("Oma arvio", "Mallin arvio")))
+
+vertailu |>
+  ggplot(aes(tyyppi, arvio, group = lam_id)) +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_line(colour = "grey75", linewidth = 0.5) +
+  geom_point(aes(colour = tyyppi), size = 3) +
+  geom_text(data = vertailu |> filter(tyyppi == "Oma arvio"),
+            aes(label = lam_id), hjust = 1.3, size = 3,
+            colour = PP_VARI_HIMMEA) +
+  scale_colour_manual(values = c("Oma arvio" = PP_VARI_VERROKKI,
+                                 "Mallin arvio" = PP_VARI_KEHA),
+                      guide = "none") +
+  labs(
+    title = "Kutistus vetää ääriarviot kohti keskiarvoa",
+    subtitle = "Numerot ovat mittauspisteiden tunnuksia",
+    x = NULL, y = "Ylitysosuuden muutos (pp)",
+    caption = "Bayesilainen hierarkkinen malli, Studentin t-jakauma."
+  )
+```
+
+Kutistus auttaa, kun poikkeava arvio johtuu **satunnaisuudesta** — pisteellä on vähän havaintoja tai kohina on suurta, ja ääriarvo on todennäköisesti onnenkauppaa. Silloin kutistettu arvio on keskimäärin lähempänä totuutta kuin raaka arvio.
+
+Kutistus **ei auta**, kun poikkeava arvio johtuu siitä, että pisteellä tapahtui oikeasti jotain muuta. Jos tielle tuli työmaa, pisteen nopeudet laskivat aidosti — arvio ei ole kohinaa vaan oikea mittaus väärästä asiasta. Kutistaminen vain piilottaa ongelman: se tekee luvusta uskottavamman näköisen muuttamatta sitä, että se mittaa väärää ilmiötä.
+
+Tämän sarjan aineistossa on kaksi mittauspistettä, joilla keskinopeus laski yli kymmenen kilometriä tunnissa vuoden takaisesta liikennemäärän pysyessä ennallaan. Yksikään kansainvälinen meta-analyysi ei raportoi kameravalvonnasta sen kokoluokan vaikutusta. Ne ovat siis mitä todennäköisimmin jotain muuta — työmaa tai rajoitusmuutos.
+
+Oikea hoito niille ei ole kutistus vaan **sulkeminen pois tai erillinen selitys**. Tilastollinen menetelmä ei korvaa sitä, että katsoo mitä maastossa tapahtui.
+
+::: {.callout-note}
+## Faktalaatikko: kenelle valvonta vaikuttaa
+
+**Vaikutus painottuu nopeimpiin.** Tuore systemaattinen katsaus
+(Accident Analysis & Prevention 2026) kokosi 94 tutkimusta ja sai kameran
+välittömän läheisyyden yhdistetyksi nopeusvaikutukseksi −7,57 km/h
+(95 %:n luottamusväli −10,48…−4,66). Katsaus nostaa esiin, että
+vaikutuksen mittaaminen pelkällä keskinopeudella kadottaa sen, että
+muutos keskittyy jakauman yläpäähän.
+
+**Onnettomuusvaikutus.** Alena Høyen meta-analyysi (Accident Analysis &
+Prevention 2014) kokosi 63 vaikutusarviota 15 tutkimuksesta: kiinteät
+nopeuskamerat vähensivät onnettomuuksia noin 20 %. Kuolemaan johtaneissa
+vähenemä oli 51 %, mutta siihen voi sisältyä keskiarvoon palautumisen
+harhaa, koska kameroita asennetaan paikkoihin joissa on juuri sattunut
+poikkeuksellisen paljon onnettomuuksia.
+
+**Miksi yläpää ratkaisee.** Elvikin potenssimallin mukaan 10 %:n lasku
+keskinopeudessa vähentää kuolemaan johtaneita onnettomuuksia keskimäärin
+35 % ja loukkaantumisiin johtaneita 16 %. Suhde on jyrkästi epälineaarinen,
+eli nopeimpien hidastaminen tuottaa selvästi enemmän turvallisuutta kuin
+saman kilometrimäärän ottaminen pois jo valmiiksi rauhallisilta.
+:::
+
+## Mitä data ei kerro
+
+**Kaistajärjestys on määritelty samasta aineistosta.** Nopein kaista valittiin ennen-jakson nopeuksien perusteella, ja samaa jakoa käytettiin muutoksen mittaamiseen. Jos kaistan nopeus ennen-jaksolla oli poikkeuksellisen korkea sattumalta, se näyttää jälkeen-jaksolla laskevan keskiarvoon palautumisen vuoksi. Tämä harha vetää tulosta siihen suuntaan, joka havaittiin. Vaikutus on todennäköisesti pieni, koska ennen-jaksossa on kuusi viikkoa ja miljoonia havaintoja, mutta se ei ole nolla.
+
+**Tuntitason tulokset ovat yhdeltä pisteeltä.** Tuntijakaumat tallennettiin vain Leppäsolmun pisteeltä, joten kellonaikaprofiili on yhden paikan profiili. Muiden pisteiden osalta käytössä on karkeampi neljän luokan jako ja keskinopeus ylitysosuuden sijasta.
+
+**Raskaan kaluston havaintomäärä on pieni.** Raskasta kalustoa on murto-osa liikenteestä, joten sen arviot ovat epävarmempia kuin henkilöautojen. Parittainen vertailu auttaa, mutta ei poista tätä.
+
+**Vuorokaudenaika ja kaista eivät ole riippumattomia.** Yöllä ajetaan eri kaistoilla kuin ruuhkassa. En ole erottanut näitä toisistaan, joten osa kellonaikaerosta voi olla kaistaeroa ja päinvastoin.
+
+::: {.callout-important}
+## Mitä tällä tekee yrityksessä
+
+Tämän osan kysymys on **kohdentuminen**: ketä toimenpide liikutti.
+
+**Kampanjan kohdistuminen.** Jos kampanja nosti myyntiä kymmenen
+prosenttia, nousiko se niillä asiakkailla joita tavoiteltiin, vai niillä
+jotka olisivat ostaneet muutenkin? Jälkimmäinen on kallis tapa tehdä
+alennusta. Sama jakotapa — segmentoi ensin käyttäytymisen mukaan,
+mittaa vasta sitten — vastaa kysymykseen.
+
+**Hinnanmuutoksen osuvuus.** Hinnankorotus vaikuttaa harvoin tasaisesti.
+Jos poistuma kasvaa, se kasvaa jossakin asiakassegmentissä. Keskiarvo
+kertoo paljonko, ei keneltä — ja vain jälkimmäinen kertoo mitä tehdä.
+
+**Valvonnan ja tarkastusten kohdentuminen.** Jos vastaat compliance-
+valvonnasta tai laaduntarkastuksesta, kysymys on identtinen: muuttiko
+tarkastus niiden käyttäytymistä, joilla riski oli suurin, vai niiden
+joilla se oli jo valmiiksi pieni? Jälkimmäinen on hallinnollista
+kuormaa ilman riskivaikutusta.
+
+**Kutistuksen oikea käyttö.** Hierarkkinen malli on vakiotyökalu, kun
+yksiköitä on paljon ja osalla niistä on vähän dataa — myymälöitä,
+toimipisteitä, asiakassegmenttejä, tuotteita. Mutta se korjaa kohinaa,
+ei harhaa. Ennen kuin kutistat poikkeavan toimipisteen luvut kohti
+keskiarvoa, selvitä, onko siellä tapahtunut jotain. Tilastollinen
+menetelmä ei korvaa maastokäyntiä.
+
+Teen tämäntyyppisiä analyysejä toimeksiantoina.
+[Varaa puolen tunnin keskustelu](https://cal.com/kristianvepsalainen).
+:::
+
+## Aineisto ja toistettavuus
+
+LAM-raakadata on Fintrafficin / Digitrafficin (CC BY 4.0). Kaikki laskenta on tämän sivun koodilohkoissa, ja yhteiset apufunktiot tiedostossa `R/peltipoliisi-yhteiset.R`.
+
+```{r}
+#| label: istunto
+#| code-fold: true
+#| code-summary: "Istuntotiedot"
+
+sessionInfo()
+```

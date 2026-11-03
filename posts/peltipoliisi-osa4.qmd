@@ -1,0 +1,510 @@
+---
+title: "Sakkokone, jota ei ole varaa käynnistää"
+subtitle: "Kehä I:n LAM-data kertoo, montako liikennevirhemaksua kamerat voisivat kirjoittaa — ja miksi niitä ei kirjoiteta"
+date: 2026-11-03
+categories: [avoin data, liikenne, LAM, julkinen talous]
+draft: true
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Näytä koodi"
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 200
+execute:
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R","peltipoliisi", "peltipoliisi-yhteiset.R"))
+library(patchwork)
+library(scales)
+
+theme_set(pp_teema())
+```
+
+Helsingin poliisin liikennevalvonnan päällikkö kertoi Ylelle vuonna 2024 jotain, joka jäi vaivaamaan: poliisi ei voi pitää kaikkia nopeuskameroita päällä, koska silloin ylinopeussakkojen määrä kasvaisi niin suureksi, ettei sitä pystyttäisi käsittelemään.
+
+Se on poikkeuksellinen lausunto. Valvonnan rajoite ei ole tekniikka eikä rikkomusten määrä. Rajoite on **hallinnollinen kapasiteetti**.
+
+Mutta kuinka suuri se kuilu on? Montako maksua Kehä I:n kamerat voisivat kirjoittaa, jos ne kaikki olisivat päällä koko ajan?
+
+Siihen ei tarvita poliisin tilastoja. Siihen tarvitaan LAM-data ja sakkotaulukko.
+
+## Laskennan periaate
+
+Jokaisesta Kehä I:n ohi ajavasta autosta on tiedossa nopeus kilometrin tarkkuudella. Jokaisella mittauspisteellä on nopeusrajoitus. Liikennevirhemaksun suuruus määräytyy laissa säädetyn taulukon mukaan.
+
+Näistä kolmesta saa suoraan laskettua, montako **sakotettavaa ohitusta** kullakin pisteellä tapahtuu.
+
+Sakotettava ohitus ei ole sama asia kuin kirjoitettu sakko. Palaan tähän eroon tarkasti, koska siinä on koko postauksen ydin.
+
+::: {.callout-note}
+## Faktalaatikko: liikennevirhemaksun suuruus
+
+Poliisi vähentää mitatusta nopeudesta **teknisen vähennyksen**, joka on
+3 km/h. Vasta sen jälkeen jäävä ylitys ratkaisee maksun. Jos rajoitus on
+70 ja tutka näyttää 76, todettu nopeus on 73 ja ylitys 3 km/h.
+
+Maksun suuruus porrastuu rajoituksen ja ylityksen mukaan:
+
+| Ylitys | Rajoitus enintään 60 km/h | Rajoitus vähintään 70 km/h |
+|---|---|---|
+| enintään 10 km/h | 100 € | 70 € |
+| 11–15 km/h | 170 € | 140 € |
+| 16–20 km/h | 200 € | 170 € |
+| yli 20 km/h | päiväsakot | päiväsakot |
+
+Yli 20 km/h:n ylitys ei ole enää liikennevirhemaksu vaan rikos, josta
+seuraa tuloihin sidotut päiväsakot. Niiden suuruutta ei voi laskea
+nopeudesta, joten ne raportoidaan tässä kappalemäärinä.
+
+Huomaa, että alemmalla rajoituksella maksu on suurempi. Se ei ole
+kirjoitusvirhe: kaupunkinopeuksissa ylitys on suhteellisesti suurempi ja
+jalankulkijariski korkeampi.
+:::
+
+```{r}
+#| label: sakkotaulukko
+
+# Tekninen vähennys, jonka poliisi tekee mitatusta nopeudesta.
+TEKNINEN_VAHENNYS <- 3L
+
+# Liikennevirhemaksu euroina. NA = ylitys niin suuri että seuraa päiväsakot,
+# joiden suuruus riippuu tuloista eikä sitä voi laskea nopeudesta.
+maksu_euroa <- function(ylitys, raja) {
+  dplyr::case_when(
+    ylitys <  1                 ~ 0,
+    raja   <= 60 & ylitys <= 10 ~ 100,
+    raja   <= 60 & ylitys <= 15 ~ 170,
+    raja   <= 60 & ylitys <= 20 ~ 200,
+    raja   <= 60                ~ NA_real_,
+    ylitys <= 10                ~ 70,
+    ylitys <= 15                ~ 140,
+    ylitys <= 20                ~ 170,
+    TRUE                        ~ NA_real_
+  )
+}
+
+# TARKISTUS: taulukon pitää tuottaa tunnetut arvot.
+stopifnot(
+  maksu_euroa(6,  70) == 70,    # Vesan tapaus: 76 km/h, rajoitus 70
+  maksu_euroa(12, 70) == 140,
+  maksu_euroa(18, 80) == 170,
+  maksu_euroa(5,  60) == 100,
+  maksu_euroa(0,  70) == 0,
+  is.na(maksu_euroa(25, 80))
+)
+```
+
+Rajaukset ovat tässä osassa erilaiset kuin aiemmin. Kun tutkitaan kuljettajien käyttäytymistä, on järkevää rajata vapaaseen liikennevirtaan ja arkipäiviin. Kun lasketaan sakkoja, **kaikki ohitukset lasketaan**: kamera ei kysy, oliko ruuhkaa tai oliko lauantai. Mukana ovat myös raskas kalusto ja moottoripyörät.
+
+```{r}
+#| label: sakkolaskenta
+
+sakot_pv <- pp$hist_pv |>
+  filter(lam_id %in% pp_kehaI) |>
+  left_join(pp_rajoitus, by = "lam_id") |>
+  mutate(
+    todettu = nopeus - TEKNINEN_VAHENNYS,
+    ylitys  = todettu - raja,
+    maksu   = maksu_euroa(ylitys, raja),
+    luokka  = case_when(
+      ylitys <  1  ~ "Ei ylitystä",
+      is.na(maksu) ~ "Päiväsakot (yli 20 km/h)",
+      TRUE         ~ "Liikennevirhemaksu"
+    )
+  )
+
+stopifnot(!any(is.na(sakot_pv$ylitys)), !any(is.na(sakot_pv$luokka)))
+
+# Päivätason yhteenveto pisteittäin.
+paiva_yht <- sakot_pv |>
+  group_by(lam_id, pvm) |>
+  summarise(
+    ohituksia    = sum(as.numeric(n)),
+    sakotettavia = sum(as.numeric(n)[luokka == "Liikennevirhemaksu"]),
+    paivasakot   = sum(as.numeric(n)[luokka == "Päiväsakot (yli 20 km/h)"]),
+    euroa        = sum(as.numeric(n)[!is.na(maksu)] * maksu[!is.na(maksu)]),
+    .groups = "drop") |>
+  mutate(vuosi = year(pvm), vk = isoweek(pvm),
+         jakso = case_when(vk %in% PP_VK_ENNEN   ~ "Ennen",
+                           vk %in% PP_VK_JALKEEN ~ "Jälkeen",
+                           TRUE ~ NA_character_))
+```
+
+## Paljonko ohituksia on sakotettavia?
+
+```{r}
+#| label: tbl-pisteet
+#| tbl-cap: "Sakotettavat ohitukset mittauspisteittäin syyskuussa 2026. Sakotettava ohitus tarkoittaa, että todettu nopeus teknisen vähennyksen jälkeen ylitti rajoituksen vähintään yhdellä kilometrillä tunnissa."
+
+syyskuu <- paiva_yht |>
+  filter(year(pvm) == 2026, month(pvm) == 9) |>
+  group_by(lam_id) |>
+  summarise(
+    ohituksia_pv    = mean(ohituksia),
+    sakotettavia_pv = mean(sakotettavia),
+    paivasakot_pv   = mean(paivasakot),
+    euroa_pv        = mean(euroa),
+    .groups = "drop") |>
+  mutate(osuus = 100 * sakotettavia_pv / ohituksia_pv) |>
+  left_join(pp_rajoitus, by = "lam_id") |>
+  left_join(pp$kontek |> select(lam_id, nimi), by = "lam_id") |>
+  arrange(desc(sakotettavia_pv))
+
+syyskuu |>
+  transmute(
+    Piste = lam_id, Nimi = nimi, `Rajoitus` = raja,
+    `Ohituksia/pv` = comma(round(ohituksia_pv), big.mark = " "),
+    `Sakotettavia/pv` = comma(round(sakotettavia_pv), big.mark = " "),
+    `Osuus %` = sprintf("%.1f", osuus),
+    `Päiväsakkoja/pv` = comma(round(paivasakot_pv), big.mark = " "),
+    `Euroa/pv` = comma(round(euroa_pv), big.mark = " ")
+  ) |>
+  knitr::kable(align = "llrrrrrr")
+```
+
+```{r}
+#| label: kokonaisluvut
+
+koko_pv       <- sum(syyskuu$sakotettavia_pv)
+koko_euroa_pv <- sum(syyskuu$euroa_pv)
+koko_paivasakot <- sum(syyskuu$paivasakot_pv)
+koko_ohituksia  <- sum(syyskuu$ohituksia_pv)
+```
+
+Kehä I:n kymmenen mittauspistettä ohittaa yhteensä noin **`r comma(round(koko_ohituksia), big.mark = " ")` autoa vuorokaudessa**. Niistä **`r comma(round(koko_pv), big.mark = " ")`** ylittää rajoituksen sen verran, että siitä voisi kirjoittaa liikennevirhemaksun. Lisäksi noin **`r comma(round(koko_paivasakot), big.mark = " ")`** ylittää rajan yli 20 kilometrillä tunnissa, mikä on rikos eikä hallinnollinen maksu.
+
+Rahaksi muutettuna sakotettavat ohitukset ovat noin **`r comma(round(koko_euroa_pv), big.mark = " ")` euroa vuorokaudessa** — ja siinä ovat mukana vain liikennevirhemaksut, eivät päiväsakot.
+
+Vuositasolla se on luokkaa `r comma(round(koko_euroa_pv * 365 / 1e6, 1), big.mark = " ")` miljoonaa euroa, yhdeltä tieltä.
+
+::: {.callout-warning}
+## Mitä tämä luku ei ole
+
+Tämä **ei ole** arvio siitä, paljonko sakkoja Kehä I:ltä kirjoitetaan.
+Se on arvio siitä, montako sakotettavaa ohitusta siellä tapahtuu.
+Ero on valtava, ja se johtuu neljästä syystä:
+
+**Mittauspiste ei ole kamera.** Kehä I:llä on kymmenen LAM-pistettä mutta
+toistakymmentä kameratolppaa eri kohdissa. Luku kertoo, mitä tapahtuu
+mittauspisteiden kohdalla, ei kameroiden kohdalla.
+
+**Kamera valvoo yhtä suuntaa.** LAM-piste laskee molemmat suunnat.
+
+**Kaikki tolpat eivät ole päällä.** Poliisi ei kerro, mitkä ovat — se on
+tarkoituksellista. Osassa tolppia ei ole lainkaan kameraa.
+
+**Kaikki havainnot eivät johda maksuun.** Kuvasta pitää tunnistaa
+ajoneuvo ja usein kuljettaja. Osa tapauksista raukeaa.
+
+Luku on siis **yläraja**: montako maksua olisi teoriassa kirjoitettavissa,
+jos jokaisessa kohdassa olisi toimiva kamera molempiin suuntiin ja
+jokainen havainto johtaisi maksuun.
+:::
+
+Yläraja on silti kiinnostava, koska juuri siitä poliisi puhui. Kun valvonnan päällikkö sanoo, ettei kaikkia kameroita voi pitää päällä käsittelykapasiteetin vuoksi, hän puhuu tästä luvusta.
+
+## Mihin kohtaan jakaumaa sakot osuvat
+
+```{r}
+#| label: fig-jakauma
+#| fig-cap: "Ylitysten jakautuminen Kehä I:llä syyskuussa 2026. Vaaka-akselilla ylitys teknisen vähennyksen jälkeen, pystyakselilla ohitusten määrä vuorokaudessa. Värit erottavat maksuluokat. Huomaa, että pystyakseli on logaritminen: jokainen askel ylöspäin on kymmenkertainen määrä."
+#| fig-height: 5
+
+syyskuu_pv <- sakot_pv |>
+  filter(year(pvm) == 2026, month(pvm) == 9) |>
+  pull(pvm) |> n_distinct()
+
+stopifnot(syyskuu_pv >= 25)
+
+ylitysjakauma <- sakot_pv |>
+  filter(year(pvm) == 2026, month(pvm) == 9, ylitys >= 1) |>
+  mutate(ylitys = pmin(ylitys, 35)) |>
+  group_by(ylitys, luokka) |>
+  summarise(n_pv = sum(as.numeric(n)) / syyskuu_pv, .groups = "drop")
+
+# Pylväät eivät toimi logaritmisella asteikolla, koska nolla on
+# logaritmisesti äärettömän kaukana. Käytetään siksi pisteitä ja viivoja.
+ylitysjakauma |>
+  ggplot(aes(ylitys, n_pv, colour = luokka)) +
+  geom_segment(aes(xend = ylitys, yend = min(n_pv) * 0.6), linewidth = 0.5) +
+  geom_point(size = 2.4) +
+  geom_vline(xintercept = 20.5, linetype = "22", colour = PP_VARI_MUSTE,
+             linewidth = 0.4) +
+  annotate("text", x = 21.5, y = Inf, hjust = 0, vjust = 1.6, size = 3.3,
+           colour = PP_VARI_MUSTE, label = "rikosoikeudellinen raja") +
+  scale_colour_manual(values = c("Liikennevirhemaksu" = PP_VARI_KEHA,
+                                 "Päiväsakot (yli 20 km/h)" = PP_VARI_VERROKKI)) +
+  scale_y_log10(labels = comma_format(big.mark = " ")) +
+  scale_x_continuous(breaks = seq(0, 35, 5)) +
+  labs(
+    title = "Valtaosa sakotettavista ylityksistä on pieniä",
+    subtitle = "Kehä I, kaikki mittauspisteet, syyskuu 2026",
+    x = "Ylitys teknisen vähennyksen jälkeen (km/h)",
+    y = "Ohituksia vuorokaudessa",
+    caption = "Lähde: Fintraffic / Digitraffic. Kaikki ajoneuvoluokat, kaikki viikonpäivät, kaikki liikennetilanteet."
+  )
+```
+
+Jakauma on jyrkästi laskeva. Suurin osa sakotettavista ohituksista on pieniä ylityksiä, ja määrä putoaa suunnilleen kymmenesosaan jokaista viittä lisäkilometriä kohti.
+
+Tällä on kaksi seurausta, jotka vetävät eri suuntiin.
+
+**Rahaa on pienissä ylityksissä.** Koska pieniä ylityksiä on moninkertaisesti enemmän, ne tuottaisivat valtaosan maksukertymästä, vaikka yksittäinen maksu on pienin.
+
+**Turvallisuus on suurissa ylityksissä.** Onnettomuusriski ei kasva lineaarisesti nopeuden mukana vaan selvästi jyrkemmin. Ne harvat, jotka ylittävät rajan yli kahdellakymmenellä, muodostavat riskistä osuuden, joka on aivan eri kokoluokkaa kuin heidän lukumääränsä.
+
+Jos valvonnan tavoite on turvallisuus, oikea mittari ei ole maksujen lukumäärä vaan se, kuinka moni suurista ylityksistä jää kiinni.
+
+```{r}
+#| label: fig-kertyma
+#| fig-cap: "Kumulatiivinen osuus: kuinka suuri osa maksukertymästä ja ylityksistä muodostuu enintään tietyn suuruisista ylityksistä. Käyrä kertoo, että pienet ylitykset tuottavat valtaosan euroista."
+#| fig-height: 4.4
+
+kertyma <- sakot_pv |>
+  filter(year(pvm) == 2026, month(pvm) == 9, ylitys >= 1, !is.na(maksu)) |>
+  group_by(ylitys) |>
+  summarise(kpl = sum(as.numeric(n)),
+            eur = sum(as.numeric(n) * maksu), .groups = "drop") |>
+  arrange(ylitys) |>
+  mutate(`Osuus maksuista (kpl)` = 100 * cumsum(kpl) / sum(kpl),
+         `Osuus euroista` = 100 * cumsum(eur) / sum(eur))
+
+kertyma |>
+  pivot_longer(starts_with("Osuus"), names_to = "mittari",
+               values_to = "osuus") |>
+  ggplot(aes(ylitys, osuus, colour = mittari)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.8) +
+  scale_colour_manual(values = c("Osuus maksuista (kpl)" = PP_VARI_KEHA,
+                                 "Osuus euroista" = PP_VARI_KOLMAS)) +
+  scale_y_continuous(limits = c(0, 100)) +
+  labs(
+    title = "Pienet ylitykset tuottavat valtaosan rahasta",
+    subtitle = "Kumulatiivinen osuus ylityksen suuruuden mukaan",
+    x = "Ylitys teknisen vähennyksen jälkeen (km/h)",
+    y = "Kumulatiivinen osuus (%)",
+    caption = "Vain liikennevirhemaksut; päiväsakot jätetty pois, koska niiden suuruus riippuu tuloista."
+  )
+```
+
+```{r}
+#| label: kertyma-luvut
+
+osuus_10 <- kertyma$`Osuus euroista`[kertyma$ylitys == 10]
+osuus_kpl_10 <- kertyma$`Osuus maksuista (kpl)`[kertyma$ylitys == 10]
+```
+
+Enintään kymmenen kilometrin ylitykset muodostavat `r sprintf("%.0f", osuus_kpl_10)` prosenttia maksujen lukumäärästä ja `r sprintf("%.0f", osuus_10)` prosenttia euroista.
+
+## Mitä valvonnan aloitus teki sakkopohjalle
+
+Sarjan aiemmissa osissa selvisi, että Kehä I:n nopeudet muuttuivat 25. elokuuta 2026. Tässä sama asia euroina.
+
+```{r}
+#| label: fig-ennen-jalkeen
+#| fig-cap: "Sakotettavien ohitusten määrä vuorokaudessa Kehä I:llä. Yhtenäinen viiva on vuosi 2026, katkoviiva sama viikko vuonna 2025. Pystyviiva merkitsee 25. elokuuta."
+#| fig-height: 4.8
+
+vk_sakot <- paiva_yht |>
+  group_by(vuosi, vk) |>
+  summarise(sakotettavia_pv = sum(sakotettavia) / n_distinct(pvm),
+            euroa_pv = sum(euroa) / n_distinct(pvm), .groups = "drop") |>
+  filter(vk >= 16, vk <= 39)
+
+vk_sakot |>
+  ggplot(aes(vk, sakotettavia_pv, colour = factor(vuosi),
+             linetype = factor(vuosi))) +
+  geom_vline(xintercept = PP_VK_MUUTOS, colour = PP_VARI_MUSTE,
+             linewidth = 0.4) +
+  annotate("text", x = PP_VK_MUUTOS - 0.4, y = Inf, hjust = 1, vjust = 1.6,
+           label = "25.8.", size = 3.3, colour = PP_VARI_MUSTE) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.9) +
+  scale_colour_manual(values = c("2025" = PP_VARI_VERROKKI,
+                                 "2026" = PP_VARI_KEHA)) +
+  scale_linetype_manual(values = c("2025" = "22", "2026" = "solid")) +
+  scale_y_continuous(labels = comma_format(big.mark = " "),
+                     limits = c(0, NA)) +
+  labs(
+    title = "Sakkopohja kutistui, mutta ei kadonnut",
+    subtitle = "Sakotettavia ohituksia vuorokaudessa Kehä I:n kymmenellä mittauspisteellä",
+    x = "Viikko", y = "Sakotettavia ohituksia / vrk",
+    caption = "Lähde: Fintraffic / Digitraffic. Kaikki ajoneuvoluokat ja viikonpäivät."
+  )
+```
+
+```{r}
+#| label: muutos-euroina
+
+ej <- paiva_yht |>
+  filter(!is.na(jakso)) |>
+  group_by(vuosi, jakso) |>
+  summarise(euroa_pv = sum(euroa) / n_distinct(pvm),
+            sakotettavia_pv = sum(sakotettavia) / n_distinct(pvm),
+            .groups = "drop") |>
+  pivot_wider(names_from = jakso, values_from = c(euroa_pv, sakotettavia_pv)) |>
+  mutate(muutos_eur = euroa_pv_Jälkeen - euroa_pv_Ennen,
+         muutos_kpl = sakotettavia_pv_Jälkeen - sakotettavia_pv_Ennen)
+
+did_eur <- ej$muutos_eur[ej$vuosi == 2026] - ej$muutos_eur[ej$vuosi == 2025]
+did_kpl <- ej$muutos_kpl[ej$vuosi == 2026] - ej$muutos_kpl[ej$vuosi == 2025]
+```
+
+```{r}
+#| label: tbl-ej
+#| tbl-cap: "Sakkopohjan muutos ennen ja jälkeen elokuun lopun, molempina vuosina. Vuoden 2025 rivi kertoo, mikä olisi tapahtunut ilman valvontaa: se on sama kalenterijakso ilman interventiota."
+
+ej |>
+  transmute(
+    Vuosi = vuosi,
+    `Ennen, kpl/vrk` = comma(round(sakotettavia_pv_Ennen), big.mark = " "),
+    `Jälkeen, kpl/vrk` = comma(round(sakotettavia_pv_Jälkeen), big.mark = " "),
+    `Muutos, kpl/vrk` = comma(round(muutos_kpl), big.mark = " "),
+    `Muutos, €/vrk` = comma(round(muutos_eur), big.mark = " ")
+  ) |>
+  knitr::kable(align = "lrrrr")
+```
+
+Kumpanakin vuonna sakkopohja kutistuu elokuun lopulla, koska kesäliikenne vaihtuu syysliikenteeksi. Kiinnostava luku on **erotusten erotus**: `r comma(round(did_kpl), big.mark = " ")` sakotettavaa ohitusta vuorokaudessa enemmän kuin pelkkä kausivaihtelu selittäisi, eli noin `r comma(round(abs(did_eur)), big.mark = " ")` euroa vuorokaudessa.
+
+Tämä on valvonnan omituinen talous. **Mitä paremmin se toimii, sitä vähemmän se tuottaa.** Täydellisesti toimiva nopeusvalvonta ei kirjoittaisi yhtään maksua.
+
+## Vastakkaiset skenaariot
+
+```{r}
+#| label: fig-skenaariot
+#| fig-cap: "Neljä skenaariota ja niiden arvioitu vuosittainen maksukertymä Kehä I:llä. Pylväät ovat miljoonia euroja vuodessa. Kaikki luvut ovat ylärajoja, koska ne olettavat jokaisen havainnon johtavan maksuun."
+#| fig-height: 4.4
+
+# Lähtötaso: syyskuun 2026 toteutunut sakkopohja.
+eur_nyt <- koko_euroa_pv
+
+# Ennen valvontaa: lisätään takaisin erotusten erotus.
+eur_ennen <- eur_nyt - did_eur
+
+skenaariot <- tibble(
+  skenaario = c(
+    "A. Ennen valvonnan aloitusta",
+    "B. Nykytilanne (syyskuu 2026)",
+    "C. Jos jokainen ylittäjä\njäisi kiinni kerran viikossa",
+    "D. Jos valvonta vähentäisi ylityksiä\nmeta-analyysin verran"),
+  eur_vrk = c(eur_ennen, eur_nyt, eur_nyt, eur_nyt * 0.45)
+) |>
+  mutate(milj_v = eur_vrk * 365 / 1e6,
+         tyyppi = if_else(row_number() == 2, "Toteutunut", "Skenaario"))
+
+skenaariot |>
+  ggplot(aes(milj_v, fct_rev(factor(skenaario)), fill = tyyppi)) +
+  geom_col(width = 0.62) +
+  geom_text(aes(label = sprintf("%.1f M€", milj_v)), hjust = -0.12,
+            size = 3.4, colour = PP_VARI_MUSTE) +
+  scale_fill_manual(values = c("Toteutunut" = PP_VARI_KEHA,
+                               "Skenaario" = PP_VARI_HIMMEA),
+                    guide = "none") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.18))) +
+  labs(
+    title = "Maksukertymän yläraja eri skenaarioissa",
+    subtitle = "Miljoonaa euroa vuodessa, Kehä I:n kymmenen mittauspistettä",
+    x = NULL, y = NULL,
+    caption = "Skenaario D olettaa meta-analyysin mukaisen nopeusvaikutuksen kameran kohdalla.\nKaikki luvut ovat ylärajoja: ne olettavat toimivan kameran joka kohtaan ja jokaisen havainnon johtavan maksuun."
+  )
+```
+
+Skenaario D on kiinnostavin. Jos valvonta toimisi kaikilla pisteillä yhtä tehokkaasti kuin kansainvälisissä meta-analyyseissä kameran välittömässä läheisyydessä, maksukertymä putoaisi alle puoleen nykyisestä. Hyvin toimiva valvonta hävittää oman rahoituspohjansa.
+
+Tämä on syy siihen, miksi nopeusvalvontaa ei pitäisi koskaan rahoittaa sen omilla tuloilla. Jos valvonnan budjetti riippuu sakkokertymästä, organisaatiolla on taloudellinen kannustin siihen, ettei valvonta toimi liian hyvin.
+
+::: {.callout-note}
+## Faktalaatikko: mitä tutkimus sanoo valvonnan tehosta
+
+**Onnettomuusvaikutus.** Alena Høyen meta-analyysi (Accident Analysis &
+Prevention 2014) kokosi 63 vaikutusarviota 15 tutkimuksesta. Kiinteät
+nopeuskamerat vähensivät onnettomuuksia kokonaisuudessaan noin 20 %.
+Kuolemaan johtaneissa onnettomuuksissa vähenemä oli 51 %, mutta tekijä
+varoittaa, että siihen voi sisältyä keskiarvoon palautumisen harhaa.
+
+**Nopeusvaikutus.** Tuore systemaattinen katsaus (Accident Analysis &
+Prevention 2026) kävi läpi 94 tutkimusta ja sai kameran välittömän
+läheisyyden yhdistetyksi nopeusvaikutukseksi −7,57 km/h
+(95 %:n luottamusväli −10,48…−4,66).
+
+**Vaikutus on paikallinen.** Høyen keskeinen havainto on, että vaikutus
+heikkenee nopeasti kameralta etäännyttäessä. Tästä seuraa, että
+yksittäisen kameran vaikutus koko tien sakkopohjaan on paljon pienempi
+kuin sen vaikutus omassa kohdassaan.
+:::
+
+## Mitä data ei kerro
+
+**Mittauspiste ei ole kamera.** Tämä on tärkein varaus, ja se toistetaan tässä siksi. Laskelma kertoo, mitä tapahtuu kymmenen LAM-pisteen kohdalla. Kameratolpat ovat eri kohdissa.
+
+**Kaikki tolpat eivät valvo.** Poliisi ei julkista, mitkä tolpat ovat toiminnassa. Osassa ei ole kameraa lainkaan.
+
+**Maksu ei synny automaattisesti.** Kuvasta on tunnistettava ajoneuvo, ja osassa tapauksia myös kuljettaja. Osa tapauksista raukeaa.
+
+**Nopeudet ovat kokonaislukuja.** LAM-data tallentaa nopeuden kilometrin tarkkuudella. Pyöristys siirtää osan havainnoista maksuluokasta toiseen. Vaikutus on pieni ja symmetrinen, mutta ei nolla.
+
+**Tutka ja silmukka mittaavat eri tavalla.** LAM-piste mittaa induktiosilmukalla, valvontakamera tutkalla tai laserilla. Mittaustavat eivät anna täsmälleen samaa lukemaa samalle autolle.
+
+**Sakkotaulukko on tarkistettava.** Käytetyt euromäärät perustuvat julkisiin lähteisiin, ja ne on syytä tarkistaa voimassa olevasta laista ennen kuin lukuihin nojaa. Laskennan rakenne ei muutu, vaikka summat muuttuisivat: taulukko on koodissa yhtenä funktiona.
+
+::: {.callout-important}
+## Mitä tällä tekee yrityksessä
+
+Tämän osan menetelmä on **sääntökirjan ajaminen tapahtumadataa vasten**.
+Se on yllättävän harvinaista, ja se on sovellettavissa laajasti.
+
+**Hinnoittelusäännöt toteumaa vasten.** Jos sinulla on alennusmatriisi,
+bonusjärjestelmä tai porrastettu hinnasto, kuinka moni tapahtuma osuu
+mihinkin portaaseen? Useimmat organisaatiot tietävät säännöt ja tietävät
+kokonaismyynnin, mutta eivät tiedä jakaumaa portaiden yli. Juuri siinä
+jakaumassa näkyy, mikä porras on käytännössä kuollut kirjain ja mikä
+kannattelee koko järjestelmää.
+
+**Sopimussakot ja palvelutasot.** Montako SLA-rikettä oikeasti tapahtuu,
+ja mikä niiden teoreettinen arvo olisi? Erotus toteutuneiden ja
+sanktioitavien välillä on sama kuilu kuin tässä postauksessa — ja se
+kertoo, onko sopimuksen sanktiomekanismi oikeasti käytössä vai
+koristeena.
+
+**Valvonnan kapasiteettirajoite.** Jos havaintoja syntyy enemmän kuin
+niitä ehditään käsitellä, valvonnan todellinen teho ei määräydy
+havaitsemisesta vaan käsittelyjonosta. Tämä pätee rahanpesuvalvonnan
+hälytyksiin, petostentorjuntaan, laaduntarkastukseen ja
+reklamaatiokäsittelyyn. Oikea kysymys ei ole "montako tapausta
+löydämme" vaan "montako pystymme viemään loppuun" — ja ensimmäinen
+luku kannattaa laskea, jotta tietää kuilun koon.
+
+**Kannustimen ja tavoitteen ristiriita.** Jos valvonnan rahoitus riippuu
+sen tuotosta, onnistuminen rankaisee organisaatiota. Sama rakenne
+toistuu myyntipalkkioissa, perintätuotoissa ja kaikissa toiminnoissa,
+joiden mittari on sama kuin niiden tulonlähde. Kannattaa tarkistaa,
+ettei omassa organisaatiossa ole yksikköä, jonka budjetti pienenee kun
+se tekee työnsä hyvin.
+
+Teen tämäntyyppisiä analyysejä toimeksiantoina: sääntökirja koodiksi,
+tapahtumadata vasten, jakauma näkyviin.
+[Varaa puolen tunnin keskustelu](https://cal.com/kristianvepsalainen).
+:::
+
+## Aineisto ja lähteet
+
+LAM-raakadata: Fintraffic / Digitraffic, CC BY 4.0. Liikennevirhemaksujen määrät ja tekninen vähennys on tarkistettu kahdesta toisistaan riippumattomasta julkisesta lähteestä; ne perustuvat tieliikennelakiin 729/2018. Poliisin lausunto käsittelykapasiteetista on Ylen uutisesta elokuulta 2024.
+
+```{r}
+#| label: istunto
+#| code-fold: true
+#| code-summary: "Istuntotiedot"
+
+sessionInfo()
+```

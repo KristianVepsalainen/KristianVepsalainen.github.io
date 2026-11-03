@@ -1,0 +1,538 @@
+# =============================================================================
+# R/hilma/hilma-data-prep.R
+# Yhteinen datahaku Hilma-sarjalle "Julkinen raha ei valehtele".
+#
+# Hakee KERRAN kaikki sarjan osien tarvitsemat aineistot ja tallentaa ne
+# kansioon data/hilma/. Postaukset lukevat vain näitä tiedostoja, eivätkä
+# koskaan kutsu rajapintoja itse (freeze + CI eivät aja R:ää).
+#
+# LÄHTEET
+#   1. Hilma AVP -hakuindeksi (kaikki ilmoitukset, myös ennen eFormsia)
+#        POST https://api.hankintailmoitukset.fi/avp/eformnotices/docs/search
+#   2. Hilma eForms -lukurajapinta (koko ilmoitus Base64-XML:nä)
+#        GET  https://api.hankintailmoitukset.fi/avp-eforms/external-read/v1/notice/{id}
+#   3. PRH/YTJ v3 (voittajien ja hankintayksiköiden perustiedot)
+#   4. Paavo-postinumeroaluedata (paikallinen data/paavo/paavo.fst)
+#   5. Eurostat: HICP-hintaindeksi ja julkisyhteisöjen menot
+#   6. Tutkihankintoja.fi-ostolaskut (Avoindata.fi, CC BY 4.0)
+#
+# ENNEN AJOA
+#   * Luo maksuton avain: https://hns-hilma-prod-apim.developer.azure-api.net
+#     -> Products -> avp-read -> Subscribe. Lisää .Renviron-tiedostoon:
+#         HILMA_API_KEY=xxxxxxxx
+#   * Aja vaiheittain (RUN-lippu alla). Jokainen vaihe välimuistittaa itsensä,
+#     joten keskeytys ei pakota aloittamaan alusta. Poista välimuistitiedosto,
+#     jos haluat hakea vaiheen uudelleen.
+#   * eForms-haku on hidas (kymmeniä tuhansia ilmoituksia, rajapinnalla on
+#     avainkohtainen nopeusrajoitus). Aja se yön yli.
+#
+# TALLENNUSMUOTO (qs2)
+#   qd_save()/qd_read()  -> data.framet (ei list-sarakkeita!)
+#   qs_save()/qs_read()  -> listat ja muut R-oliot
+# =============================================================================
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(httr2)
+  library(here)
+  library(qs2)
+  library(fst)
+  library(jsonlite)
+})
+
+select <- dplyr::select
+filter <- dplyr::filter
+
+source(here("R", "hilma", "hilma-eforms-parse.R"))
+
+RUN <- list(
+  index     = TRUE,   # 1. hakuindeksi
+  eforms    = TRUE,   # 2. eForms-XML:t (hidas)
+  ytj       = TRUE,   # 3. YTJ-rikastus
+  paavo     = TRUE,   # 4. postinumero -> kunta + koordinaatit
+  eurostat  = TRUE,   # 5. hintaindeksi + makrotason hankinnat
+  tutki     = TRUE    # 6. ostolaskut (suuri lataus)
+)
+
+out_dir <- here("data", "hilma")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+stopifnot(dir.exists(out_dir))
+
+`%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a
+
+hilma_key <- Sys.getenv("HILMA_API_KEY")
+if (RUN$index || RUN$eforms) {
+  if (!nzchar(hilma_key)) stop("HILMA_API_KEY puuttuu .Renviron-tiedostosta.")
+}
+
+HILMA_SEARCH <- "https://api.hankintailmoitukset.fi/avp/eformnotices/docs/search"
+HILMA_DEF    <- "https://api.hankintailmoitukset.fi/avp/eformnotices"
+HILMA_READ   <- "https://api.hankintailmoitukset.fi/avp-eforms/external-read/v1/notice"
+
+# Yhteinen pyyntöpohja: avain, nopeusrajoitus, uudelleenyritys 429/5xx-virheissä
+hilma_req <- function(url) {
+  request(url) |>
+    req_headers(`Ocp-Apim-Subscription-Key` = hilma_key,
+                `Content-Type` = "application/json") |>
+    req_throttle(rate = 2) |>                       # max 2 pyyntöä/s
+    req_retry(max_tries = 6,
+              is_transient = \(resp) resp_status(resp) %in% c(429, 500, 502, 503, 504),
+              backoff = \(i) min(60, 2^i)) |>
+    req_timeout(120)
+}
+
+# Taulukoi Azure Search -vastauksen rivit. qd_save ei tue list-sarakkeita, joten
+#  - yksinkertaiset taulukot (esim. nutsCodes, cpvCodes) -> "|"-merkkijono
+#  - sisäkkäiset oliot (esim. lots, winnerOrganisations) -> JSON-merkkijono,
+#    jotta rakenne säilyy ja sen voi purkaa myöhemmin jsonlite::fromJSON():lla
+flatten_hits <- function(hits) {
+  if (length(hits) == 0) return(tibble())
+  map_dfr(hits, function(h) {
+    h[["@search.score"]] <- NULL
+    h <- map(h, function(v) {
+      if (is.null(v) || length(v) == 0) return(NA_character_)
+      if (is.list(v) && any(map_lgl(v, \(e) is.list(e) || length(e) > 1)))
+        return(as.character(jsonlite::toJSON(v, auto_unbox = TRUE, null = "null")))
+      if (is.list(v) || length(v) > 1) return(paste(unlist(v), collapse = "|"))
+      as.character(v)
+    })
+    as_tibble(h)
+  })
+}
+
+# =============================================================================
+# 1. HAKUINDEKSI
+# =============================================================================
+index_file <- file.path(out_dir, "hilma_index.qs2")
+fields_file <- file.path(out_dir, "hilma_index_fields.qs2")
+
+hilma_search <- function(body) {
+  hilma_req(HILMA_SEARCH) |>
+    req_body_json(body, auto_unbox = TRUE) |>
+    req_perform() |>
+    resp_body_json(check_type = FALSE, simplifyVector = FALSE)
+}
+
+if (RUN$index && !file.exists(index_file)) {
+
+  # 1a. Indeksin kenttämäärittely talteen (dokumentoi mitä kenttiä on)
+  defs <- tryCatch(
+    hilma_req(HILMA_DEF) |> req_perform() |>
+      resp_body_json(check_type = FALSE, simplifyVector = TRUE),
+    error = function(e) { message("Kenttämäärittelyä ei saatu: ", conditionMessage(e)); NULL })
+  if (!is.null(defs)) qs_save(defs, fields_file)
+
+  # 1b. Testihaku: rakenne kunnossa?
+  # Huom: nouseva järjestys laittaa tyhjät (null) päivämäärät ensimmäisiksi,
+  # joten vanhin päivämäärä haetaan vain riveistä, joilla päivämäärä on.
+  probe <- hilma_search(list(search = "*", top = 1L, count = TRUE,
+                             filter = "datePublished ne null",
+                             orderby = "datePublished asc"))
+  n_total_all <- hilma_search(list(search = "*", top = 0L, count = TRUE))[["@odata.count"]]
+  n_total <- probe[["@odata.count"]]
+  stopifnot(!is.null(n_total), n_total > 1000, length(probe$value) == 1)
+  first_date <- as.Date(str_sub(probe$value[[1]]$datePublished %||% NA_character_, 1, 10))
+  stopifnot(length(first_date) == 1, !is.na(first_date),
+            first_date > as.Date("2000-01-01"))
+  n_nodate <- n_total_all - n_total
+  message("Indeksissä ", n_total_all, " ilmoitusta, joista ", n_nodate,
+          " ilman julkaisupäivää. Vanhin julkaisupäivä ", first_date)
+
+  # Päivämäärättömät talteen erikseen, jotta niiden luonne voidaan tarkistaa
+  nodate_file <- file.path(out_dir, "hilma_index_nodate.qs2")
+  if (n_nodate > 0 && !file.exists(nodate_file)) {
+    stopifnot(n_nodate < 100000)
+    nodate <- map(seq(0, n_nodate - 1, by = 1000), function(sk) {
+      res <- hilma_search(list(search = "*", filter = "datePublished eq null",
+                               top = 1000L, skip = as.integer(sk),
+                               orderby = "noticeId asc"))
+      flatten_hits(res$value)
+    }) |> bind_rows()
+    qd_save(nodate, nodate_file)
+    message("Päivämäärättömät: ", nrow(nodate), " riviä; mainType-jakauma:")
+    if ("mainType" %in% names(nodate)) print(count(nodate, mainType, sort = TRUE))
+  }
+
+  required <- c("noticeId", "datePublished", "mainType", "estimatedValue",
+                "cpvCodes", "organisationNationalRegistrationNumber",
+                "procedureType", "procurementTypeCode", "eFormsId")
+  missing_fields <- setdiff(required, names(probe$value[[1]]))
+  if (length(missing_fields) > 0) {
+    # Kenttä voi puuttua ensimmäisestä rivistä, jos se on tyhjä -> varoitus
+    warning("Ensimmäiseltä riviltä puuttuu kenttiä: ",
+            paste(missing_fields, collapse = ", "),
+            ". Tarkista kenttämäärittely (", fields_file, ").")
+  }
+
+  # 1c. Haku kuukausi kerrallaan (Azure Search: top <= 1000, skip <= 100 000)
+  month_seq <- seq(floor_date(first_date, "month"), floor_date(Sys.Date(), "month"),
+                   by = "month")
+  month_dir <- file.path(out_dir, "index_months")
+  dir.create(month_dir, showWarnings = FALSE)
+
+  for (i in seq_along(month_seq)) {
+    m0 <- month_seq[i]
+    m1 <- m0 %m+% months(1)
+    f  <- file.path(month_dir, sprintf("idx_%s.qs2", format(m0, "%Y_%m")))
+    is_current <- m0 == floor_date(Sys.Date(), "month")
+    if (file.exists(f) && !is_current) next
+
+    flt <- sprintf("datePublished ge %sT00:00:00Z and datePublished lt %sT00:00:00Z",
+                   m0, m1)
+    first <- hilma_search(list(search = "*", filter = flt, top = 0L, count = TRUE))
+    n_m <- first[["@odata.count"]] %||% 0L
+    stopifnot(n_m < 100000)
+    if (n_m == 0) { qd_save(tibble(), f); next }
+
+    pages <- map(seq(0, n_m - 1, by = 1000), function(sk) {
+      res <- hilma_search(list(search = "*", filter = flt, top = 1000L,
+                               skip = as.integer(sk), count = FALSE,
+                               orderby = "noticeId asc"))
+      flatten_hits(res$value)
+    })
+    df <- bind_rows(pages)
+    # Tarkistus: haettiin yhtä monta kuin rajapinta ilmoitti
+    if (nrow(df) != n_m) warning(format(m0), ": haettu ", nrow(df), " / ", n_m)
+    qd_save(df, f)
+    message(format(m0, "%Y-%m"), ": ", nrow(df), " ilmoitusta")
+  }
+
+  idx_raw <- list.files(month_dir, full.names = TRUE) |>
+    map(qd_read) |>
+    bind_rows()
+
+  # Yksilöivä avain on indeksin oma `id`. Hankintasuunnitelmilla (id "PLAN-…",
+  # mainType "ProcurementPlan") noticeId on 0, joten se muutetaan NA:ksi.
+  stopifnot("id" %in% names(idx_raw), !any(is.na(idx_raw$id)))
+  idx <- idx_raw |>
+    distinct(id, .keep_all = TRUE) |>
+    mutate(
+      noticeId       = na_if(as.integer(noticeId), 0L),
+      datePublished  = ymd_hms(datePublished, tz = "UTC", quiet = TRUE),
+      estimatedValue = suppressWarnings(as.numeric(estimatedValue)),
+      across(any_of(c("expirationDate", "deadline", "dateModified")),
+             \(x) ymd_hms(x, tz = "UTC", quiet = TRUE)),
+      across(any_of(c("noticeResultTotalAmount", "overallMaximumFrameworkContractsAmount",
+                      "overallApproximateFrameworkContractsAmount")),
+             \(x) suppressWarnings(as.numeric(x))),
+      across(any_of(c("isPlan", "isNationalProcurement", "isEuProcurement",
+                      "isNationalSmallValueProcurement", "isPrivateSmallValueProcurement",
+                      "isEForms", "isCorrigendum", "isCancelled",
+                      "includesFrameworkAgreement", "includesDynamicPurcharingSystem")),
+             \(x) x %in% c("TRUE", "true"))
+    )
+
+  # Tarkistukset
+  n_dup_id <- nrow(idx_raw) - nrow(idx)
+  if (n_dup_id > 0) message("Poistettu ", n_dup_id, " sivutuksen kaksoisriviä (sama id)")
+  non_plan <- idx |> filter(!isPlan)
+  stopifnot(
+    nrow(idx) > 0.99 * n_total,                       # lähes kaikki saatiin
+    !anyDuplicated(idx$id),
+    !anyDuplicated(non_plan$noticeId),                # ilmoituksilla noticeId yksilöivä
+    all(!is.na(non_plan$noticeId)),
+    all(is.na(idx$noticeId[idx$isPlan])),             # suunnitelmilla ei noticeId:tä
+    mean(!is.na(idx$datePublished)) > 0.99,
+    all(idx$estimatedValue >= 0, na.rm = TRUE)
+  )
+  message("Indeksi: ", nrow(idx), " riviä (", sum(idx$isPlan), " hankintasuunnitelmaa), ",
+          ncol(idx), " saraketta")
+  print(count(idx, mainType, sort = TRUE))
+  qd_save(idx, index_file)
+}
+
+# =============================================================================
+# 2. eFORMS-ILMOITUKSET (koko XML) -> tidy-taulut
+# =============================================================================
+eforms_dir   <- file.path(out_dir, "eforms_raw")      # raaka-XML paloina
+parsed_dir   <- file.path(out_dir, "eforms_parsed")   # jäsennetyt palat
+manifest_f   <- file.path(out_dir, "eforms_manifest.qs2")
+eforms_file  <- file.path(out_dir, "hilma_eforms.qs2")
+awards_file  <- file.path(out_dir, "hilma_awards.qs2")
+CHUNK <- 500L
+
+read_eform_one <- function(id) {
+  resp <- hilma_req(paste0(HILMA_READ, "/", id)) |>
+    req_error(is_error = \(r) FALSE) |>
+    req_perform()
+  st <- resp_status(resp)
+  if (st != 200) return(list(status = st, xml = NA_character_))
+  js <- resp_body_json(resp, check_type = FALSE, simplifyVector = FALSE)
+  b64 <- js$eForm %||% NA_character_
+  if (is.na(b64)) return(list(status = -1L, xml = NA_character_))
+  list(status = 200L, xml = rawToChar(base64_dec(b64)))
+}
+
+if (RUN$eforms) {
+  stopifnot(file.exists(index_file))
+  dir.create(eforms_dir, showWarnings = FALSE)
+  dir.create(parsed_dir, showWarnings = FALSE)
+  idx <- qd_read(index_file)
+
+  # Kohdejoukko: eForms-muotoiset hankinta- ja jälki-ilmoitukset
+  target <- idx |>
+    filter(!is.na(eFormsId), eFormsId != "",
+           mainType %in% c("ContractNotices", "ContractAwardNotices")) |>
+    pull(noticeId) |>
+    sort()
+  message("eForms-kohdejoukko: ", length(target), " ilmoitusta")
+
+  # Ensimmäinen ilmoitus testataan erikseen ennen pitkää ajoa
+  t1 <- read_eform_one(target[1])
+  stopifnot(t1$status == 200, str_detect(t1$xml, "^\\s*<\\?xml|<(ContractNotice|ContractAwardNotice)"))
+  stopifnot(!is.null(parse_eform(t1$xml, target[1])))
+
+  manifest <- if (file.exists(manifest_f)) qd_read(manifest_f) else
+    tibble(noticeId = integer(), status = integer(), chunk = integer())
+  todo <- setdiff(target, manifest$noticeId[manifest$status %in% c(200L, 404L)])
+  next_chunk <- if (nrow(manifest) == 0) 1L else max(manifest$chunk) + 1L
+  message("Haettavana ", length(todo), " ilmoitusta")
+
+  for (ids in split(todo, ceiling(seq_along(todo) / CHUNK))) {
+    res <- map(ids, read_eform_one, .progress = TRUE)
+    xmls <- set_names(map_chr(res, "xml"), ids)
+    stat <- map_int(res, "status")
+
+    ok <- !is.na(xmls)
+    qs_save(as.list(xmls[ok]), file.path(eforms_dir, sprintf("chunk_%05d.qs2", next_chunk)))
+    parsed <- map2(xmls[ok], as.integer(names(xmls)[ok]), parse_eform_safe) |> bind_eforms()
+    qs_save(parsed, file.path(parsed_dir, sprintf("chunk_%05d.qs2", next_chunk)))
+
+    manifest <- bind_rows(manifest,
+                          tibble(noticeId = as.integer(ids), status = stat,
+                                 chunk = next_chunk))
+    qd_save(manifest, manifest_f)
+    message(sprintf("Pala %d: %d ok, %d virhettä", next_chunk, sum(ok), sum(!ok)))
+    next_chunk <- next_chunk + 1L
+  }
+
+  # Kaikki palat yhteen
+  chunks <- list.files(parsed_dir, full.names = TRUE) |> map(qs_read)
+  ef <- set_names(
+    map(c("notice", "lots", "results", "tenders", "parties", "contracts", "orgs"),
+        \(n) bind_rows(map(chunks, n)) |> distinct()),
+    c("notice", "lots", "results", "tenders", "parties", "contracts", "orgs"))
+
+  stopifnot(
+    !anyDuplicated(ef$notice$notice_id),
+    all(ef$notice$root_element %in% c("ContractNotice", "ContractAwardNotice")),
+    all(ef$results$n_tenders >= 0, na.rm = TRUE),
+    all(ef$tenders$tender_value >= 0, na.rm = TRUE)
+  )
+  fail_rate <- mean(!manifest$status %in% c(200L, 404L))
+  message("eForms: ", nrow(ef$notice), " jäsennettyä ilmoitusta, virheosuus ",
+          round(100 * fail_rate, 2), " %")
+  if (fail_rate > 0.02) warning("Yli 2 % hauista epäonnistui - aja vaihe uudelleen.")
+
+  qs_save(ef, eforms_file)
+
+  awards <- build_awards(ef)
+  stopifnot(nrow(awards) > 0,
+            all(awards$result_code == "selec-w"))
+  qd_save(awards, awards_file)
+  message("Voittajataulu: ", nrow(awards), " riviä")
+}
+
+# =============================================================================
+# 3. YTJ-RIKASTUS (voittajat + hankintayksiköt)
+# =============================================================================
+ytj_file <- file.path(out_dir, "ytj_hilma.qs2")
+
+# Normalisoi Y-tunnus muotoon 1234567-8. Muut maat -> NA.
+norm_ytunnus <- function(x) {
+  x <- str_to_upper(str_remove_all(x %||% NA_character_, "\\s"))
+  x <- str_remove(x, "^FI")
+  x <- if_else(str_detect(x, "^\\d{8}$"),
+               paste0(str_sub(x, 1, 7), "-", str_sub(x, 8, 8)), x)
+  if_else(str_detect(x, "^\\d{7}-\\d$"), x, NA_character_)
+}
+
+# Y-tunnuksen tarkistusmerkki (PRH:n algoritmi) -> karsii kirjoitusvirheet
+valid_ytunnus <- function(x) {
+  w <- c(7, 9, 10, 5, 8, 4, 2)
+  map_lgl(x, function(y) {
+    if (is.na(y)) return(FALSE)
+    d <- as.integer(strsplit(str_sub(y, 1, 7), "")[[1]])
+    r <- sum(d * w) %% 11
+    chk <- if (r == 0) 0L else 11L - r
+    r != 1 && chk == as.integer(str_sub(y, 9, 9))
+  })
+}
+
+parse_ytj_company <- function(x) {
+  addrs <- x$addresses %||% list()
+  pc <- NA_character_
+  if (length(addrs) > 0) {
+    types <- map_chr(addrs, \(a) as.character(a$type %||% NA))
+    for (i in order(types != "1")) {          # käyntiosoite (type 1) ensin
+      p <- addrs[[i]]$postCode %||% NA_character_
+      if (!is.na(p) && nzchar(p)) { pc <- p; break }
+    }
+  }
+  nm <- x$names %||% list()
+  tibble(
+    business_id  = x$businessId$value %||% NA_character_,
+    ytj_name     = if (length(nm) > 0) nm[[1]]$name %||% NA_character_ else NA_character_,
+    tol          = x$mainBusinessLine$type %||% NA_character_,
+    company_form = pluck(x, "companyForms", 1, "type", .default = NA_character_),
+    reg_date     = x$registrationDate %||% NA_character_,
+    end_date     = x$endDate %||% NA_character_,
+    ytj_postcode = pc
+  )
+}
+
+if (RUN$ytj && !file.exists(ytj_file)) {
+  stopifnot(file.exists(index_file))
+  idx <- qd_read(index_file)
+  ids <- norm_ytunnus(idx$organisationNationalRegistrationNumber)
+  if (file.exists(awards_file)) ids <- c(ids, norm_ytunnus(qd_read(awards_file)$winner_company_id))
+  ids <- unique(ids[!is.na(ids)])
+  ids <- ids[valid_ytunnus(ids)]
+  message("YTJ: haetaan ", length(ids), " Y-tunnusta")
+
+  ytj_dir <- file.path(out_dir, "ytj_chunks")
+  dir.create(ytj_dir, showWarnings = FALSE)
+
+  fetch_ytj_one <- function(bid) {
+    resp <- request("https://avoindata.prh.fi/opendata-ytj-api/v3/companies") |>
+      req_url_query(businessId = bid) |>
+      req_throttle(rate = 4) |>
+      req_retry(max_tries = 4, backoff = \(i) 2^i) |>
+      req_error(is_error = \(r) FALSE) |>
+      req_perform()
+    if (resp_status(resp) != 200) return(tibble(business_id = bid))
+    js <- resp_body_json(resp, check_type = FALSE, simplifyVector = FALSE)
+    comp <- js$companies %||% list()
+    if (length(comp) == 0) tibble(business_id = bid) else parse_ytj_company(comp[[1]])
+  }
+
+  for (k in seq(1, length(ids), by = 500)) {
+    f <- file.path(ytj_dir, sprintf("ytj_%06d.qs2", k))
+    if (file.exists(f)) next
+    part <- map_dfr(ids[k:min(k + 499, length(ids))], fetch_ytj_one, .progress = TRUE)
+    qd_save(part, f)
+  }
+
+  ytj <- list.files(ytj_dir, full.names = TRUE) |>
+    map_dfr(qd_read) |>
+    distinct(business_id, .keep_all = TRUE) |>
+    mutate(reg_date = as.Date(reg_date), end_date = as.Date(end_date),
+           ytj_postcode = str_pad(ytj_postcode, 5, pad = "0"))
+
+  stopifnot(!anyDuplicated(ytj$business_id),
+            mean(!is.na(ytj$ytj_name)) > 0.8)          # valtaosa löytyi
+  qd_save(ytj, ytj_file)
+}
+
+# =============================================================================
+# 4. PAAVO: postinumero -> kunta + koordinaatit
+# =============================================================================
+paavo_file <- file.path(out_dir, "paavo_postinumerot.qs2")
+
+if (RUN$paavo && !file.exists(paavo_file)) {
+  pv <- read_fst(here("data", "paavo", "paavo.fst"))
+  need <- c("Postinumeroalue", "Vuosi", "X-koordinaatti", "Y-koordinaatti",
+            "Asukkaat yhteensä (HE)")
+  stopifnot(all(need %in% names(pv)))
+
+  paavo <- pv |>
+    as_tibble() |>
+    filter(Postinumeroalue != "KOKO MAA") |>
+    transmute(
+      postinumero = str_sub(Postinumeroalue, 1, 5),
+      kunta       = str_match(Postinumeroalue, "\\(([^()]*)\\)\\s*$")[, 2],
+      vuosi       = as.integer(Vuosi),
+      x_tm35      = as.numeric(`X-koordinaatti`),
+      y_tm35      = as.numeric(`Y-koordinaatti`),
+      asukkaat    = as.numeric(`Asukkaat yhteensä (HE)`)
+    ) |>
+    group_by(postinumero) |>
+    slice_max(vuosi, n = 1, with_ties = FALSE) |>
+    ungroup()
+
+  stopifnot(!anyDuplicated(paavo$postinumero),
+            all(str_detect(paavo$postinumero, "^\\d{5}$")),
+            mean(!is.na(paavo$kunta)) > 0.99,
+            n_distinct(paavo$kunta) > 250)
+  qd_save(paavo, paavo_file)
+}
+
+# =============================================================================
+# 5. EUROSTAT: hintaindeksi (reaaliset eurot) + julkisyhteisöjen menot
+# =============================================================================
+hicp_file <- file.path(out_dir, "eurostat_hicp_fi.qs2")
+gov_file  <- file.path(out_dir, "eurostat_gov_fi.qs2")
+
+eurostat_time <- function(df) {
+  if ("TIME_PERIOD" %in% names(df)) df <- rename(df, time = TIME_PERIOD)
+  mutate(df, year = as.integer(format(as.Date(time), "%Y")))
+}
+
+if (RUN$eurostat && !file.exists(hicp_file)) {
+  hicp <- eurostat::get_eurostat("prc_hicp_aind",
+                                 filters = list(geo = "FI", coicop = "CP00",
+                                                unit = "INX_A_AVG"),
+                                 time_format = "date") |>
+    eurostat_time() |>
+    select(year, hicp = values)
+  stopifnot(nrow(hicp) > 15, !anyDuplicated(hicp$year), all(hicp$hicp > 0))
+  qd_save(hicp, hicp_file)
+}
+
+if (RUN$eurostat && !file.exists(gov_file)) {
+  # OECD:n määritelmä: hankinnat = välituotekäyttö (P2) + kiinteän pääoman
+  # bruttomuodostus (P51G) + markkinatuottajilta ostetut luontoissosiaalietuudet
+  # (D632). Haetaan kaikki erät ja valitaan koodilla.
+  gov <- eurostat::get_eurostat("gov_10a_main",
+                                filters = list(geo = "FI", sector = "S13",
+                                               unit = "MIO_EUR"),
+                                time_format = "date") |>
+    eurostat_time()
+  items <- unique(gov$na_item)
+  message("gov_10a_main na_item-koodit: ", paste(sort(items), collapse = ", "))
+  keep <- c("P2", "P51G", grep("^D632", items, value = TRUE), "B1GQ")
+  if (!any(grepl("^D632", items))) warning("D632 puuttuu - hankintojen summa on alaraja.")
+  gov <- gov |> filter(na_item %in% keep) |> select(year, na_item, values)
+  stopifnot(all(c("P2", "P51G") %in% gov$na_item))
+  qd_save(gov, gov_file)
+}
+
+# =============================================================================
+# 6. TUTKIHANKINTOJA.FI -OSTOLASKUT (valtio + osa kunnista ja hyvinvointialueista)
+# =============================================================================
+# Aineisto on suuri, joten se tallennetaan VUOSITTAIN omiin tiedostoihinsa.
+tutki_dir <- file.path(out_dir, "tutkihankintoja")
+
+if (RUN$tutki) {
+  dir.create(file.path(tutki_dir, "raw"), recursive = TRUE, showWarnings = FALSE)
+
+  pkg <- request("https://www.avoindata.fi/data/api/3/action/package_show") |>
+    req_url_query(id = "tutkihankintoja-data") |>
+    req_retry(max_tries = 4) |>
+    req_perform() |>
+    resp_body_json(simplifyVector = FALSE)
+  stopifnot(isTRUE(pkg$success))
+
+  res <- map_dfr(pkg$result$resources, \(r) tibble(
+    name = r$name %||% NA_character_, url = r$url %||% NA_character_,
+    format = str_to_lower(r$format %||% "")))
+  print(res)
+  res <- res |> filter(format %in% c("csv", "zip") | str_detect(url, "\\.(csv|zip)$"))
+  stopifnot(nrow(res) > 0)
+
+  for (i in seq_len(nrow(res))) {
+    dest <- file.path(tutki_dir, "raw", basename(res$url[i]))
+    out  <- file.path(tutki_dir, paste0(tools::file_path_sans_ext(basename(dest)), ".qs2"))
+    if (file.exists(out)) next
+    if (!file.exists(dest)) {
+      request(res$url[i]) |> req_timeout(1800) |> req_perform(path = dest)
+    }
+    df <- data.table::fread(dest, encoding = "UTF-8", showProgress = FALSE) |> as_tibble()
+    message(basename(dest), ": ", nrow(df), " riviä; sarakkeet: ",
+            paste(names(df), collapse = " | "))
+    stopifnot(nrow(df) > 0)
+    qd_save(df, out)
+  }
+}
+
+message("Valmis. Tiedostot kansiossa: ", out_dir)

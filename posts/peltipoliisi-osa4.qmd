@@ -1,6 +1,6 @@
 ---
 title: "Sakkokone, jota ei ole varaa käynnistää"
-subtitle: "Kehä I:n LAM-data kertoo, montako liikennevirhemaksua kamerat voisivat kirjoittaa — ja miksi niitä ei kirjoiteta"
+subtitle: "Kehä I:n LAM-data kertoo, montako liikennevirhemaksua kamerat voisivat kirjoittaa ja miksi niitä ei kirjoiteta"
 date: 2026-11-03
 categories: [avoin data, liikenne, LAM, julkinen talous]
 format:

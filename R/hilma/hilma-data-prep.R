@@ -44,6 +44,7 @@ select <- dplyr::select
 filter <- dplyr::filter
 
 source(here("R", "hilma", "hilma-eforms-parse.R"))
+source(here("R", "hilma", "hilma-io.R"))   # save_split()/read_split(): ei yli 45 Mt tiedostoja
 
 RUN <- list(
   index     = TRUE,   # 1. hakuindeksi
@@ -113,7 +114,7 @@ hilma_search <- function(body) {
     resp_body_json(check_type = FALSE, simplifyVector = FALSE)
 }
 
-if (RUN$index && !file.exists(index_file)) {
+if (RUN$index && !exists_split(out_dir, "hilma_index")) {
 
   # 1a. Indeksin kenttämäärittely talteen (dokumentoi mitä kenttiä on)
   defs <- tryCatch(
@@ -258,7 +259,7 @@ if (RUN$index && !file.exists(index_file)) {
   message("Indeksi: ", nrow(idx), " riviä (", sum(idx$isPlan), " hankintasuunnitelmaa), ",
           ncol(idx), " saraketta")
   print(count(idx, mainType, sort = TRUE))
-  qd_save(idx, index_file)
+  save_split(idx, out_dir, "hilma_index")
 }
 
 # =============================================================================
@@ -284,10 +285,10 @@ read_eform_one <- function(id) {
 }
 
 if (RUN$eforms) {
-  stopifnot(file.exists(index_file))
+  stopifnot(exists_split(out_dir, "hilma_index"))
   dir.create(eforms_dir, showWarnings = FALSE)
   dir.create(parsed_dir, showWarnings = FALSE)
-  idx <- qd_read(index_file)
+  idx <- read_split(out_dir, "hilma_index")
 
   # Kohdejoukko: eForms-muotoiset hankinta- ja jälki-ilmoitukset
   target <- idx |>
@@ -374,12 +375,13 @@ if (RUN$eforms) {
           round(100 * fail_rate, 2), " %")
   if (fail_rate > 0.02) warning("Yli 2 % hauista epäonnistui - aja vaihe uudelleen.")
 
-  qs_save(ef, eforms_file)
+  # Jokainen taulu omaksi (tarvittaessa pilkotuksi) tiedostokseen
+  for (nm in names(ef)) save_split(ef[[nm]], out_dir, paste0("hilma_eforms_", nm))
 
   awards <- build_awards(ef)
   stopifnot(nrow(awards) > 0,
             all(awards$result_code == "selec-w"))
-  qd_save(awards, awards_file)
+  save_split(awards, out_dir, "hilma_awards")
   message("Voittajataulu: ", nrow(awards), " riviä")
 }
 
@@ -467,10 +469,10 @@ if (RUN$ytj && !file.exists(ytj_file) && file.exists(ytj_local)) {
     distinct(business_id, .keep_all = TRUE)
 
   # Kattavuus: kuinka moni Hilman voittajista ja ostajista löytyy?
-  idx_tmp <- qd_read(index_file)
+  idx_tmp <- read_split(out_dir, "hilma_index")
   hilma_ids <- norm_ytunnus(idx_tmp$organisationNationalRegistrationNumber)
-  if (file.exists(awards_file)) {
-    win_ids <- norm_ytunnus(qd_read(awards_file)$winner_company_id)
+  if (exists_split(out_dir, "hilma_awards")) {
+    win_ids <- norm_ytunnus(read_split(out_dir, "hilma_awards")$winner_company_id)
     win_ids <- unique(win_ids[!is.na(win_ids) & valid_ytunnus(win_ids)])
     missing_win <- setdiff(win_ids, ytj$business_id)
     message("Voittajista löytyy YTJ-aineistosta ",
@@ -545,10 +547,10 @@ if (RUN$ytj && !file.exists(ytj_file) && file.exists(ytj_local)) {
 
 # 3b. VARA: API-haku (hidas; vain jos paikallista aineistoa ei ole)
 if (RUN$ytj && !file.exists(ytj_file)) {
-  stopifnot(file.exists(index_file))
-  idx <- qd_read(index_file)
+  stopifnot(exists_split(out_dir, "hilma_index"))
+  idx <- read_split(out_dir, "hilma_index")
   ids <- norm_ytunnus(idx$organisationNationalRegistrationNumber)
-  if (file.exists(awards_file)) ids <- c(ids, norm_ytunnus(qd_read(awards_file)$winner_company_id))
+  if (exists_split(out_dir, "hilma_awards")) ids <- c(ids, norm_ytunnus(read_split(out_dir, "hilma_awards")$winner_company_id))
   ids <- unique(ids[!is.na(ids)])
   ids <- ids[valid_ytunnus(ids)]
   message("YTJ: haetaan ", length(ids), " Y-tunnusta")
@@ -739,7 +741,7 @@ if (RUN$tutki) {
   raw_dir <- file.path(tutki_dir, "raw")
   dests <- file.path(raw_dir, res$file)
   outs  <- file.path(tutki_dir, str_replace(res$file, "\\.txt$", ".qs2"))
-  need  <- res$kind == "data" & !file.exists(outs) | res$kind == "dict" & !file.exists(dests)
+  need  <- res$kind == "data" & !map_lgl(sub("\\.qs2$", "", basename(outs)), \(n) exists_split(tutki_dir, n)) | res$kind == "dict" & !file.exists(dests)
 
   if (any(need)) {
     message("Ladataan ", sum(need), " tiedostoa (voi kestää tunteja; ",
@@ -759,14 +761,25 @@ if (RUN$tutki) {
   }
 
   # Varmistus ennen jäsennystä: levyllä olevan tiedoston koko = palvelimen koko
+  # Tiedostot ohjataan S3:n allekirjoitettuun osoitteeseen, joka sallii vain
+  # GET-pyynnön (HEAD -> 403). Siksi koko kysytään pyytämällä vain ensimmäinen
+  # tavu ja lukemalla kokonaiskoko Content-Range-otsakkeesta
+  # ("bytes 0-0/268845924"). Jos sekään ei onnistu, palautetaan NA ja
+  # luotetaan latauksen onnistumistietoon.
   remote_size <- function(u) {
-    h <- request(u) |> req_method("HEAD") |> req_timeout(60) |>
-      req_retry(max_tries = 3) |> req_perform()
-    as.numeric(resp_header(h, "content-length") %||% NA)
+    tryCatch({
+      h <- request(u) |> req_headers(Range = "bytes=0-0") |> req_timeout(60) |>
+        req_retry(max_tries = 3) |> req_perform()
+      cr <- resp_header(h, "content-range")
+      if (is.null(cr)) NA_real_ else as.numeric(str_extract(cr, "\\d+$"))
+    }, error = function(e) {
+      message("Kokoa ei saatu tarkistettua (", conditionMessage(e), ")")
+      NA_real_
+    })
   }
 
   for (i in which(res$kind == "data")) {
-    if (file.exists(outs[i])) next
+    if (exists_split(tutki_dir, sub("\\.qs2$", "", basename(outs[i])))) next
     rs <- remote_size(res$url[i])
     ls <- file.size(dests[i])
     if (!is.na(rs) && ls != rs) {
@@ -776,7 +789,7 @@ if (RUN$tutki) {
     message(res$file[i], ": ", nrow(df), " riviä; sarakkeet: ",
             paste(names(df), collapse = " | "))
     stopifnot(nrow(df) > 1000, ncol(df) > 3)            # sarake-erotin tunnistui
-    qd_save(df, outs[i])
+    save_split(df, tutki_dir, sub("\\.qs2$", "", basename(outs[i])))
     file.remove(dests[i])                                # raakatiedosto pois (tilaa)
   }
 }

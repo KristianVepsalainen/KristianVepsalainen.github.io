@@ -69,4 +69,3 @@ _site/
 .quarto/
 blog-listing.json
 blog.feed-full-staged
-data/

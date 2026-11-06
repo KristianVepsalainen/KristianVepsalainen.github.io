@@ -1,0 +1,21 @@
+{
+  "type": "Feature",
+  "id": 89,
+  "geometry": {
+    "type": "Point",
+    "coordinates": [
+      23.5884,
+      61.4778,
+      0
+    ]
+  },
+  "properties": {
+    "id": 89,
+    "tmsNumber": 89,
+    "name": "DSL6L",
+    "bearing": {},
+    "collectionStatus": "REMOVED_TEMPORARILY",
+    "dataUpdatedTime": "2026-08-12T07:18:56Z",
+    "state": {}
+  }
+}

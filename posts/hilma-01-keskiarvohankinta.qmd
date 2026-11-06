@@ -2,10 +2,9 @@
 title: "Julkinen raha ei valehtele, osa 1: Keskiarvohankintaa ei ole olemassa"
 description: "Suomen julkiset hankinnat jakaumana: miksi 'keskimääräinen hankinta' johtaa harhaan, kuinka paksu häntä on ja paljonko ensi vuonna kilpailutetaan."
 author: "Kristian Vepsäläinen"
-date: today
+date: 2026-11-06
 categories: [Hilma, julkiset hankinnat, bayes, ennustaminen, jakaumat]
 lang: fi
-draft: true
 format:
   html:
     code-fold: true

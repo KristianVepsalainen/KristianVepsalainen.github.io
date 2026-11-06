@@ -54,6 +54,10 @@ Thumbs.db
 /data/ytj/xbrl_otos
 /data/eduskunta/vaski_raw.qs
 /data/peltipoliisi/cache/
+/data/hilma/eforms_raw
+/data/hilma/eforms_parsed
+/data/hilma/index_months
+/data/hilma/tutkihankintoja/raw
 
 
 # Quarto build outputs
@@ -65,3 +69,4 @@ _site/
 .quarto/
 blog-listing.json
 blog.feed-full-staged
+data/

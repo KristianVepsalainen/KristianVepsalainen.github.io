@@ -1,0 +1,400 @@
+---
+title: "Julkinen raha ei valehtele, osa 2: Yhden tarjouksen Suomi"
+description: "Kuinka usein julkiseen kilpailutukseen tulee vain yksi tarjous, keneltä ja mitä se maksaa veronmaksajalle? Bayesilainen malli, ennuste ja vastaskenaariot."
+author: "Kristian Vepsäläinen"
+date: today
+categories: [Hilma, julkiset hankinnat, kilpailu, bayes, ennustaminen]
+lang: fi
+draft: true
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+    toc-depth: 3
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{r}
+#| label: setup
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(here)
+  library(qs2)
+  library(brms)
+  library(ggdist)
+  library(patchwork)
+})
+select <- dplyr::select
+filter <- dplyr::filter
+set.seed(2026)
+options(mc.cores = 4)
+
+source(here("R", "hilma", "hilma-io.R"))
+source(here("R", "hilma", "hilma-eforms-parse.R"))
+source(here("R", "hilma", "hilma-helpers.R"))
+
+models_dir <- here("data", "hilma", "models")
+dir.create(models_dir, showWarnings = FALSE, recursive = TRUE)
+
+ef      <- ef_load()
+deflate <- make_deflator(hd("eurostat_hicp_fi"))
+lp      <- lot_panel(ef, deflate)
+
+stopifnot(nrow(lp) > 10000,
+          all(c("n_tenders", "procedure", "nature", "cpv2", "buyer_name") %in% names(lp)))
+```
+
+```{r}
+#| label: data-prep
+
+# Tarkastellaan osia, joissa kilpailu oli mahdollinen: suorahankinnoissa yksi
+# tarjous on menettelyn luonne, ei kilpailun puutetta.
+comp <- lp |>
+  filter(procedure != "Suorahankinta", nature != "Muu / tuntematon",
+         !is.na(year), !is.na(cpv2))
+
+n_all     <- nrow(comp)
+n_missing <- sum(is.na(comp$n_tenders))
+n_zero    <- sum(comp$n_tenders == 0, na.rm = TRUE)
+
+d <- comp |>
+  filter(!is.na(n_tenders), n_tenders >= 1, n_tenders <= 200) |>
+  mutate(single  = n_tenders == 1,
+         quarter = lubridate::floor_date(issue_date, "quarter"))
+first_year <- min(d$year); last_year <- max(d$year)
+stopifnot(nrow(d) > 5000, all(d$n_tenders >= 1))
+```
+
+## Lyhyesti
+
+- Julkisessa kilpailutuksessa hinnan pitäisi syntyä siitä, että useampi yritys kilpailee samasta sopimuksesta. Kun tarjouksia tulee vain yksi, kilpailu on käytännössä neuvottelu ilman vertailukohtaa.
+- Suomen eForms-jälki-ilmoituksissa **`r pct(mean(d$single))` kilpailutetuista osista sai vain yhden tarjouksen**. Osuus vaihtelee voimakkaasti tuoteluokan ja hankintayksikön mukaan.
+- Rakensin bayesilaisen mallin, joka kertoo jokaiselle suurelle hankintayksikölle todennäköisyyden, että sen seuraava kilpailutus jää yhden tarjouksen varaan, ja ennustaa koko maan osuuden vuodelle `r last_year + 1`.
+- Laskin Kilpailuviraston tuoreen tutkimuksen hintavaikutuksella, kuinka paljon yhden tarjouksen kilpailutukset maksavat vuodessa eri vastaskenaarioissa.
+
+## Miksi yksi tarjous on ongelma?
+
+Kun tarjouksia on monta, voittaja joutuu hinnoittelemaan itsensä kilpailijoita edullisemmaksi. Kun tarjous on yksi, tarjoaja ei kilpaile kenenkään kanssa, vaan ainoastaan hankintayksikön budjetin kanssa. Hankintayksikkö voi hylätä liian kalliin tarjouksen, mutta vertailukohtaa sillä ei ole.
+
+Yksi tarjous ei silti automaattisesti tarkoita, että jotain olisi pielessä. Markkina voi olla aidosti pieni: Suomessa on vain kourallinen yrityksiä, jotka osaavat esimerkiksi tietyn sairaalalaitteen huollon. Siksi tässä kirjoituksessa ei etsitä syyllisiä yksittäisistä tapauksista, vaan **jakaumia**: missä yhden tarjouksen kilpailutukset kasautuvat ja kuinka paljon se maksaa.
+
+::: {.callout-tip title="Sanasto"}
+- **Osa**: hankinta voidaan jakaa osiin (esimerkiksi eri alueiden siivous). Jokainen osa kilpailutetaan erikseen, ja siitä raportoidaan oma tarjousmäärä. Tämän kirjoituksen havaintoyksikkö on osa.
+- **Jälki-ilmoitus**: ilmoitus kilpailutuksen tuloksesta. Siinä kerrotaan, montako tarjousta saatiin ja kuka voitti.
+- **Suorahankinta**: hankinta ilman kilpailutusta. Nämä on jätetty pois, koska niissä tarjous on aina yksi menettelyn luonteen vuoksi.
+:::
+
+## Aineisto ja sen laatu
+
+Aineisto on Hilman eForms-jälki-ilmoitukset vuosilta `r first_year`–`r last_year`. eForms on EU:n yhteinen sähköinen ilmoitusmuoto, joka sisältää tarjousmäärän jokaisesta osasta. Vanhemmista ilmoituksista tätä tietoa ei saa yhtä luotettavasti, joten tarkastelu rajautuu eForms-aikaan.
+
+- Kilpailutettuja osia oli `r num(n_all)`. Niistä `r num(n_missing)` (`r pct(n_missing / n_all)`) ei kertonut tarjousmäärää ollenkaan.
+- `r num(n_zero)` osaan ei tullut yhtään tarjousta. Nekin on jätetty pois, koska kysymys on siitä, kilpailiko *useampi* tarjoaja.
+- Analyysiin jäi `r num(nrow(d))` osaa, joissa saatiin vähintään yksi tarjous.
+
+```{r}
+#| label: fig-ntenders
+#| fig-cap: "Kilpailutettujen osien jakauma saatujen tarjousten määrän mukaan."
+#| fig-height: 4.5
+
+dist <- d |>
+  mutate(k = if_else(n_tenders >= 10, "10+", as.character(n_tenders)),
+         k = factor(k, levels = c(as.character(1:9), "10+"))) |>
+  count(k) |>
+  mutate(share = n / sum(n))
+
+ggplot(dist, aes(k, share, fill = k == "1")) +
+  geom_col() +
+  geom_text(aes(label = pct(share, 0)), vjust = -0.3, size = 3.5) +
+  scale_fill_manual(values = c(`TRUE` = pal[["red"]], `FALSE` = pal[["blue"]]), guide = "none") +
+  scale_y_continuous(labels = lab_pct, expand = expansion(mult = c(0, 0.1))) +
+  labs(x = "Saatujen tarjousten määrä", y = "Osuus kilpailutetuista osista",
+       title = paste0("Yhden tarjouksen varassa on ", pct(mean(d$single), 0),
+                      " kilpailutuksista"))
+```
+
+**Kuvan lukuohje.** Jokainen pylväs kertoo, kuinka suuri osa kilpailutuksista sai tietyn määrän tarjouksia. Punainen pylväs on yhden tarjouksen kilpailutukset. Oikeanpuoleisin pylväs kokoaa yhteen kaikki, joihin tuli kymmenen tai enemmän tarjousta.
+
+Mediaanikilpailutus sai `r num(median(d$n_tenders))` tarjousta ja keskiarvo oli `r dec(mean(d$n_tenders), 1)`. Ero kertoo taas jakaumasta: muutama kilpailutus, johon tulee kymmeniä tarjouksia (esimerkiksi laajat puitejärjestelyt), nostaa keskiarvoa. Tyypillinen kilpailutus on kuitenkin muutaman tarjoajan kisa.
+
+## Missä yksi tarjous on yleisintä?
+
+```{r}
+#| label: tests
+
+tab_nat <- table(d$nature, d$single)
+chi_nat <- suppressWarnings(chisq.test(tab_nat))
+v_nat   <- cramer_v(tab_nat)
+
+by_nat <- d |> group_by(nature) |>
+  summarise(n = n(), single = mean(single), med = median(n_tenders), .groups = "drop")
+
+# Parittaiset osuusvertailut Holmin korjauksella
+pairs <- combn(sort(unique(d$nature)), 2, simplify = FALSE)
+pw <- map_dfr(pairs, function(p) {
+  a <- d$single[d$nature == p[1]]; b <- d$single[d$nature == p[2]]
+  t <- prop.test(c(sum(a), sum(b)), c(length(a), length(b)))
+  tibble(A = p[1], B = p[2], `Osuus A` = pct(mean(a)), `Osuus B` = pct(mean(b)),
+         `Ero (%-yks.)` = dec(100 * (mean(a) - mean(b)), 1), p_raw = t$p.value)
+}) |> mutate(`p (Holm)` = map_chr(p.adjust(p_raw, "holm"), fi_p)) |> select(-p_raw)
+stopifnot(nrow(pw) == 3)
+```
+
+**Testin valinta.** Kysymys on, eroaako yhden tarjouksen *osuus* hankintalajien välillä. Osuuksien vertailuun sopii **khiin neliö -testi**: se vertaa havaittuja lukumääriä siihen, mitä odottaisi, jos osuus olisi kaikissa ryhmissä sama. Koska havaintoja on tuhansia, pienikin ero olisi "merkitsevä", joten raportoin myös vaikutuksen koon **Cramérin V:nä**. Se on 0, kun ryhmät eivät eroa lainkaan, ja 1, kun ryhmä määrää tuloksen täysin. Alle 0,1 on käytännössä pieni ero.
+
+Khiin neliö -testi: χ² = `r dec(chi_nat$statistic, 1)`, p `r fi_p(chi_nat$p.value)`, Cramérin V = `r dec(v_nat, 3)`.
+
+```{r}
+#| label: tab-pw
+knitr::kable(pw, caption = "Yhden tarjouksen osuus hankintalajeittain, parittaiset vertailut (Holmin korjaus).")
+```
+
+`r if (chi_nat$p.value < 0.05) "Ero hankintalajien välillä on tilastollisesti merkitsevä" else "Ero hankintalajien välillä ei ole tilastollisesti merkitsevä"`, ja vaikutuksen koko on `r if (v_nat < 0.1) "pieni" else "kohtalainen"`. `r if (v_nat < 0.1) "**Hankintalaji ei selitä yhden tarjouksen ilmiötä.** Selitys on löydettävä tarkemmalta tasolta: tuoteluokasta ja hankintayksiköstä." else "Hankintalaji selittää osan ilmiöstä, mutta tarkempi taso (tuoteluokka ja hankintayksikkö) on tarpeen."`
+
+## Bayesilainen malli: kuka saa yhden tarjouksen?
+
+Rakensin **hierarkkisen logistisen regressiomallin**. Se arvioi todennäköisyyden, että kilpailutus saa vain yhden tarjouksen, kun tiedetään:
+
+- hankintalaji (tavarat, palvelut, rakennusurakat)
+- hankinnan arvioitu koko (logaritmisena, koska koot vaihtelevat satakertaisesti)
+- menettely (avoin, rajoitettu, neuvottelu)
+- onko ilmoitus EU-tason vai kansallinen
+- ajankohta (neljännesvuosi), jotta näkyy, muuttuuko tilanne
+- tuoteluokka (CPV-pääryhmä) ja hankintayksikkö satunnaisvaikutuksina.
+
+**Satunnaisvaikutus** tarkoittaa tässä, että jokainen tuoteluokka ja hankintayksikkö saa oman arvionsa, mutta ne "lainaavat voimaa" toisiltaan. Hankintayksikkö, jolla on vain muutama kilpailutus, ei saa äärimmäistä arviota sattuman takia, vaan sen arvio vedetään maltillisesti kohti kaikkien yksiköiden keskiarvoa. Tämä on reilu tapa verrata isoja ja pieniä toimijoita samassa kuvassa.
+
+```{r}
+#| label: model-data
+
+md <- d |>
+  mutate(log_value = log(coalesce(est_value_real, single_value_real)),
+         has_value = !is.na(log_value),
+         log_value = if_else(has_value, log_value, NA_real_)) |>
+  filter(procedure %in% c("Avoin", "Rajoitettu", "Neuvottelu tms.")) |>
+  mutate(procedure = factor(recode(procedure, "Neuvottelu tms." = "Neuvottelu"),
+                            levels = c("Avoin", "Rajoitettu", "Neuvottelu"))) |>
+  mutate(log_value_c = log_value - median(log_value, na.rm = TRUE),
+         log_value_c = replace_na(log_value_c, 0),
+         t = as.numeric(quarter - min(quarter)) / 365.25,
+         buyer = coalesce(buyer_company_id, buyer_name, "tuntematon"))
+stopifnot(nrow(md) > 3000, !any(is.na(md$t)))
+```
+
+```{r}
+#| label: model-fit
+
+f_single <- single ~ nature + log_value_c + has_value + procedure + regime + t +
+  (1 | cpv2) + (1 | buyer)
+fit_single <- brm(
+  drop_constant_terms(f_single, md),
+  family = bernoulli(),
+  data   = md,
+  prior  = c(prior(normal(0, 1.5), class = Intercept),
+             prior(normal(0, 1), class = b),
+             prior(exponential(1), class = sd)),
+  chains = 4, iter = 2000, seed = 2026, init = 0,
+  file = file.path(models_dir, "p2_single"), file_refit = "on_change"
+)
+stopifnot(max(rhat(fit_single), na.rm = TRUE) < 1.05)
+```
+
+```{r}
+#| label: fig-effects
+#| fig-cap: "Mallin vaikutukset: kuinka paljon kukin tekijä muuttaa yhden tarjouksen todennäköisyyttä (kerroinsuhde, 90 %:n väli)."
+#| fig-height: 5
+
+post <- as_draws_df(fit_single) |> as_tibble()
+eff <- post |>
+  select(starts_with("b_"), -b_Intercept) |>
+  pivot_longer(everything()) |>
+  mutate(or = exp(value),
+         name = recode(str_remove(name, "^b_"),
+                       naturePalvelut = "Palvelut (vs. tavarat)",
+                       natureRakennusurakat = "Rakennusurakat (vs. tavarat)",
+                       log_value_c = "Arvo 2,7-kertainen",
+                       has_valueTRUE = "Arvo ilmoitettu",
+                       procedureNeuvottelu = "Neuvottelu (vs. avoin)",
+                       procedureRajoitettu = "Rajoitettu (vs. avoin)",
+                       regimeKansallinen = "Kansallinen (vs. EU)",
+                       t = "Vuoden kuluminen"))
+
+ggplot(eff, aes(or, fct_reorder(name, or, median))) +
+  geom_vline(xintercept = 1, linetype = 2, colour = "grey40") +
+  stat_pointinterval(.width = c(0.5, 0.9), colour = pal[["navy"]]) +
+  scale_x_log10(labels = \(x) dec(x, 2)) +
+  labs(x = "Kerroinsuhde (logaritminen asteikko)", y = NULL,
+       title = "Mikä lisää yhden tarjouksen riskiä?")
+
+p_trend_up <- mean(post$b_t > 0)
+or_t <- exp(post$b_t)
+```
+
+**Kuvan lukuohje.** Jokainen rivi on yksi tekijä. Piste kertoo todennäköisimmän vaikutuksen ja viiva välin, jolla vaikutus on 90 prosentin todennäköisyydellä. Luku 1 (katkoviiva) tarkoittaa, ettei tekijä vaikuta. Luku 2 tarkoittaa, että yhden tarjouksen *kertoimet* (todennäköisyys suhteessa vastatodennäköisyyteen) kaksinkertaistuvat. Luku 0,5 tarkoittaa, että ne puolittuvat. Jos viiva leikkaa katkoviivan, vaikutuksen suunnasta ei voi olla varma.
+
+Ajan vaikutus on kiinnostavin päättäjälle: todennäköisyys sille, että yhden tarjouksen riski **kasvaa** vuodesta toiseen, on `r pct(p_trend_up, 0)`. Kertoimet muuttuvat vuodessa keskimäärin `r dec(median(or_t), 2)`-kertaisiksi (90 %:n väli `r ci(or_t, f = \(x) dec(x, 2))`).
+
+### Hankintayksiköiden vertailu
+
+```{r}
+#| label: fig-buyers
+#| fig-cap: "Yhden tarjouksen todennäköisyys tyypillisessä avoimessa kilpailutuksessa kahdellekymmenelle eniten kilpailuttavalle hankintayksikölle (mallin ennuste, 90 %:n väli)."
+#| fig-height: 7
+
+top_buyers <- md |>
+  count(buyer, buyer_name = coalesce(buyer_name, buyer), sort = TRUE) |>
+  distinct(buyer, .keep_all = TRUE) |>
+  slice_head(n = 20) |>
+  mutate(buyer_name = make.unique(str_trunc(buyer_name, 45)))
+
+nd_b <- top_buyers |>
+  transmute(buyer, buyer_name,
+            nature = "Palvelut", log_value_c = 0, has_value = TRUE,
+            procedure = "Avoin", regime = "EU", t = max(md$t), cpv2 = NA)
+ep_b <- posterior_epred(fit_single, newdata = nd_b, re_formula = ~ (1 | buyer),
+                        ndraws = 2000)
+colnames(ep_b) <- nd_b$buyer_name
+buyer_draws <- as_tibble(ep_b) |>
+  pivot_longer(everything(), names_to = "buyer_name", values_to = "p")
+nat_avg <- mean(md$single)
+buyer_spread <- apply(ep_b, 2, median)
+
+ggplot(buyer_draws, aes(p, fct_reorder(buyer_name, p, median))) +
+  geom_vline(xintercept = nat_avg, linetype = 2, colour = pal[["red"]]) +
+  stat_pointinterval(.width = c(0.5, 0.9), colour = pal[["navy"]]) +
+  scale_x_continuous(labels = lab_pct) +
+  labs(x = "Yhden tarjouksen todennäköisyys", y = NULL,
+       title = "Samanlainen kilpailutus, eri hankintayksikkö")
+```
+
+**Kuvan lukuohje.** Jokainen rivi on yksi hankintayksikkö. Kaikille on laskettu ennuste **samanlaiselle** kilpailutukselle: avoin, EU-tason palveluhankinta, tyypillisen kokoinen. Erot kuvaavat siis hankintayksikön omaa tasoa eivätkä sitä, että jotkut ostavat vaikeampia asioita. Punainen katkoviiva on koko aineiston keskiarvo.
+
+Suurimpien hankintayksiköiden ennusteiden mediaanit vaihtelevat välillä `r pct(min(buyer_spread))`–`r pct(max(buyer_spread))`, vaikka hankinnan laji, koko ja menettely on vakioitu. Jos ero on suuri, se on hyvä uutinen: **jos ero johtuu hankintayksikön tavasta kilpailuttaa, siihen voi vaikuttaa.** Tarjouspyyntöjen selkeys, tarjousaika, osiin jakaminen ja markkinavuoropuhelu ovat kaikki hankintayksikön omissa käsissä.
+
+::: {.callout-note title="Faktalaatikko: Mitä yksi tarjous maksaa Suomessa?"}
+Kilpailu- ja kuluttajaviraston ekonomisti **Oskari Ijäs** julkaisi helmikuussa 2026 laajan suomalaisen tutkimuksen yhden tarjouksen hinnasta (*KKV:n työpapereita 1/2026*). Aineisto kattoi 87 330 tarjouspyyntöä vuosilta 2017–2025 Cloudia-järjestelmästä, ja hinnat saatiin 51 429 tarjouspyynnöstä.
+
+- **15,6 %** tarjouspyynnöistä sai vain yhden tarjouksen.
+- Kun tarjouksia oli kaksi yhden sijaan, voittanut tarjous oli **9,2 %** edullisempi suhteessa hankintayksikön odottamaan hintaan. Seitsemällä tai useammalla tarjoajalla ero oli 24,2 %.
+- Jos yhden tarjouksen kilpailutuksiin saataisiin yksi tarjoaja lisää silloin, kun potentiaalisia tarjoajia on olemassa, säästö olisi **144–176 miljoonaa euroa vuodessa**.
+
+EU:n sisämarkkinoiden tulostaulussa (Single Market Scoreboard, 2024) yhden tarjouksen osuus EU-kynnysarvot ylittävissä hankinnoissa oli Ruotsissa 27 %, Norjassa 19 % ja EU:ssa keskimäärin 28 %. Luvut eivät ole suoraan vertailukelpoisia tämän kirjoituksen kanssa, koska tulostaulu laskee ne EU:n TED-tietokannasta eri rajauksin.
+
+Kansainvälistä meta-analyysiä tarjoajamäärän hintavaikutuksesta en löytänyt. Suomalainen tutkimus on tässä paras saatavilla oleva arvio, koska se mittaa juuri samaa markkinaa.
+:::
+
+## Vastaskenaariot: mitä yhden tarjouksen ilmiö maksaa?
+
+```{r}
+#| label: cf
+
+# Yhden tarjouksen osien sopimusarvo vuodessa (viim. täysi vuosi, yksi voittaja)
+cf_year <- max(md$year[md$year < as.integer(format(Sys.Date(), "%Y"))])
+single_eur <- md |> filter(year == cf_year, single, !is.na(single_value_real)) |>
+  summarise(eur = sum(single_value_real), n = n())
+all_n_year <- sum(md$year == cf_year)
+p_single_year <- mean(md$single[md$year == cf_year])
+
+# Hintavaikutuksen epävarmuus KKV:n eri estimaattien vaihteluvälinä:
+# 8,4 % (OLS) ... 15,3 % (kaltaistus keskimääräiseen tarjoajamäärään), keskeinen 9,2 %
+rtriangle <- function(n, a, b, c) {
+  u <- runif(n); fc <- (c - a) / (b - a)
+  ifelse(u < fc, a + sqrt(u * (b - a) * (c - a)), b - sqrt((1 - u) * (b - a) * (b - c)))
+}
+price_eff <- rtriangle(4000, 0.084, 0.153, 0.092)
+
+scen <- tribble(
+  ~Skenaario, ~osuus_korjattu,
+  "Neljäsosa yhden tarjouksen kilpailutuksista saa toisen tarjouksen", 0.25,
+  "Puolet saa toisen tarjouksen", 0.50,
+  paste0("Osuus laskee Norjan tasolle (19 %)"), max(0, (p_single_year - 0.19) / p_single_year),
+  "Kaikki saavat toisen tarjouksen (teoreettinen yläraja)", 1.00
+)
+cf_tab <- scen |>
+  mutate(saasto = map(osuus_korjattu, \(s) s * single_eur$eur * price_eff),
+         `Säästö vuodessa (mediaani)` = map_chr(saasto, \(x) eur(median(x))),
+         `90 %:n väli` = map_chr(saasto, \(x) ci(x, f = eur))) |>
+  select(Skenaario, `Säästö vuodessa (mediaani)`, `90 %:n väli`)
+stopifnot(single_eur$n > 50)
+knitr::kable(cf_tab)
+```
+
+Vuonna `r cf_year` yhden tarjouksen kilpailutuksissa sovittiin yhteensä noin **`r eur(single_eur$eur)`** edestä (`r num(single_eur$n)` osaa, joissa voittaja ja hinta on ilmoitettu). Taulukossa tämä summa on kerrottu Kilpailuviraston tutkimuksen hintavaikutuksella. Koska tutkimuksen eri menetelmät antavat 8,4–15,3 prosentin vaikutuksen, epävarmuus on otettu mukaan simuloimalla vaikutus tältä väliltä.
+
+Kaksi varausta: summa on alaraja, koska kaikki jälki-ilmoitukset eivät kerro hintaa, ja "kaikki saavat toisen tarjouksen" on teoreettinen raja, koska osassa markkinoista toista tarjoajaa ei yksinkertaisesti ole.
+
+## Ennuste: yhden tarjouksen osuus vuonna `r last_year + 1`
+
+```{r}
+#| label: forecast
+
+# Ennustetaan koko aineiston rakenteella: otetaan viimeisen vuoden osat ja
+# siirretään ne ajassa eteenpäin (sama kilpailutusten kirjo, uusi ajankohta)
+base <- md |> filter(year == max(year[year < as.integer(format(Sys.Date(), "%Y"))]))
+nd_fc <- base |> mutate(t = max(md$t) + 1)
+ep_fc <- posterior_epred(fit_single, newdata = nd_fc, allow_new_levels = TRUE,
+                         sample_new_levels = "gaussian", ndraws = 1000)
+share_fc  <- rowMeans(ep_fc)
+ep_now    <- posterior_epred(fit_single, newdata = base, ndraws = 1000)
+share_now <- rowMeans(ep_now)
+
+# Takautuva tarkistus: malli sovitettuna vain edellisiin vuosiin
+bt_year <- max(md$year[md$year < as.integer(format(Sys.Date(), "%Y"))])
+train_bt <- filter(md, year < bt_year)
+fit_bt <- update(fit_single, formula. = drop_constant_terms(f_single, train_bt),
+                 newdata = train_bt,
+                 file = file.path(models_dir, paste0("p2_single_bt", bt_year)),
+                 file_refit = "on_change", seed = 2026, refresh = 0)
+f_bt <- drop_constant_terms(f_single, train_bt)
+test_bt <- keep_seen_levels(filter(md, year == bt_year), train_bt, f_bt)
+ep_bt <- posterior_epred(fit_bt, newdata = test_bt,
+                         allow_new_levels = TRUE, sample_new_levels = "gaussian",
+                         ndraws = 1000)
+share_bt  <- rowMeans(ep_bt)
+actual_bt <- mean(test_bt$single)
+in90_bt   <- between(actual_bt, quantile(share_bt, .05), quantile(share_bt, .95))
+
+qd_save(tibble(draw = seq_along(share_fc), share = share_fc,
+               made = Sys.Date(), target = last_year + 1),
+        file.path(hilma_dir, paste0("p2_forecast_", last_year + 1, ".qs2")))
+```
+
+Ennen ennustamista testasin menetelmän: sovitin mallin vain vuotta `r bt_year` edeltäneeseen dataan ja ennustin vuoden `r bt_year` osuuden. Ennuste oli `r pct(median(share_bt))` (90 %:n väli `r ci(share_bt)`), ja toteuma oli `r pct(actual_bt)`. `r if (in90_bt) "Toteuma osui ennustevälille." else "Toteuma jäi ennustevälin ulkopuolelle, joten ennusteeseen kannattaa suhtautua varauksella."`
+
+**Ennuste vuodelle `r last_year + 1`:** jos kilpailutusten kirjo pysyy samanlaisena ja viime vuosien kehitys jatkuu, yhden tarjouksen osuus on todennäköisimmin **`r pct(median(share_fc))`** (90 %:n väli `r ci(share_fc)`). Vertailuksi samalla aineistolla laskettu nykytaso on `r pct(median(share_now))`. Tallensin ennusteen päivättynä, ja vertaan sitä toteumaan vuoden päätyttyä.
+
+## Miten tätä voi käyttää käytännössä?
+
+**Hankintayksikölle:** mallin hankintayksikkökohtainen arvio kertoo, kuuluuko oma organisaatio niihin, joilla yhden tarjouksen riski on rakenteellisesti korkea. Jos kuuluu, halvimmat korjauskeinot ovat markkinavuoropuhelu ennen tarjouspyyntöä, pidempi tarjousaika, osiin jakaminen ja kelpoisuusvaatimusten karsiminen.
+
+**Päättäjälle:** yhden tarjouksen osuus on yksinkertainen, julkisesta datasta laskettava mittari, jonka voi lisätä kunnan tai hyvinvointialueen hankintojen vuosiraporttiin. Se kertoo, saako organisaatio kilpailun hyödyt, joista se maksaa kilpailuttamisen kulut.
+
+**Tarjoajalle:** tuoteluokat ja hankintayksiköt, joissa yksi tarjous on tavallista, ovat markkinoita, joille uusi kilpailija pääsee helpoimmin. Usein riittää, että ylipäätään jättää tarjouksen.
+
+## Mitä tämä tarkoittaa yrityksellesi?
+
+- **Myyntitiimin kohdentaminen.** Yritys, joka tietää, missä kilpailutuksissa se on todennäköisesti ainoa tai toinen tarjoaja, voi keskittää tarjoustyön sinne, missä voittotodennäköisyys on suurin. Bayesilainen malli antaa tämän todennäköisyytenä jokaiselle uudelle tarjouspyynnölle.
+- **Hinnoittelustrategia.** Jos odotettu kilpailijamäärä on pieni, liian aggressiivinen hinnoittelu jättää rahaa pöydälle. Jos se on suuri, liian korkea hinta häviää varmasti. Tarjoajamäärän ennuste on suora syöte tarjoushinnan optimointiin.
+- **Rahoittajat ja vakuuttajat.** Yritys, jonka liikevaihto perustuu yhden tarjouksen kilpailutuksiin, on riippuvainen siitä, ettei kilpailijoita ilmesty. Tämä on mitattava riski luotonannossa ja yrityskaupoissa.
+- **Hankintayksikön sisäinen tarkastus.** Mittari "yhden tarjouksen todennäköisyys suhteessa samanlaisiin kilpailutuksiin muualla" kertoo tarkastajalle, mihin kilpailutuksiin kannattaa katsoa ensimmäisenä.
+- **Kilpailuviranomaiset ja media.** Hankintayksiköiden vakioitu vertailu erottaa aidon markkinarakenteen hankintatavasta. Se on parempi perusta keskustelulle kuin yksittäiset esimerkit.
+
+Rakennan tällaisia malleja avoimesta ja organisaation omasta datasta: kertaluonteisina analyyseina, jatkuvana seurantana tai vuokrattavana data-asiantuntijana. **[Varaa maksuton 30 minuutin keskustelu](https://www.kristianvepsalainen.com)**, niin katsotaan, mitä jakaumat kertovat sinun hankinnoistasi.
+
+---
+
+### Lähteet
+
+**Data:** Hilma (hankintailmoitukset.fi), avoin rajapinta (eForms-jälki-ilmoitukset). Eurostat: HICP (`prc_hicp_aind`).
+
+**Tutkimus ja tilastot**
+
+- Ijäs, O. (2026). *Are We Paying Too Much? The Cost of Low Competition in Public Procurement*. Kilpailu- ja kuluttajavirasto, Working Papers 1/2026.
+- Euroopan komissio (2024). Single Market and Competitiveness Scoreboard: Public procurement.
+
+*Koodi: R (tidyverse, brms, ggdist). Kaikki analyysit ovat toistettavissa avoimella datalla.*

@@ -1,0 +1,483 @@
+---
+title: "Mitä yksi kilometri tunnissa on arvoinen"
+subtitle: "Kehä I:n nopeusmuutos euroiksi — ja käänteinen kysymys, joka kertoo enemmän kuin piste-estimaatti"
+date: 2026-11-11
+categories: [avoin data, liikenne, bayes, counterfactual, julkinen talous]
+draft: true
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Näytä koodi"
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 200
+execute:
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R","peltipoliisi" ,"peltipoliisi-yhteiset.R"))
+library(patchwork)
+library(brms)
+library(ggdist)
+library(scales)
+
+theme_set(pp_teema())
+```
+
+Kehä I:n nopeusvalvonta käynnistyi uudelleen 25. elokuuta 2026, ja keskinopeus laski verrokkiteihin nähden noin kilometrin tunnissa.
+
+Kilometri tunnissa kuulostaa mitättömältä. Se on vähemmän kuin mittarin lukematarkkuus, vähemmän kuin ero kesä- ja talvirenkailla, vähemmän kuin se vaihtelu, joka syntyy siitä ajaako tuulta vasten vai myötäiseen.
+
+Tämä postaus kysyy, paljonko se on euroina. Ja koska vastaus riippuu luvusta, jota minulla ei ole, se kysyy lopuksi kysymyksen toisin päin — tavalla, joka on päätöksenteon kannalta hyödyllisempi kuin mikään yksittäinen euromäärä.
+
+## Kuinka paljon Kehä I:llä ajetaan
+
+Aloitetaan siitä, mitä avoin data kertoo suoraan.
+
+Jokainen LAM-piste laskee ohi ajavat autot. Kun tiedetään, montako autoa kulkee kunkin pisteen ohi vuorokaudessa, ja tiedetään tien pituus, saadaan **ajoneuvokilometrit**: kuinka monta kilometriä tiellä ajetaan yhteensä.
+
+Tämä on perusluku, jota ilman mikään turvallisuusvertailu ei toimi. Tie, jolla sattuu kymmenen onnettomuutta vuodessa, on vaarallinen jos siellä ajetaan vähän ja turvallinen jos siellä ajetaan paljon.
+
+```{r}
+#| label: ajoneuvokilometrit
+
+# Kehä I:n pituus. Mittaviivan pituus OSM-aineistosta olisi tarkempi,
+# mutta tämä osa ei muuten tarvitse geometriaa, joten käytetään
+# julkista pituustietoa ja merkitään se oletukseksi.
+KEHA_PITUUS_KM <- 24
+
+aadt <- pp$hist_pv |>
+  filter(lam_id %in% pp_kehaI, year(pvm) == 2026) |>
+  group_by(lam_id, pvm) |>
+  summarise(ajoneuvoja = sum(as.numeric(n)), .groups = "drop") |>
+  group_by(lam_id) |>
+  summarise(aadt = mean(ajoneuvoja), paivia = n(), .groups = "drop") |>
+  left_join(pp$kontek |> select(lam_id, nimi), by = "lam_id")
+
+# TARKISTUS: Kehä I:n liikennemäärät ovat kymmeniä tuhansia vuorokaudessa.
+stopifnot(all(aadt$aadt > 10000), all(aadt$aadt < 200000))
+
+aadt_ka <- mean(aadt$aadt)
+ajonkm_v <- aadt_ka * KEHA_PITUUS_KM * 365
+```
+
+```{r}
+#| label: tbl-aadt
+#| tbl-cap: "Keskimääräinen vuorokausiliikenne mittauspisteittäin vuonna 2026, molemmat ajosuunnat yhteensä."
+
+aadt |>
+  arrange(desc(aadt)) |>
+  transmute(Piste = lam_id, Nimi = nimi,
+            `Ajoneuvoa/vrk` = comma(round(aadt), big.mark = " "),
+            `Havaintopäiviä` = paivia) |>
+  knitr::kable(align = "llrr")
+```
+
+Pisteiden keskimääräinen vuorokausiliikenne on noin `r comma(round(aadt_ka), big.mark = " ")` ajoneuvoa. Kun se kerrotaan tien pituudella ja vuoden päivillä, Kehä I:llä ajetaan karkeasti **`r comma(round(ajonkm_v / 1e6), big.mark = " ")` miljoonaa ajoneuvokilometriä vuodessa**.
+
+Luku on arvio. Liikennemäärä ei ole sama koko tien pituudella, ja mittauspisteiden keskiarvo on karkea tapa yleistää. Mutta suuruusluokka on oikea, ja se riittää tähän tarkoitukseen.
+
+## Nopeudesta onnettomuuksiin
+
+Nopeuden ja onnettomuuksien yhteys on liikenneturvallisuustutkimuksen parhaiten tunnettuja säännönmukaisuuksia. Olennaista on, että yhteys ei ole suora vaan **jyrkästi kiihtyvä**: nopeuden pieni muutos muuttaa vakavien onnettomuuksien määrää paljon enemmän kuin suhteellisesti yhtä paljon.
+
+::: {.callout-note}
+## Faktalaatikko: kaksi mallia nopeuden ja onnettomuuksien välille
+
+**Potenssimalli** (Rune Elvik). Onnettomuuksien määrä muuttuu
+keskinopeuden suhteellisen muutoksen potenssina. Mallin mukaan 10 %:n
+lasku keskinopeudessa vähentää kuolemaan johtaneita onnettomuuksia
+keskimäärin 35 % ja loukkaantumisiin johtaneita 16 %. Näistä seuraa
+eksponentti noin 4,1 kuolemille ja noin 1,65 loukkaantumisille.
+
+**Eksponenttimalli**, jota on käytetty muun muassa ruotsalaisessa
+kameratutkimuksessa. Onnettomuuksien määrä muuttuu eksponentiaalisesti
+nopeuden **absoluuttisen** muutoksen mukana, kertoimella noin 0,08
+kuolemille ja 0,06 vakaville loukkaantumisille kilometriä tunnissa kohden.
+
+Mallit on kalibroitu pääosin maantieolosuhteissa, joten kaupunkimoottori-
+tiellä niiden antamat luvut ovat suuntaa-antavia. Ne antavat myös eri
+vastauksen, ja se ero on itsessään tulos: se on mallinvalinnan
+epävarmuutta, jota ei pidä piilottaa valitsemalla toinen ja vaikenemalla
+toisesta.
+:::
+
+::: {.callout-note}
+## Faktalaatikko: mitä onnettomuus maksaa
+
+Väylävirasto ylläpitää hankearvioinnin yksikköarvoja, joilla
+liikennehankkeiden turvallisuusvaikutukset muutetaan euroiksi. Traficomin
+julkaisemat arvot vuoden 2022 hintatasossa ovat:
+
+| Seuraus | Yksikkökustannus |
+|---|---|
+| Kuolema | 2 840 000 € |
+| Vakava loukkaantuminen | 1 410 000 € |
+| Lievä loukkaantuminen | 85 000 € |
+| Loukkaantuminen, painotettu keskiarvo | 217 000 € |
+
+Luvut eivät ole hoitokustannuksia. Ne ovat yhteiskunnallisia
+kokonaiskustannuksia, joihin sisältyy tuotannonmenetys, inhimillisen
+hyvinvoinnin menetys sekä hallinto- ja pelastuskulut. Niitä käytetään
+kaikessa suomalaisessa tiehankkeiden arvioinnissa, joten niiden
+käyttäminen tässä tekee tuloksesta vertailukelpoisen virallisten
+hankearviointien kanssa.
+:::
+
+```{r}
+#| label: vakiot
+
+# Väyläviraston hankearvioinnin yksikköarvot, hintataso 2022.
+KUST_KUOLEMA        <- 2840000
+KUST_VAKAVA         <- 1410000
+KUST_LIEVA          <-   85000
+KUST_HENKILOVAHINKO <-  217000
+
+# Elvikin potenssimallin eksponentit, johdettu julkaistuista
+# vaikutuksista: 10 %:n nopeuslasku -> -35 % kuolemat, -16 % loukkaantumiset.
+POT_KUOLEMA <- log(0.65) / log(0.90)
+POT_LOUKK   <- log(0.84) / log(0.90)
+
+# Eksponenttimallin kertoimet per km/h.
+EKS_KUOLEMA <- 0.08
+EKS_VAKAVA  <- 0.06
+
+stopifnot(abs(POT_KUOLEMA - 4.09) < 0.02, abs(POT_LOUKK - 1.66) < 0.02)
+```
+
+## Nopeusmuutos epävarmuuksineen
+
+Euromäärän pitää kantaa mukanaan se epävarmuus, joka nopeusarviossa on. Siksi en käytä yhtä lukua vaan koko jakaumaa.
+
+Sovitan saman hierarkkisen mallin kuin sarjan aiemmissa osissa, mutta nyt keskinopeudelle. Malli vertaa Kehä I:n muutosta verrokkiteiden muutokseen, kun molemmista on ensin vähennetty niiden oma viime vuoden taso samalla viikolla.
+
+```{r}
+#| label: malli
+#| results: hide
+
+# HUOM: brms tallentaa mallin file-polkuun. Jos muutat kaavaa tai aineistoa,
+# POISTA tiedosto ensin - muuten vanha malli latautuu hiljaisesti.
+
+malli_data <- pp_pohja |>
+  filter(lam_id %in% pp_vakaat) |>
+  pp_yoy(lam_id) |>
+  mutate(lam_id = factor(lam_id),
+         keha_i = as.integer(as.integer(as.character(lam_id)) %in% pp_kehaI))
+
+stopifnot(sum(malli_data$keha_i) > 0, sum(1 - malli_data$keha_i) > 0)
+
+malli_nopeus <- brm(
+  d_ka ~ jalkeen * keha_i + (1 + jalkeen | lam_id),
+  data = malli_data, family = student(),
+  prior = c(prior(normal(0, 5), class = "b"),
+            prior(normal(0, 5), class = "Intercept"),
+            prior(exponential(1), class = "sd"),
+            prior(exponential(1), class = "sigma")),
+  chains = 4, iter = 2000, warmup = 1000, seed = 20260825,
+  control = list(adapt_delta = 0.95),
+  file = file.path(PP_DATA, "malli_nopeus_osa5")
+)
+```
+
+```{r}
+#| label: posteriori
+
+dv <- as_draws_df(malli_nopeus)[["b_jalkeen:keha_i"]]
+
+# Lähtötason keskinopeus Kehä I:llä jälkijaksolla.
+v0 <- pp_pohja |>
+  filter(lam_id %in% intersect(pp_vakaat, pp_kehaI), year(pvm) == 2026,
+         isoweek(pvm) %in% PP_VK_JALKEEN) |>
+  pp_tunnusluvut() |>
+  pull(ka)
+
+stopifnot(v0 > 40, v0 < 120)
+
+dv_mediaani <- median(dv)
+dv_ala <- quantile(dv, 0.025, names = FALSE)
+dv_yla <- quantile(dv, 0.975, names = FALSE)
+```
+
+Mallin mukaan keskinopeus laski **`r sprintf("%.2f", abs(dv_mediaani))` km/h** (95 %:n uskottavuusväli `r sprintf("%.2f", abs(dv_yla))`…`r sprintf("%.2f", abs(dv_ala))` km/h). Lähtötaso oli `r sprintf("%.1f", v0)` km/h.
+
+Uskottavuusväli on leveä. Se on rehellinen kuva siitä, mitä neljästätoista mittauspisteestä ja viidestä viikosta voi päätellä. Kaikki seuraavat euromäärät kantavat tämän epävarmuuden mukanaan.
+
+## Suhteellinen vaikutus onnettomuuksiin
+
+```{r}
+#| label: fig-vaikutus
+#| fig-cap: "Arvioitu muutos onnettomuuksien määrässä kahdella mallilla. Käyrän leveys kertoo epävarmuuden, joka periytyy suoraan nopeusarvion epävarmuudesta. Nollan vasemmalla puolella oleva massa tarkoittaa onnettomuuksien vähenemistä."
+#| fig-height: 4.6
+
+suhde <- (v0 + dv) / v0
+
+vaikutus <- bind_rows(
+  tibble(malli = "Potenssimalli", seuraus = "Kuolemat",
+         muutos = 100 * (suhde^POT_KUOLEMA - 1)),
+  tibble(malli = "Potenssimalli", seuraus = "Loukkaantumiset",
+         muutos = 100 * (suhde^POT_LOUKK - 1)),
+  tibble(malli = "Eksponenttimalli", seuraus = "Kuolemat",
+         muutos = 100 * (exp(EKS_KUOLEMA * dv) - 1)),
+  tibble(malli = "Eksponenttimalli", seuraus = "Loukkaantumiset",
+         muutos = 100 * (exp(EKS_VAKAVA * dv) - 1))
+)
+
+vaikutus |>
+  ggplot(aes(muutos, malli, fill = malli)) +
+  geom_vline(xintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  stat_halfeye(.width = c(0.5, 0.95), point_interval = "median_qi",
+               alpha = 0.8, slab_colour = NA) +
+  facet_wrap(~ seuraus, ncol = 1) +
+  scale_fill_manual(values = c("Potenssimalli" = PP_VARI_KEHA,
+                               "Eksponenttimalli" = PP_VARI_KOLMAS),
+                    guide = "none") +
+  labs(
+    title = "Yksi kilometri tunnissa, kaksi mallia",
+    subtitle = "Arvioitu muutos onnettomuuksien määrässä Kehä I:llä",
+    x = "Muutos (%)", y = NULL,
+    caption = "Epävarmuus periytyy nopeusarvion posteriorijakaumasta. Potenssimalli: Elvik. Eksponenttimalli: ruotsalainen kameratutkimus."
+  )
+```
+
+```{r}
+#| label: vaikutus-tiivis
+
+vaikutus_tiivis <- vaikutus |>
+  group_by(malli, seuraus) |>
+  summarise(mediaani = median(muutos),
+            ala = quantile(muutos, 0.025, names = FALSE),
+            yla = quantile(muutos, 0.975, names = FALSE),
+            .groups = "drop")
+
+pot_k <- vaikutus_tiivis |>
+  filter(malli == "Potenssimalli", seuraus == "Kuolemat")
+eks_k <- vaikutus_tiivis |>
+  filter(malli == "Eksponenttimalli", seuraus == "Kuolemat")
+```
+
+Potenssimalli antaa kuolemille `r sprintf("%.1f", pot_k$mediaani)` prosentin muutoksen, eksponenttimalli `r sprintf("%.1f", eks_k$mediaani)` prosentin. Ero on noin kaksinkertainen.
+
+Kumpikaan ei ole väärä. Ne on kalibroitu eri aineistoilla ja eri oletuksilla. Jos joku esittää yhden luvun siitä, montako ihmishenkeä liikenneratkaisu säästää, kysy mitä mallia on käytetty ja mitä toinen malli sanoisi.
+
+## Käänteinen kysymys
+
+Tässä tulee se kohta, jossa analyysi törmää tiedon rajaan.
+
+Suhteellisen muutoksen tiedän. Euromäärän saisin, jos tietäisin **montako henkilövahinko-onnettomuutta Kehä I:llä sattuu vuodessa**. Sitä lukua ei ole avoimessa datassa tien tarkkuudella: onnettomuustilastot julkaistaan kunnittain ja tieluokittain, ei yksittäisen kehätien osuudella.
+
+Vaihtoehtoja on kaksi. Voisin arvata luvun ja esittää yhden euromäärän, joka näyttäisi täsmälliseltä ja olisi suurelta osin keksitty. Tai voin kääntää kysymyksen.
+
+**Käännetty kysymys:** paljonko valvonta tuottaa *kutakin* vuosittaista onnettomuutta kohti? Siitä saa suoran vastauksen ilman arvailua, ja lukija voi sijoittaa oman onnettomuuslukunsa paikalleen.
+
+```{r}
+#| label: fig-breakeven
+#| fig-cap: "Valvonnan vuosittainen turvallisuushyöty euroina sen mukaan, montako henkilövahinko-onnettomuutta Kehä I:llä sattuu vuodessa. Varjostettu alue on 95 %:n uskottavuusväli. Pystyviivat merkitsevät kolmea esimerkkitasoa."
+#| fig-height: 5
+
+# Onnettomuusmäärän vaihteluväli, jolle hyöty lasketaan.
+onn_maarat <- seq(10, 150, by = 5)
+
+# Hyöty = onnettomuuksien määrä x suhteellinen vähenemä x yksikkökustannus.
+# Käytetään loukkaantumisten painotettua yksikkökustannusta, koska
+# henkilövahinko-onnettomuuksista valtaosa on loukkaantumisia.
+hyoty_vedos <- function(n_onn, malli) {
+  muutos <- if (malli == "Potenssimalli") suhde^POT_LOUKK - 1
+            else exp(EKS_VAKAVA * dv) - 1
+  -n_onn * muutos * KUST_HENKILOVAHINKO
+}
+
+breakeven <- expand_grid(n_onn = onn_maarat,
+                         malli = c("Potenssimalli", "Eksponenttimalli")) |>
+  mutate(vedokset = map2(n_onn, malli, hyoty_vedos),
+         mediaani = map_dbl(vedokset, median),
+         ala = map_dbl(vedokset, \(x) quantile(x, 0.025, names = FALSE)),
+         yla = map_dbl(vedokset, \(x) quantile(x, 0.975, names = FALSE))) |>
+  select(-vedokset)
+
+breakeven |>
+  ggplot(aes(n_onn, mediaani / 1e6, colour = malli, fill = malli)) +
+  geom_ribbon(aes(ymin = ala / 1e6, ymax = yla / 1e6),
+              alpha = 0.16, colour = NA) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = c(25, 60, 110), linetype = "22",
+             colour = PP_VARI_HIMMEA, linewidth = 0.4) +
+  scale_colour_manual(values = c("Potenssimalli" = PP_VARI_KEHA,
+                                 "Eksponenttimalli" = PP_VARI_KOLMAS)) +
+  scale_fill_manual(values = c("Potenssimalli" = PP_VARI_KEHA,
+                               "Eksponenttimalli" = PP_VARI_KOLMAS)) +
+  labs(
+    title = "Turvallisuushyöty onnettomuusmäärän funktiona",
+    subtitle = "Miljoonaa euroa vuodessa, 95 %:n uskottavuusväli varjostettuna",
+    x = "Henkilövahinko-onnettomuuksia Kehä I:llä vuodessa",
+    y = "Hyöty (milj. €/v)",
+    caption = "Yksikkökustannus 217 000 € per henkilövahinko (Väylävirasto, hintataso 2022)."
+  )
+```
+
+```{r}
+#| label: per-onnettomuus
+
+per_onn <- breakeven |>
+  filter(n_onn == 10) |>
+  mutate(per_yksi = mediaani / 10,
+         per_yksi_ala = ala / 10,
+         per_yksi_yla = yla / 10)
+```
+
+```{r}
+#| label: tbl-per-onn
+#| tbl-cap: "Valvonnan vuosittainen turvallisuushyöty kutakin vuosittaista henkilövahinko-onnettomuutta kohti. Kerro luku omalla onnettomuusmäärälläsi."
+
+per_onn |>
+  transmute(
+    Malli = malli,
+    `Hyöty € / onnettomuus / vuosi` = comma(round(per_yksi), big.mark = " "),
+    `95 %:n uskottavuusväli` = sprintf("%s … %s",
+      comma(round(per_yksi_yla), big.mark = " "),
+      comma(round(per_yksi_ala), big.mark = " "))
+  ) |>
+  knitr::kable(align = "lrr")
+```
+
+Nyt luku on käytettävissä ilman arvailua. Jos Kehä I:llä sattuu vuodessa 60 henkilövahinko-onnettomuutta, potenssimallin mukainen hyöty on noin `r comma(round(per_onn$per_yksi[per_onn$malli == "Potenssimalli"] * 60 / 1e6, 1), big.mark = " ")` miljoonaa euroa vuodessa. Jos niitä on 25, hyöty on vastaavasti pienempi.
+
+::: {.callout-tip}
+## Miten saat oikean onnettomuusluvun
+
+Tieliikenneonnettomuuksien tilastot löytyvät Traficomin ja
+Tilastokeskuksen PxWeb-tietokannoista. Hae ne interaktiivisesti, älä
+rajapintakutsulla — muuttujakoodit muuttuvat ilman varoitusta ja
+hakujen kirjoittaminen käsin on virhealtista:
+
+```r
+library(pxweb)
+pxweb_interactive("trafi2.stat.fi")
+```
+
+Valitse valikosta tieliikenneonnettomuudet ja rajaa alue. Funktio
+tulostaa lopuksi valmiin hakukoodin, jonka voit kopioida skriptiin.
+
+Kehä I:n tarkkuudella aineisto ei ole julkista PxWeb-muodossa.
+Tienpitäjän onnettomuusrekisteri sisältää tieosoitetarkat tiedot, ja
+niitä voi pyytää Väylävirastolta tai pääkaupunkiseudun kaupungeilta.
+:::
+
+## Entä sakkotulot
+
+Valvonnan taloudellinen tarkastelu jää vajaaksi, jos siitä puuttuu toinen puoli: maksukertymä.
+
+Turvallisuushyöty ja maksukertymä liikkuvat **vastakkaisiin suuntiin**. Mitä paremmin valvonta toimii, sitä suurempi on turvallisuushyöty ja sitä pienempi maksukertymä. Täydellisesti toimiva valvonta tuottaisi maksimaalisen turvallisuushyödyn ja nolla euroa maksuja.
+
+```{r}
+#| label: fig-ristiriita
+#| fig-cap: "Turvallisuushyöty ja maksukertymä valvonnan tehon funktiona. Vaaka-akselilla kuinka paljon valvonta laskee keskinopeutta, pystyakselilla suhteellinen taso. Käyrät kulkevat vastakkaisiin suuntiin."
+#| fig-height: 4.6
+
+teho <- seq(0, 8, by = 0.1)
+
+ristiriita <- tibble(lasku = teho) |>
+  mutate(
+    `Turvallisuushyöty` = 100 * (1 - ((v0 - lasku) / v0)^POT_LOUKK),
+    # Maksukertymä pienenee, kun ylittäjien osuus pienenee. Karkea malli:
+    # ylittäjien osuus kutistuu suunnilleen eksponentiaalisesti nopeuden
+    # laskiessa, koska jakauman yläpää ohenee nopeammin kuin keskikohta.
+    `Maksukertymä` = 100 * exp(-0.18 * lasku)
+  ) |>
+  pivot_longer(-lasku, names_to = "mittari", values_to = "taso")
+
+ristiriita |>
+  ggplot(aes(lasku, taso, colour = mittari)) +
+  geom_line(linewidth = 1.1) +
+  geom_vline(xintercept = abs(dv_mediaani), linetype = "22",
+             colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  annotate("text", x = abs(dv_mediaani) + 0.15, y = 95, hjust = 0,
+           label = "havaittu", size = 3.3, colour = PP_VARI_MUSTE) +
+  annotate("text", x = 7.57, y = 95, hjust = 1.05,
+           label = "meta-analyysi", size = 3.3, colour = PP_VARI_HIMMEA) +
+  geom_vline(xintercept = 7.57, linetype = "22",
+             colour = PP_VARI_HIMMEA, linewidth = 0.4) +
+  scale_colour_manual(values = c("Turvallisuushyöty" = PP_VARI_KEHA,
+                                 "Maksukertymä" = PP_VARI_VERROKKI)) +
+  labs(
+    title = "Valvonnan paradoksi",
+    subtitle = "Mitä paremmin valvonta toimii, sitä vähemmän se tuottaa rahaa",
+    x = "Keskinopeuden lasku (km/h)",
+    y = "Suhteellinen taso (%)",
+    caption = "Turvallisuushyöty potenssimallilla. Maksukertymän käyrä on havainnollistava, ei estimoitu."
+  )
+```
+
+Tästä seuraa suora politiikkasuositus, joka ei vaadi mielipidettä nopeusvalvonnasta sinänsä: **valvontaa ei pidä rahoittaa sen omilla tuloilla.** Jos valvontayksikön budjetti riippuu maksukertymästä, se saa taloudellisen kannustimen olla onnistumatta tehtävässään. Rakenteen ei tarvitse olla kenenkään tarkoittama ollakseen haitallinen — riittää, että se on olemassa.
+
+## Mitä data ei kerro
+
+**Onnettomuusmäärää ei tiedetä.** Tämä on tärkein puute, ja siksi vastaus on esitetty kertoimena eikä euromääränä. Kuka tahansa voi sijoittaa oman lukunsa.
+
+**Mallit on kalibroitu maantieolosuhteissa.** Kaupunkimoottoritiellä onnettomuustyypit poikkeavat: peräänajot ja kaistanvaihdot ovat yleisempiä, kohtaamisonnettomuudet harvinaisempia. Nopeuden ja seurausten suhde ei ole välttämättä sama.
+
+**Yksikkökustannukset ovat vuoden 2022 hintatasossa.** Ne tulisi indeksikorjata nykyhintoihin, mikä nostaisi kaikkia euromääriä. Jätin korjauksen tekemättä, koska virallinen hankearviointi käyttää näitä arvoja sellaisenaan ja vertailukelpoisuus on tärkeämpää kuin näennäinen tarkkuus.
+
+**Vaikutus on mitattu viideltä viikolta.** Se riittää osoittamaan, että nopeudet muuttuivat. Se ei kerro, pysyykö vaikutus. Kaikki vuositason euromäärät olettavat, että se pysyy.
+
+**Ajoneuvokilometrit ovat karkea arvio.** Mittauspisteiden keskiarvo yleistettynä koko tien pituudelle on yksinkertaistus. Luku on mukana taustatietona eikä laskelman osana.
+
+**Maksukertymän käyrä on havainnollistava.** Se kuvaa oikeaa suuntaa ja suuruusluokkaa, mutta sitä ei ole estimoitu aineistosta samalla tavalla kuin turvallisuusvaikutus.
+
+::: {.callout-important}
+## Mitä tällä tekee yrityksessä
+
+Tämän osan menetelmä on **vaikutuksen muuttaminen rahaksi silloin, kun
+yksi välttämätön luku puuttuu**. Se tilanne on sääntö, ei poikkeus.
+
+**Käännä kysymys, älä arvaa lukua.** Kun johtoryhmä kysyy "paljonko
+tämä tuo", houkutus on arvata puuttuva parametri ja esittää yksi
+täsmälliseltä näyttävä euromäärä. Parempi vastaus on kerroin: "tämä
+tuottaa X euroa jokaista Y:tä kohti". Silloin keskustelu siirtyy
+siihen, mikä Y on — ja se on kysymys, johon liiketoiminta osaa vastata
+paremmin kuin analyytikko.
+
+**Kannattavuusraja piste-estimaatin sijaan.** "Investointi kannattaa,
+jos poistuma vähenee vähintään 1,4 prosenttiyksikköä" on
+päätöksenteossa käyttökelpoisempi kuin "investointi tuottaa 2,3
+miljoonaa". Ensimmäistä vastaan voi argumentoida, toista voi vain
+uskoa tai olla uskomatta.
+
+**Kaksi mallia, ei yhtä.** Kun mallinvalinta vaikuttaa vastaukseen
+kaksinkertaisesti, yhden mallin esittäminen on epävarmuuden
+piilottamista. Esitä molemmat ja kerro mistä ero johtuu. Se lisää
+uskottavuutta sen sijaan että veisi sitä.
+
+**Tarkista kannustinrakenne.** Jos yksikön mittari on sama kuin sen
+tulonlähde, sillä on kannustin olla onnistumatta. Perintä,
+reklamaatiokäsittely, lisämyynti ja valvonta ovat tyypillisiä paikkoja,
+joissa rakenne syntyy vahingossa.
+
+**Käytä virallisia yksikköarvoja kun niitä on.** Väyläviraston
+hankearvioinnin yksikköarvot tekevät tuloksesta vertailukelpoisen
+julkisten investointipäätösten kanssa. Oma laskentatapa vaatii aina
+puolustamista; virallinen ei.
+
+Teen tämäntyyppisiä analyysejä toimeksiantoina: vaikutus mitattuna,
+epävarmuus mukana, euromääräksi asti vietynä.
+[Varaa puolen tunnin keskustelu](https://cal.com/kristianvepsalainen).
+:::
+
+## Aineisto ja lähteet
+
+LAM-raakadata: Fintraffic / Digitraffic, CC BY 4.0. Onnettomuuksien yksikkökustannukset: Väyläviraston hankearvioinnin yksikköarvot, hintataso 2022, julkaistu Traficomin tilastosivulla. Nopeuden ja onnettomuuksien väliset mallit: Elvikin potenssimalli ja ruotsalaisessa kameratutkimuksessa käytetty eksponenttimalli.
+
+```{r}
+#| label: istunto
+#| code-fold: true
+#| code-summary: "Istuntotiedot"
+
+sessionInfo()
+```

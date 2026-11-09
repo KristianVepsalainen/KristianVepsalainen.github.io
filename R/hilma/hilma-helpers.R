@@ -274,5 +274,9 @@ keep_seen_levels <- function(test, train, formula) {
       test <- test[as.character(test[[v]]) %in% unique(as.character(train[[v]])), , drop = FALSE]
     }
   }
+  # brms tarkistaa faktorin tasot (levels), ei vain arvoja: pudotetaan tyhjät
+  # tasot, jotta esim. koulutuksesta puuttunut "Rajoitettu" ei jää tasoksi.
+  # Luokkamuuttujat muutetaan merkkijonoiksi, jolloin brms käyttää koulutuksen tasoja.
+  for (v in names(test)) if (is.factor(test[[v]])) test[[v]] <- as.character(droplevels(test[[v]]))
   test
 }

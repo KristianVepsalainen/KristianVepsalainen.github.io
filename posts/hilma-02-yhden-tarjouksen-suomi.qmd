@@ -182,7 +182,10 @@ md <- d |>
   mutate(log_value_c = log_value - median(log_value, na.rm = TRUE),
          log_value_c = replace_na(log_value_c, 0),
          t = as.numeric(quarter - min(quarter)) / 365.25,
-         buyer = coalesce(buyer_company_id, buyer_name, "tuntematon"))
+         buyer = coalesce(buyer_company_id, buyer_name, "tuntematon")) |>
+  # Tyhjät faktoritasot pois (esim. "Rajoitettu", jos sitä ei käytetty lainkaan):
+  # brms tarkistaa ennustettaessa faktorin tasot, ei pelkkiä arvoja.
+  droplevels()
 stopifnot(nrow(md) > 3000, !any(is.na(md$t)))
 ```
 

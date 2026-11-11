@@ -3,7 +3,6 @@ title: "Mitä yksi kilometri tunnissa on arvoinen"
 subtitle: "Kehä I:n nopeusmuutos euroiksi — ja käänteinen kysymys, joka kertoo enemmän kuin piste-estimaatti"
 date: 2026-11-11
 categories: [avoin data, liikenne, bayes, counterfactual, julkinen talous]
-draft: true
 format:
   html:
     toc: true

@@ -245,7 +245,9 @@ cramer_v <- function(tab) {
 }
 # Bayesilainen bootstrap: painotetun tunnusluvun posteriori
 bb <- function(x, fun = stats::weighted.mean, n = 4000, ...) {
-  x <- x[!is.na(x)]; stopifnot(length(x) >= 10)
+  # Vähintään 3 havaintoa: vuositason tunnusluvuissa (esim. 9 vuotta) pienempi
+  # otos on luonteva, ja bootstrapin leveä väli kertoo silloin epävarmuuden rehellisesti.
+  x <- x[!is.na(x)]; stopifnot(length(x) >= 3)
   vapply(seq_len(n), function(i) { w <- stats::rexp(length(x)); fun(x, w / sum(w), ...) }, numeric(1))
 }
 # Painotettu mediaani bayesilaista bootstrapia varten

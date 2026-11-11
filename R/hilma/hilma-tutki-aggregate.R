@@ -60,7 +60,10 @@ tutki_aggregate <- function(force = FALSE) {
 
   years <- list.files(tutki_dir, pattern = "^th_data_\\d{4}(__part\\d{2})?\\.qs2$") |>
     sub(pattern = "(__part\\d{2})?\\.qs2$", replacement = "") |> unique() |> sort()
-  stopifnot(length(years) > 0)
+  if (length(years) == 0) {
+    stop("Kansiossa ", tutki_dir, " ei ole jäsennettyjä ostolaskutiedostoja (th_data_VVVV.qs2).\n",
+         "Aja ensin: HILMA_RUN=tutki Rscript R/hilma/hilma-data-prep.R", call. = FALSE)
+  }
 
   sup <- list(); day <- list()
   for (y in years) {

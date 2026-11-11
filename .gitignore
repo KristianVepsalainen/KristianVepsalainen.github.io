@@ -55,6 +55,7 @@ Thumbs.db
 /data/eduskunta/vaski_raw.qs
 /data/peltipoliisi/cache/
 /data/peltipoliisi/cache_minuutti/
+/data/peltipoliisi/cache_tunti/
 /data/hilma/eforms_raw
 /data/hilma/eforms_parsed
 /data/hilma/index_months

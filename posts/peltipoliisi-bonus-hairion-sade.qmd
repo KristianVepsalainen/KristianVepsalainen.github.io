@@ -1,0 +1,461 @@
+---
+title: "Kalenteri liikuttaa liikennettä enemmän kuin maraton"
+subtitle: "Kuinka kauas pitää lähteä, kun kaupungissa on suurtapahtuma? Mittasin sen, ja vastaus oli lyhyempi matka kuin kukaan ajaa."
+date: 2026-11-25
+categories: [avoin data, liikenne, LAM, kausivaihtelu]
+draft: true
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Näytä koodi"
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 200
+execute:
+  warning: false
+  message: false
+  cache: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("R","peltipoliisi", "peltipoliisi-yhteiset.R"))
+library(patchwork)
+library(scales)
+
+theme_set(pp_teema())
+```
+
+```{r}
+#| label: data
+
+tunnit <- qd_read(file.path(PP_DATA, "tuntidata_tapahtuma.qs2"))
+
+MARATON <- as.Date("2026-05-16")
+
+# Pisteet joilta on riittävästi kelvollisia lauantaita vertailuun.
+kelpaa <- tunnit |>
+  group_by(lam_id, pvm) |>
+  summarise(pv_maara = sum(maara), .groups = "drop") |>
+  filter(pv_maara >= 2000) |>
+  count(lam_id, name = "lauantaita") |>
+  filter(lauantaita >= 8)
+
+# HUOM: koostetta ei nimetä samaksi kuin lähdesaraketta. summarise()
+# evaluoi lausekkeet järjestyksessä, joten maara = sum(maara) korvaisi
+# painomuuttujan skalaarilla jo seuraavalla rivillä.
+paiva_piste <- tunnit |>
+  filter(lam_id %in% kelpaa$lam_id) |>
+  group_by(lam_id, pvm, etaisyys_km) |>
+  summarise(ka_nopeus_vapaa = weighted.mean(ka_nopeus_vapaa, maara,
+                                            na.rm = TRUE),
+            maara_pv = sum(maara), .groups = "drop") |>
+  mutate(vuosi = year(pvm))
+
+stopifnot(all(paiva_piste$maara_pv > 0))
+
+# Kukin lauantai jätetään vuorollaan pois omasta odotusarvostaan, jotta
+# päivä ei vertaudu lukuun johon se itse vaikuttaa.
+poikkeamat <- paiva_piste |>
+  group_by(lam_id, vuosi) |>
+  mutate(
+    muiden_mediaani = map_dbl(row_number(),
+                              \(i) median(maara_pv[-i], na.rm = TRUE)),
+    muiden_kh = map_dbl(row_number(), \(i) sd(maara_pv[-i], na.rm = TRUE)),
+    poikkeama_pros = 100 * (maara_pv / muiden_mediaani - 1),
+    z = (maara_pv - muiden_mediaani) / pmax(muiden_kh, 1)
+  ) |>
+  ungroup()
+```
+
+```{r}
+#| label: kalenteri
+
+# Pääsiäisen päivämäärä laskukaavalla, jotta kalenteriselitykset eivät
+# nojaa käsin kirjoitettuihin päivämääriin.
+paasiainen <- function(v) {
+  a <- v %% 19; b <- v %/% 100; cc <- v %% 100
+  d <- b %/% 4; e <- b %% 4; f <- (b + 8) %/% 25; g <- (b - f + 1) %/% 3
+  h <- (19 * a + b - d - g + 15) %% 30
+  i <- cc %/% 4; k <- cc %% 4
+  l <- (32 + 2 * e + 2 * i - h - k) %% 7
+  m <- (a + 11 * h + 22 * l) %/% 451
+  kk <- (h + l - 7 * m + 114) %/% 31
+  pp <- ((h + l - 7 * m + 114) %% 31) + 1
+  as.Date(sprintf("%d-%02d-%02d", v, kk, pp))
+}
+
+stopifnot(paasiainen(2025) == as.Date("2025-04-20"),
+          paasiainen(2026) == as.Date("2026-04-05"))
+
+selite <- function(d) {
+  v <- year(d)
+  pa <- paasiainen(v)
+  vko22_la <- as.Date(paste0(v, "-01-04")) +
+    (6 - wday(as.Date(paste0(v, "-01-04")), week_start = 1)) + 7 * 21
+  case_when(
+    d == pa - 1                    ~ "Pyhälauantai",
+    d == vko22_la                  ~ "Koulujen päättäjäiset",
+    d == as.Date(paste0(v, "-05-01")) + 1 ~ "Vapun jälkeinen lauantai",
+    d >= pa + 39 & d <= pa + 42    ~ "Helatorstain viikonloppu",
+    TRUE                           ~ "Tavallinen lauantai"
+  )
+}
+
+paivittain <- poikkeamat |>
+  group_by(pvm) |>
+  summarise(pisteita = n(),
+            med_poikkeama = median(poikkeama_pros),
+            med_z = median(z),
+            osuus_poikkeavia = 100 * mean(abs(z) > 2),
+            .groups = "drop") |>
+  mutate(selitys = selite(pvm),
+         maraton = pvm == MARATON,
+         luokka = case_when(maraton ~ "Maratonpäivä",
+                            selitys != "Tavallinen lauantai" ~ selitys,
+                            TRUE ~ "Tavallinen lauantai")) |>
+  arrange(desc(abs(med_z)))
+
+maraton_sija <- which(paivittain$pvm == MARATON)
+```
+
+Sarjan edellisessä osassa yritin löytää valtiovierailujen saattueet avoimesta liikennedatasta. En löytänyt, ja voima-analyysi kertoi miksi: muutaman minuutin sulku muutamassa mittauspisteessä on pienempi ilmiö kuin se kohina, jota liikenneverkko tuottaa joka päivä.
+
+Lukija esitti sen jälkeen paremman kysymyksen. Hän oli Helsingin huippukokouksen aikaan lähtenyt vaimonsa kanssa pois kaupungista ja ajanut Siilinjärvelle asti. Hän epäili, että lähempikin olisi riittänyt, ja kysyi: **voiko datasta määrittää, kuinka kauas pitää lähteä, ettei suurtapahtuma häiritse?**
+
+Kysymys kääntää asetelman päinvastaiseksi. Saattuesulku on minuuttien ilmiö. Suurtapahtuma sulkee kaupungin ytimen tunneiksi, ja osallistujia on kymmeniä tuhansia. Jos tällainen ei näy, mikään ei näy.
+
+Mittasin sen. Vastaus yllätti minut kahdesti.
+
+## Asetelma
+
+Helsinki City Running Day järjestetään toukokuussa. Vuonna 2026 se oli 15. ja 16. toukokuuta, ja lauantain maraton sulkee keskustan kadut aamusta iltapäivään. Lähtö ja maali ovat Olympiastadionin kupeessa.
+
+Hain mittaustiedot `r n_distinct(tunnit$lam_id)` LAM-pisteeltä 45 kilometrin säteellä stadionilta. Päiviä on `r n_distinct(tunnit$pvm)`: kaikki lauantait huhtikuun puolivälistä kesäkuun puoliväliin, sekä vuodelta 2025 että 2026.
+
+**En kiinnittänyt tapahtumapäivää etukäteen.** Annoin aineiston kertoa, mikä lauantai poikkeaa muista, ja vertasin tulosta julkaistuun päivämäärään vasta jälkikäteen. Jos olisin kertonut mallille mistä etsiä, se olisi löytänyt jotain sieltä.
+
+Mittarina on päivän liikennemäärä. Jokaisen pisteen jokaista lauantaita verrataan **saman pisteen muiden lauantaiden** mediaaniin, kyseinen päivä pois jätettynä. Poikkeama suhteutetaan saman pisteen lauantaiden normaaliin vaihteluun, jolloin saadaan luku nimeltä z.
+
+::: {.callout-tip}
+## Mitä z tarkoittaa
+
+Hiljaisella tiellä tuhannen auton muutos on valtava. Kehä I:llä se on
+olematon. Jotta pisteitä voi verrata, poikkeama pitää suhteuttaa siihen,
+kuinka paljon kyseinen piste normaalistikin heiluu lauantaista toiseen.
+
+z on tuo suhdeluku. Jos z on 1, päivä poikkesi yhtä paljon kuin
+tavanomainen lauantaiden välinen heilahtelu. Jos z on 3, poikkeama oli
+kolminkertainen siihen nähden.
+
+Nyrkkisääntö: **kun z on itseisarvoltaan alle 2, mitään erityistä ei
+tapahtunut.** Sellaisia päiviä sattuu muutenkin.
+:::
+
+## Ensimmäinen yllätys: maraton on kuudes
+
+```{r}
+#| label: fig-jarjestys
+#| fig-cap: "Kaikki 18 lauantaita järjestettynä sen mukaan, kuinka paljon liikennemäärä poikkesi tavanomaisesta. Vaaka-akselilla on poikkeama prosentteina. Pylvään väri kertoo, mikä päivä on kyseessä. Pystyviivat merkitsevät rajaa, jonka sisäpuolella poikkeama mahtuu tavanomaiseen lauantaivaihteluun."
+#| fig-height: 6.4
+
+varit <- c(
+  "Pyhälauantai"             = "#2166ac",
+  "Koulujen päättäjäiset"    = "#d95f02",
+  "Vapun jälkeinen lauantai" = "#7b3294",
+  "Helatorstain viikonloppu" = "#5aae61",
+  "Maratonpäivä"             = "#b2182b",
+  "Tavallinen lauantai"      = "grey70"
+)
+
+paivittain |>
+  mutate(nimike = paste0(format(pvm, "%-d.%-m.%Y"))) |>
+  ggplot(aes(med_poikkeama, fct_reorder(nimike, med_poikkeama),
+             fill = luokka)) +
+  geom_vline(xintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = sprintf("%+.1f %%", med_poikkeama),
+                hjust = if_else(med_poikkeama > 0, -0.15, 1.15)),
+            size = 3.1, colour = PP_VARI_MUSTE) +
+  scale_fill_manual(values = varit, name = NULL) +
+  scale_x_continuous(expand = expansion(mult = 0.18)) +
+  guides(fill = guide_legend(nrow = 2)) +
+  labs(
+    title = "Maratonpäivä hukkuu tavallisten lauantaiden joukkoon",
+    subtitle = "Liikennemäärän poikkeama saman mittauspisteen muihin lauantaihin nähden",
+    x = "Poikkeama tavanomaisesta (%)", y = NULL,
+    caption = "Lähde: Fintraffic / Digitraffic, LAM-raakadata. 92 mittauspistettä 45 km säteellä Olympiastadionilta."
+  )
+```
+
+```{r}
+#| label: tbl-karki
+#| tbl-cap: "Viisi poikkeavinta lauantaita ja maratonpäivä. Sarake 'poikkeavia pisteitä' kertoo, kuinka suurella osuudella mittauspisteistä poikkeama ylitti tavanomaisen vaihtelun kaksinkertaisesti."
+
+paivittain |>
+  slice_head(n = 5) |>
+  bind_rows(paivittain |> filter(maraton)) |>
+  distinct(pvm, .keep_all = TRUE) |>
+  transmute(
+    Päivä = format(pvm, "%-d.%-m.%Y"),
+    Mikä = if_else(maraton, paste0(selitys, " + MARATON"), selitys),
+    `Poikkeama %` = sprintf("%+.1f", med_poikkeama),
+    z = sprintf("%+.2f", med_z),
+    `Poikkeavia pisteitä %` = sprintf("%.0f", osuus_poikkeavia)
+  ) |>
+  knitr::kable(align = "llrrr")
+```
+
+Maratonpäivä on **sijalla `r maraton_sija` kahdeksastatoista**. Sen z on `r sprintf("%.2f", paivittain$med_z[paivittain$maraton])`, eli selvästi tavanomaisen lauantaivaihtelun sisällä. Mittauspisteistä vain `r sprintf("%.1f", paivittain$osuus_poikkeavia[paivittain$maraton])` prosentilla poikkeama ylitti kaksinkertaisen normaalivaihtelun.
+
+Vuoden 2025 maraton oli niin ikään toukokuun lauantai. Katso kuvasta toukokuun 2025 lauantaita: ne ovat kaikki nollan tuntumassa. **Kumpikaan vuosi ei erotu.** Se on riippumaton toisto samalle nollatulokselle.
+
+## Toinen yllätys: mitä ilmaisin löysi sen sijaan
+
+Katso kuvan yläpäätä ja alapäätä. Siellä on neljä päivää, joiden poikkeama on kolminkertainen maratoniin nähden, ja jokaisella on sama selitys.
+
+**Pyhälauantai 2025** oli hiljaisin lauantai koko aineistossa, 17 prosenttia alle tavanomaisen. Seitsemänkymmenellä kahdella prosentilla mittauspisteistä poikkeama ylitti kaksinkertaisen normaalivaihtelun. Pääsiäisenä Suomi pysähtyy.
+
+**Koulujen päättäjäislauantai** on vilkkain, ja se toistuu molempina vuosina. Vuonna 2026 liikennettä oli 17 prosenttia yli tavanomaisen, vuonna 2025 yksitoista prosenttia. Kesäloma alkaa, ja koko maa lähtee liikkeelle samana päivänä.
+
+**Vapun jälkeinen lauantai 2026** oli yksitoista prosenttia alle tavanomaisen.
+
+Näitä päiviä ei kerrottu mallille. Se löysi ne pelkästä liikennemäärästä, ja minä tunnistin ne vasta jälkikäteen laskemalla pääsiäisen päivämäärän ja viikon 22 lauantain.
+
+Tässä on postauksen varsinainen tulos. **Kalenteri liikuttaa pääkaupunkiseudun liikennettä moninkertaisesti enemmän kuin kaupungin suurin yleisötapahtuma.**
+
+## Häiriön säde
+
+Alkuperäinen kysymys oli, kuinka kauas pitää lähteä. Katsotaan maratonpäivän poikkeamaa etäisyyden mukaan.
+
+```{r}
+#| label: fig-etaisyys
+#| fig-cap: "Maratonpäivän poikkeama etäisyysvyöhykkeittäin. Vaaka-akselilla etäisyys Olympiastadionilta, pystyakselilla poikkeama prosentteina. Jos tapahtuma häiritsisi liikennettä paikallisesti, lähivyöhykkeen pylväs olisi selvästi muita syvempi. Se ei ole."
+#| fig-height: 4.6
+
+vyohykkeet <- poikkeamat |>
+  filter(pvm == MARATON) |>
+  mutate(vyohyke = cut(etaisyys_km, c(0, 3, 6, 10, 15, 25, 45),
+                       labels = c("0-3 km", "3-6 km", "6-10 km",
+                                  "10-15 km", "15-25 km", "25-45 km"))) |>
+  group_by(vyohyke, .drop = FALSE) |>
+  summarise(pisteita = n(),
+            med_poikkeama = median(poikkeama_pros),
+            med_z = median(z),
+            .groups = "drop")
+
+vyohykkeet |>
+  filter(pisteita > 0) |>
+  ggplot(aes(vyohyke, med_poikkeama)) +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_col(fill = PP_VARI_KEHA, width = 0.62) +
+  geom_text(aes(label = sprintf("%.1f %%\n(n = %d)", med_poikkeama, pisteita)),
+            vjust = 1.25, size = 3.2, colour = "white") +
+  labs(
+    title = "Poikkeama on sama lähellä ja kaukana",
+    subtitle = "Maratonpäivän liikennemäärän poikkeama etäisyysvyöhykkeittäin",
+    x = "Etäisyys Olympiastadionilta", y = "Poikkeama tavanomaisesta (%)",
+    caption = "Lähde: Fintraffic / Digitraffic. Alle 3 km säteellä ei ole yhtään LAM-pistettä."
+  )
+```
+
+Käyrä on tasainen. Kolmen ja kuuden kilometrin välillä poikkeama on `r sprintf("%.1f", vyohykkeet$med_poikkeama[vyohykkeet$vyohyke == "3-6 km"])` prosenttia, ja 25 ja 45 kilometrin välillä `r sprintf("%.1f", vyohykkeet$med_poikkeama[vyohykkeet$vyohyke == "25-45 km"])` prosenttia. Ero vyöhykkeiden välillä on olematon.
+
+Tämä on ratkaiseva havainto, ja se kannattaa sanoa tarkasti. **Tasainen poikkeama ei ole paikallinen häiriö.** Jos maraton työntäisi liikennettä kehäteille tai pitäisi ihmisiä kotona keskustan lähellä, lähivyöhykkeen pitäisi erota kaukovyöhykkeestä. Se ei eroa. Koko seutu oli sinä lauantaina viitisen prosenttia hiljaisempi, aivan samalla tavalla neljänkymmenen kilometrin päässä kuin kolmen.
+
+Huomaa myös, mitä kuvasta puuttuu. **Alle kolmen kilometrin säteellä stadionista ei ole yhtään LAM-pistettä.** Mittauspisteet ovat moottoriteillä ja pääväylillä, eivät kantakaupungin kaduilla. Maraton sulkee juuri niitä katuja, joilla mittausta ei ole.
+
+## Milloin päivän aikana?
+
+```{r}
+#| label: fig-tunnit
+#| fig-cap: "Liikennemäärä tunneittain maratonpäivänä verrattuna muihin lauantaihin, kymmenen kilometrin säteellä. Jos maraton häiritsisi, pudotuksen pitäisi osua maratonin ajankohtaan, joka on merkitty varjostuksella. Suurimmat pudotukset ovat kuitenkin yöllä."
+#| fig-height: 4.8
+
+tuntiprofiili <- tunnit |>
+  filter(lam_id %in% kelpaa$lam_id, etaisyys_km <= 10) |>
+  mutate(on_maraton = pvm == MARATON) |>
+  group_by(on_maraton, tunti) |>
+  summarise(ka_maara = mean(maara), .groups = "drop") |>
+  pivot_wider(names_from = on_maraton, values_from = ka_maara,
+              names_prefix = "m_") |>
+  mutate(muutos = 100 * (m_TRUE / m_FALSE - 1))
+
+tuntiprofiili |>
+  ggplot(aes(tunti, muutos)) +
+  annotate("rect", xmin = 9.5, xmax = 16, ymin = -Inf, ymax = Inf,
+           fill = "grey91") +
+  annotate("text", x = 12.7, y = Inf, vjust = 1.7, size = 3.3,
+           colour = PP_VARI_HIMMEA, label = "maraton käynnissä") +
+  geom_hline(yintercept = 0, colour = PP_VARI_MUSTE, linewidth = 0.4) +
+  geom_line(colour = PP_VARI_KEHA, linewidth = 1) +
+  geom_point(colour = PP_VARI_KEHA, size = 2.2) +
+  scale_x_continuous(breaks = seq(0, 23, 3)) +
+  labs(
+    title = "Pudotus ei osu maratonin ajankohtaan",
+    subtitle = "Liikennemäärän muutos tunneittain, 10 km säteellä stadionilta",
+    x = "Vuorokauden tunti", y = "Muutos muihin lauantaihin (%)",
+    caption = "Lähde: Fintraffic / Digitraffic."
+  )
+```
+
+Maratonin aikaan, kello 9.30 ja 16 välillä, liikenne oli kolmesta seitsemään prosenttia tavanomaista vähäisempää. Mutta sama pätee koko päivään. Suurimmat pudotukset ovat kello 23 ja 00 aikaan, siis tuntikausia maalin sulkeuduttua.
+
+Tämä on sama kuvio kuin etäisyysprofiilissa. Koko päivä oli hieman hiljaisempi, ei pelkästään maratonin aika.
+
+## Oliko se sää?
+
+```{r}
+#| label: saa
+
+kalenteri <- pp$kalenteri
+
+saa_la <- paivittain |>
+  left_join(kalenteri |> select(pvm, sade_mm, lampotila_c), by = "pvm") |>
+  filter(!is.na(sade_mm))
+
+kor <- cor.test(saa_la$sade_mm, saa_la$med_poikkeama, method = "spearman",
+                exact = FALSE)
+
+maraton_saa <- saa_la |> filter(maraton)
+```
+
+Jos koko seutu oli tasaisesti hiljaisempi, luonteva epäilys on sää. Lauantain vapaa-ajan liikenne reagoi sateeseen paljon herkemmin kuin arjen työmatkat.
+
+Maratonpäivänä satoi `r sprintf("%.1f", maraton_saa$sade_mm)` millimetriä ja lämpötila oli `r sprintf("%.1f", maraton_saa$lampotila_c)` astetta.
+
+Sateen ja liikennepoikkeaman välinen järjestyskorrelaatio kaikilla lauantailla on `r sprintf("%.2f", kor$estimate)` (p = `r sprintf("%.3f", kor$p.value)`, n = `r nrow(saa_la)`).
+
+Käytin järjestyskorrelaatiota enkä tavallista korrelaatiota, koska sademäärä on vino suure: useimpina päivinä ei sada lainkaan ja muutamana päivänä sataa paljon. Järjestyskorrelaatio katsoo vain suuruusjärjestystä, joten yksittäinen rankkasadepäivä ei hallitse tulosta.
+
+Kahdeksantoista päivän aineistolla tämä ei ratkaise asiaa suuntaan eikä toiseen. Se on kuitenkin uskottavampi selitys tasaiselle viiden prosentin pudotukselle kuin keskustan tapahtuma, koska tapahtuman vaikutuksen pitäisi riippua etäisyydestä ja sään ei.
+
+## Miksi maraton ei näy
+
+Kolme syytä, ja ne ovat kaikki rakenteellisia.
+
+**Mittauspisteet ovat väärässä paikassa.** LAM-verkko on rakennettu valtateille ja kehäteille. Lähin piste on 3,2 kilometrin päässä lähtöviivasta. Maraton sulkee kantakaupungin katuja, joilla ei mitata.
+
+**Tapahtuma on pieni suhteessa taustaan.** Osallistujia on kymmeniä tuhansia. Mittausverkon läpi ajaa lauantaina noin 3,3 miljoonaa ajoneuvoa. Vaikka jokainen osallistuja jättäisi auton kotiin, se olisi alle prosentin.
+
+**Liikenne ei siirry, se katoaa.** Tämä on epäintuitiivisin syy, ja siitä on vahvaa tutkimusnäyttöä.
+
+::: {.callout-note}
+## Faktalaatikko: mihin liikenne katoaa, kun katu suljetaan
+
+Yleinen oletus on, että suljetulta kadulta liikenne siirtyy viereisille
+kaduille. Sally Cairns, Stephen Atkins ja Phil Goodwin kokosivat
+aiheesta yli seitsemänkymmentä tapaustutkimusta yhdestätoista maasta ja
+haastattelivat yli kahtasataa liikennealan ammattilaista.
+
+Tulos oli toinen. Kun tieltä poistetaan kapasiteettia, osa liikenteestä
+ei ilmesty mihinkään muualle. Se yksinkertaisesti häviää.
+
+| Mittari | Tulos |
+|---|---|
+| Tapaustutkimuksia | yli 70, yhdestätoista maasta |
+| Liikenteen vähenemä, mediaani | 10,6 % |
+| Liikenteen vähenemä, keskiarvo | 21,9 % |
+| Keskustan kävelyalueet, keskiarvo | 28,3 % |
+
+Noin puolessa tapauksista **yli yhtätoista prosenttia** niistä
+ajoneuvoista, jotka aiemmin käyttivät suljettua katua, ei löytynyt
+ympäröivältä alueelta jälkeenpäin lainkaan. Kahdessa saksalaisessa
+kaupungissa verkosta poistui enemmän liikennettä kuin suljetuilla
+kaduilla oli ollut.
+
+Tekijät korostavat mediaania keskiarvon sijaan, koska tulokset
+vaihtelevat tapauksittain paljon. Se on sama varovaisuus kuin tässä
+postauksessa: kun hajonta on suuri, keskiarvo kertoo harvan tapauksen
+tarinan.
+
+Lähde: Cairns, Atkins ja Goodwin (2002), Proceedings of the Institution
+of Civil Engineers: Municipal Engineer 151(1), 13–22.
+
+Tämän postauksen kannalta olennaista: jos keskustan sulkeminen ei työnnä
+liikennettä viereisille kaduille, se ei varmasti työnnä sitä
+kehäteillekään. Maratonin vaikutus katoaa jo ennen kuin se ehtii
+lähimmälle mittauspisteelle.
+:::
+
+## Vastaus kysymykseen
+
+Kuinka kauas siis pitää lähteä?
+
+Mitattavissa oleva vastaus on, että **häiriö ei ulotu moottoritieverkkoon lainkaan.** Lähin mittauspiste on 3,2 kilometrin päässä lähtöviivasta, ja jo siellä maratonpäivä on tavanomaisen lauantaivaihtelun sisällä.
+
+Mittaus ei ylety kolmea kilometriä lähemmäs, koska siellä ei ole mittauspisteitä. Vastaus on siis muodossa "alle kolme kilometriä", ei tarkempaa lukua.
+
+Käytännössä: jos olet pääväylällä, olet jo häiriön ulkopuolella. Siilinjärvelle asti ajaminen oli noin neljäsataa kilometriä yli tarpeen.
+
+Kaksi varausta, jotka on sanottava suoraan.
+
+**Maraton ei ole huippukokous.** Valtiovieraiden tapaaminen sulkee pääväyliä, satamia ja ilmatilaa päiviksi, kun maraton sulkee keskustan katuja kuudeksi tunniksi. Tämä mittaus ei kerro huippukokouksesta mitään suoraan.
+
+Mutta se kertoo yhden asian epäsuorasti. Sama mittari löysi pyhälauantain seitsemäntoista prosentin pudotuksen ja koulujen päättäjäisten seitsemäntoista prosentin nousun. **Mittari on siis herkkä.** Jos huippukokous olisi liikuttanut pääkaupunkiseudun liikennettä edes viisi prosenttia, se olisi näkynyt.
+
+**Henkilökohtainen kokemus ei ole väärässä.** Jos asut keskustassa ja yrität ajaa autolla maratonin aikana, matka on tukossa. Tämä mittaus ei kiistä sitä. Se kertoo, että tukkoisuus on paikallista eikä leviä seudulliseksi.
+
+## Mitä data ei kerro
+
+**Kantakaupunki jää mittaamatta.** LAM-verkossa ei ole pisteitä alle kolmen kilometrin säteellä. Kaupungin omat liikennelaskennat ja joukkoliikenteen sijaintidata kattaisivat tuon alueen, ja ne antaisivat todennäköisesti eri vastauksen.
+
+**Liikennemäärä ei ole sama kuin sujuvuus.** Mittasin montako autoa kulkee, en kuinka kauan matka kestää. Tie voi olla yhtä vilkas mutta selvästi hitaampi. Matka-aikoja ei LAM-datasta saa suoraan.
+
+**Maratonpäivä osuu helatorstain viikonloppuun.** Helatorstai oli 14.5.2026, joten 16.5. on pitkän viikonlopun lauantai. Osa havaitusta viiden prosentin pudotuksesta voi olla sitä eikä maratonia tai säätä. Tämä sekoittaa tulkintaa, ja se on rehellistä myöntää.
+
+**Kahdeksantoista päivää on vähän.** Kalenteriefektit erottuvat selvästi, koska ne ovat suuria. Pienemmät ilmiöt eivät erottuisi, ja säävaikutuksen arvio on tällä otoskoolla epävarma.
+
+**Yksi tapahtumatyyppi.** Juoksutapahtuma sulkee katuja mutta ei tuo autoja. Suuri konsertti tai ottelu tekisi päinvastoin. Tulos ei yleisty kaikkiin suurtapahtumiin.
+
+::: {.callout-important}
+## Mitä tällä tekee yrityksessä
+
+Tässä on neljä siirrettävää oppia, eikä yksikään liity liikenteeseen.
+
+**Älä kerro mallille, mistä etsiä.** Jos olisin kiinnittänyt
+maratonpäivän etukäteen ja etsinyt siltä poikkeamaa, olisin löytänyt
+viiden prosentin pudotuksen ja kirjoittanut siitä. Kun annoin aineiston
+järjestää kaikki päivät, maraton valui sijalle kuusi ja kalenteri nousi
+kärkeen. Sama koskee kampanja-analyysiä, pilottien arviointia ja
+poikkeamien etsintää: järjestä kaikki ehdokkaat, älä tutki vain sitä
+yhtä josta sinulle kerrottiin.
+
+**Tasainen vaikutus ei ole sinun vaikutuksesi.** Jos toimenpiteesi
+vaikutus näyttää samalta lähellä ja kaukana, kohderyhmässä ja sen
+ulkopuolella, kyseessä on jokin yhteinen tekijä eikä toimenpide.
+Etäisyys, altistus tai annos ovat parhaita työkaluja kausaalisuuden
+testaamiseen, koska aito vaikutus riippuu niistä ja häiriötekijä ei.
+
+**Kalenteri on aliarvostettu selittäjä.** Pyhälauantai liikutti
+liikennettä seitsemäntoista prosenttia, kaupungin suurin yleisötapahtuma
+ei mitattavasti. Myynnin, kysynnän ja kuormituksen analyysissä
+kalenterivaikutukset ovat yleensä suurempia kuin mikään mitä
+organisaatio itse tekee, ja ne on poistettava ennen kuin omista
+toimista sanotaan mitään.
+
+**Mittauspisteiden sijainti ratkaisee, mitä voit kysyä.** LAM-verkko ei
+yksinkertaisesti mittaa kantakaupunkia. Mikään menetelmä ei korjaa
+sitä. Ennen kuin lupaat vastauksen kysymykseen, tarkista mittaako
+aineisto sitä paikkaa, josta kysymys on.
+
+Teen tämäntyyppisiä analyysejä toimeksiantoina, ja myös niitä joiden
+vastaus on "ei näy, ja tässä on miksi".
+[Varaa puolen tunnin keskustelu](https://cal.com/kristianvepsalainen).
+:::
+
+## Aineisto ja lähteet
+
+LAM-raakadata: Fintraffic / Digitraffic, CC BY 4.0. Säähavainnot: Ilmatieteen laitoksen avoin data. Liikenteen katoamista koskevat luvut: Cairns, Atkins ja Goodwin (2002), Proceedings of the Institution of Civil Engineers: Municipal Engineer 151(1), 13–22.
+
+```{r}
+#| label: istunto
+#| code-fold: true
+#| code-summary: "Istuntotiedot"
+
+sessionInfo()
+```

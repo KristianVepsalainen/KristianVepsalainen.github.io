@@ -2,10 +2,9 @@
 title: "Julkinen raha ei valehtele, osa 2: Yhden tarjouksen Suomi"
 description: "Kuinka usein julkiseen kilpailutukseen tulee vain yksi tarjous, keneltä ja mitä se maksaa veronmaksajalle? Bayesilainen malli, ennuste ja vastaskenaariot."
 author: "Kristian Vepsäläinen"
-date: today
+date: 2026-11-17
 categories: [Hilma, julkiset hankinnat, kilpailu, bayes, ennustaminen]
 lang: fi
-draft: true
 format:
   html:
     code-fold: true

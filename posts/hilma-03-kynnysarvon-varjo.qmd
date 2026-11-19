@@ -1,0 +1,417 @@
+---
+title: "Julkinen raha ei valehtele, osa 3: Kynnysarvon varjo"
+description: "Kasautuvatko hankintojen arvioidut arvot juuri EU-kynnysarvon alle? Bunching-menetelmä, ennalta tehty ennuste kynnyksen laskulle ja mitä se maksaa."
+author: "Kristian Vepsäläinen"
+date: 2026-11-19
+categories: [Hilma, julkiset hankinnat, kynnysarvot, bunching, ennustaminen]
+lang: fi
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+    toc-depth: 3
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{r}
+#| label: setup
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(here)
+  library(qs2)
+  library(ggdist)
+  library(patchwork)
+})
+select <- dplyr::select
+filter <- dplyr::filter
+set.seed(2026)
+
+source(here("R", "hilma", "hilma-io.R"))
+source(here("R", "hilma", "hilma-eforms-parse.R"))
+source(here("R", "hilma", "hilma-helpers.R"))
+
+idx     <- hd("hilma_index")
+deflate <- make_deflator(hd("eurostat_hicp_fi"))
+stopifnot(all(c("id", "datePublished", "mainType", "estimatedValue",
+                "procurementTypeCode", "isPlan") %in% names(idx)))
+```
+
+```{r}
+#| label: thresholds
+
+# EU-kynnysarvot (euroa, ilman arvonlisäveroa). Lähde: Euroopan komission
+# delegoidut asetukset; 2026–2027 arvot Ruotsin kuulutuksesta SFS 2026:245.
+# "Muut" = muut kuin valtion keskushallinnon hankintayksiköt (kunnat,
+# hyvinvointialueet, kuntayhtymät, julkisoikeudelliset laitokset).
+eu_thr <- tribble(
+  ~start,       ~end,          ~sub_central, ~central, ~works,
+  "2018-01-01", "2019-12-31",  221000,       144000,   5548000,
+  "2020-01-01", "2021-12-31",  214000,       139000,   5350000,
+  "2022-01-01", "2023-12-31",  215000,       140000,   5382000,
+  "2024-01-01", "2025-12-31",  221000,       143000,   5538000,
+  "2026-01-01", "2027-12-31",  216000,       140000,   5404000
+) |> mutate(across(c(start, end), as.Date))
+stopifnot(all(diff(eu_thr$start) > 0))
+
+# Kansalliset kynnysarvot (hankintalaki 1397/2016, 25 §)
+nat_thr <- c(supplies_services = 60000, works = 150000)
+
+thr_for <- function(date, col) {
+  date <- as.Date(date)
+  i <- findInterval(as.numeric(date), as.numeric(eu_thr$start))
+  i[i == 0] <- NA
+  out <- eu_thr[[col]][i]
+  out[!is.na(i) & date > eu_thr$end[i]] <- NA_real_
+  out
+}
+stopifnot(thr_for(as.Date("2025-06-01"), "sub_central") == 221000,
+          thr_for(as.Date("2026-02-01"), "sub_central") == 216000,
+          is.na(thr_for(as.Date("2017-05-01"), "sub_central")))
+```
+
+```{r}
+#| label: data-prep
+
+cn <- idx |>
+  filter(mainType == "ContractNotices", !isPlan,
+         !is.na(estimatedValue), estimatedValue > 0, !is.na(datePublished)) |>
+  mutate(date   = as.Date(datePublished),
+         year   = as.integer(format(date, "%Y")),
+         nature = nature_fi(procurementTypeCode),
+         thr_sub = thr_for(date, "sub_central"),
+         thr_works = thr_for(date, "works"),
+         round10k = estimatedValue %% 10000 == 0) |>
+  filter(!is.na(thr_sub), nature != "Muu / tuntematon")
+
+# Tavara- ja palveluhankinnat: etäisyys muiden kuin keskushallinnon EU-kynnykseen
+ss <- cn |>
+  filter(nature %in% c("Tavarat", "Palvelut")) |>
+  mutate(rel = estimatedValue / thr_sub)
+stopifnot(nrow(ss) > 5000, all(ss$rel > 0))
+first_year <- min(ss$year); last_year <- max(ss$year)
+```
+
+## Lyhyesti
+
+- Julkinen hankinta muuttuu raskaammaksi, kun sen arvo ylittää **EU-kynnysarvon**: ilmoitus pitää julkaista koko EU:n alueella, menettelysäännöt tiukkenevat ja tarjousajat pitenevät. Tämä luo kannustimen arvioida hankinta juuri kynnyksen alle.
+- Hilman `r num(nrow(ss))` tavara- ja palveluhankinnan arvioitu arvo näyttää, että **kynnyksen alapuolelle kertyy enemmän hankintoja kuin tasaisesti laskeva jakauma ennustaisi**. Mittasin ylimääräisen massan suuruuden ja epävarmuuden.
+- Vuoden 2026 alussa kynnys laski 221 000 eurosta 216 000 euroon. Testasin ennusteen, jonka voi tehdä ennen kuin dataa on: jos kasautuminen johtuu kynnyksestä, sen pitää siirtyä kynnyksen mukana.
+- Vastaskenaariossa lasken, kuinka paljon euroja on kynnyksen varjossa ja mitä niiden kilpailuttaminen EU-tasolla voisi tuoda.
+
+## Miksi kynnysarvo vääristää jakaumaa?
+
+Kuvitellaan kunnan hankintapäällikkö, joka arvioi tulevan siivouspalvelun arvoksi noin 225 000 euroa. Jos arvio on yli kynnyksen, edessä on EU-hankinta: pidempi tarjousaika, ilmoitus EU:n TED-tietokantaan, laajempi valitusoikeus ja enemmän työtä. Jos arvio on 215 000 euroa, riittää kansallinen menettely.
+
+Arvio on aina epävarma, ja hankintayksiköllä on harkintavaltaa. **Laki kieltää keinotekoisen pilkkomisen ja arvon alentamisen kynnysarvojen välttämiseksi**, mutta rehellinenkin arvioija valitsee helposti haarukan alapään, kun yläpää tuottaisi lisätyötä. Yksittäisestä hankinnasta tätä ei voi todistaa. Tuhansien hankintojen *jakaumasta* sen voi nähdä.
+
+::: {.callout-tip title="Sanasto"}
+- **Kynnysarvo**: hankinnan arvo, jonka ylittyessä sovelletaan tiukempia sääntöjä. EU-kynnysarvot tarkistetaan kahden vuoden välein.
+- **Arvioitu arvo**: hankintayksikön oma etukäteisarvio koko sopimuksen arvosta optioineen.
+- **Bunching** eli kasautuminen: jakaumassa näkyvä ylimääräinen havaintojen määrä juuri jonkin rajan toisella puolella.
+:::
+
+```{r}
+#| label: tab-thr
+eu_thr |>
+  transmute(Kausi = paste(format(start, "%Y"), format(end, "%Y"), sep = "–"),
+            `Muut hankintayksiköt (tavarat, palvelut)` = eur(sub_central),
+            `Valtion keskushallinto` = eur(central),
+            `Rakennusurakat` = eur(works)) |>
+  knitr::kable(caption = "EU-kynnysarvot kausittain.")
+```
+
+Kansalliset kynnysarvot ovat olleet samat koko tarkastelujakson: tavarat ja palvelut 60 000 euroa ja rakennusurakat 150 000 euroa.
+
+## Aineisto
+
+Aineisto on Hilman kaikki hankintailmoitukset vuosilta `r first_year`–`r last_year`, joissa hankintayksikkö on ilmoittanut arvioidun arvon. Tarkastelen tavara- ja palveluhankintoja, koska niiden EU-kynnys (noin 215 000–221 000 euroa) osuu kohtaan, jossa hankintoja on paljon molemmin puolin. Rakennusurakoiden EU-kynnys on yli viisi miljoonaa euroa, ja niin suuria hankintoja on liian vähän luotettavaan kasautumisanalyysiin.
+
+Tärkeä tekninen huomio: kaikki etäisyydet on laskettu **kunkin ilmoituksen julkaisuhetkellä voimassa olleeseen kynnykseen**. Vuoden 2021 hankintaa verrataan 214 000 euroon ja vuoden 2025 hankintaa 221 000 euroon. Näin eri kausien aineistot voi yhdistää.
+
+Valtion keskushallinnolla on matalampi kynnys (noin 140 000 euroa). Hilman indeksistä ei voi luotettavasti erottaa keskushallintoa muista, joten käytän kaikille muiden hankintayksiköiden kynnystä. Tämä laimentaa havaittavaa kasautumista eikä vahvista sitä, joten tulos on varovainen arvio.
+
+```{r}
+#| label: fig-raw
+#| fig-cap: "Tavara- ja palveluhankintojen arvioitujen arvojen jakauma suhteessa voimassa olleeseen EU-kynnysarvoon. Pylväs = 1 % kynnyksestä."
+#| fig-height: 5
+
+win <- ss |> filter(rel >= 0.5, rel < 1.5)
+ggplot(win, aes(rel, fill = rel < 1)) +
+  geom_histogram(breaks = seq(0.5, 1.5, by = 0.01), colour = "white", linewidth = 0.1) +
+  geom_vline(xintercept = 1, colour = pal[["red"]], linewidth = 1) +
+  scale_fill_manual(values = c(`TRUE` = pal[["blue"]], `FALSE` = pal[["green"]]), guide = "none") +
+  scale_x_continuous(labels = \(x) paste0(round(100 * x), " %")) +
+  labs(x = "Arvioitu arvo suhteessa EU-kynnysarvoon", y = "Ilmoituksia (kpl)",
+       title = "Kynnyksen kohdalla jakauma katkeaa")
+```
+
+**Kuvan lukuohje.** Vaaka-akselilla 100 % tarkoittaa täsmälleen EU-kynnysarvoa. Jokainen pylväs kattaa yhden prosentin levyisen kaistan; esimerkiksi pylväs kohdassa 95 % sisältää hankinnat, joiden arvio oli 95–96 % kynnyksestä. Siniset pylväät ovat kynnyksen alapuolella ja vihreät yläpuolella. Ilman kynnystä pylväiden pitäisi madaltua tasaisesti vasemmalta oikealle, koska suurempia hankintoja on aina vähemmän kuin pienempiä. Yksittäiset korkeat piikit ovat yleensä **pyöreitä lukuja**, kuten 100 000, 150 000 tai 200 000 euroa, joita arvioijat suosivat. Koska kynnys vaihtelee kausittain, sama pyöreä luku osuu eri kausina hieman eri kohtaan kuvaa.
+
+## Menetelmä: kuinka paljon ylimääräistä massaa kynnyksen alla on?
+
+Kasautumisen mittaaminen vaatii vastaskenaarion: miltä jakauma näyttäisi ilman kynnystä? Käytän taloustieteessä vakiintunutta **bunching-menetelmää**:
+
+1. Lasken hankinnat 1 %:n levyisiin kaistoihin välillä 50–150 % kynnyksestä.
+2. Sovitan kaistojen lukumääriin tasaisen käyrän (viidennen asteen polynomi), **mutta jätän pois kynnyksen ympäristön** (90–110 %), jossa kasautuminen tapahtuu. Käyrä oppii siis jakauman muodon vain kauempaa kynnyksestä.
+3. Pyöreiden lukujen piikit huomioidaan erikseen, jotta ne eivät sotke käyrää. Jokaiselle kaistalle lasketaan, kuinka suuri osa sen hankinnoista on tasan 10 000 euron monikertoja, ja tämä on mallissa omana selittäjänään.
+4. Kynnyksen alla olevan **ylimääräisen massan** (*excess mass*) saa vertaamalla havaittua määrää käyrän ennustamaan määrään kaistoilla 90–100 %.
+
+Epävarmuus lasketaan **bayesilaisella bootstrapilla**: painotan ilmoituksia satunnaisesti 1 000 kertaa uudelleen, toistan koko laskelman joka kerta ja saan ylimääräiselle massalle jakauman.
+
+```{r}
+#| label: bunching-fns
+
+bunch <- function(rel, round_flag, w = NULL, lo = 0.5, hi = 1.5, width = 0.01,
+                  excl = c(0.90, 1.10), below = c(0.90, 1.00), deg = 5) {
+  if (is.null(w)) w <- rep(1, length(rel))
+  keep <- rel >= lo & rel < hi
+  bin  <- floor((rel[keep] - lo) / width)
+  nb   <- round((hi - lo) / width)
+  b <- tibble(bin = bin, w = w[keep], r = round_flag[keep]) |>
+    group_by(bin) |>
+    summarise(n = sum(w), round_share = sum(w * r) / sum(w), .groups = "drop") |>
+    right_join(tibble(bin = 0:(nb - 1)), by = "bin") |>
+    mutate(n = replace_na(n, 0), round_share = replace_na(round_share, 0),
+           x = lo + (bin + 0.5) * width,
+           excluded = x >= excl[1] & x < excl[2])
+  # Pyöreiden lukujen termi vain, jos niitä esiintyy (muuten kerroin olisi NA)
+  use_round <- stats::var(b$round_share[!b$excluded]) > 0
+  fml <- if (use_round) n ~ poly(x, deg, raw = TRUE) + round_share else n ~ poly(x, deg, raw = TRUE)
+  fit <- lm(fml, data = filter(b, !excluded))
+  b$cf <- predict(fit, newdata = mutate(b, round_share = 0))
+  if (use_round) b$cf <- b$cf + coef(fit)[["round_share"]] * b$round_share
+  b$cf <- pmax(b$cf, 0)
+  in_below <- b$x >= below[1] & b$x < below[2]
+  in_above <- b$x >= 1 & b$x < excl[2]
+  list(bins = b,
+       excess = sum(b$n[in_below] - b$cf[in_below]),
+       excess_rel = sum(b$n[in_below] - b$cf[in_below]) / mean(b$cf[in_below]),
+       missing = sum(b$cf[in_above] - b$n[in_above]))
+}
+
+bb_bunch <- function(rel, round_flag, n = 1000, ...) {
+  map_dfr(seq_len(n), function(i) {
+    w <- rexp(length(rel)); w <- w * length(rel) / sum(w)
+    r <- bunch(rel, round_flag, w = w, ...)
+    tibble(excess = r$excess, excess_rel = r$excess_rel, missing = r$missing)
+  })
+}
+```
+
+```{r}
+#| label: bunching
+
+b0 <- bunch(ss$rel, ss$round10k)
+bb0 <- bb_bunch(ss$rel, ss$round10k)
+
+# Herkkyys: ilman pyöreitä lukuja, kapeampi ikkuna, eri polynomin aste
+sens <- bind_rows(
+  tibble(Laskelma = "Päätulos (aste 5, ikkuna 90–110 %)",
+         excess = b0$excess, excess_rel = b0$excess_rel),
+  tibble(Laskelma = "Vain ei-pyöreät arvot",
+         excess = bunch(ss$rel[!ss$round10k], rep(FALSE, sum(!ss$round10k)))$excess,
+         excess_rel = bunch(ss$rel[!ss$round10k], rep(FALSE, sum(!ss$round10k)))$excess_rel),
+  tibble(Laskelma = "Kapeampi ikkuna (95–105 %)",
+         excess = bunch(ss$rel, ss$round10k, excl = c(0.95, 1.05), below = c(0.95, 1))$excess,
+         excess_rel = bunch(ss$rel, ss$round10k, excl = c(0.95, 1.05), below = c(0.95, 1))$excess_rel),
+  tibble(Laskelma = "Polynomin aste 3",
+         excess = bunch(ss$rel, ss$round10k, deg = 3)$excess,
+         excess_rel = bunch(ss$rel, ss$round10k, deg = 3)$excess_rel),
+  tibble(Laskelma = "Polynomin aste 7",
+         excess = bunch(ss$rel, ss$round10k, deg = 7)$excess,
+         excess_rel = bunch(ss$rel, ss$round10k, deg = 7)$excess_rel)
+)
+p_pos <- mean(bb0$excess > 0)
+stopifnot(nrow(bb0) == 1000)
+```
+
+```{r}
+#| label: fig-bunch
+#| fig-cap: "Havaitut ilmoitukset (pylväät) ja vastaskenaario ilman kynnysarvoa (viiva). Harmaa alue jätettiin pois käyrän sovituksesta."
+#| fig-height: 5
+
+ggplot(b0$bins, aes(x)) +
+  annotate("rect", xmin = 0.9, xmax = 1.1, ymin = -Inf, ymax = Inf, alpha = 0.12) +
+  geom_col(aes(y = n, fill = x < 1), width = 0.009) +
+  geom_line(aes(y = cf), colour = pal[["red"]], linewidth = 1) +
+  geom_vline(xintercept = 1, linetype = 2) +
+  scale_fill_manual(values = c(`TRUE` = pal[["blue"]], `FALSE` = pal[["green"]]), guide = "none") +
+  scale_x_continuous(labels = \(x) paste0(round(100 * x), " %")) +
+  labs(x = "Arvioitu arvo suhteessa EU-kynnysarvoon", y = "Ilmoituksia (kpl)",
+       title = "Havaittu jakauma ja vastaskenaario ilman kynnystä")
+```
+
+**Kuvan lukuohje.** Pylväät ovat todellisia ilmoitusmääriä. Punainen viiva näyttää, kuinka monta ilmoitusta kullekin kaistalle olisi odotettavissa, jos kynnystä ei olisi. Viiva on laskettu harmaan alueen ulkopuolisista kaistoista, eli se ei ole voinut "nähdä" kynnyksen vaikutusta. Jos pylväät nousevat harmaalla alueella viivan yläpuolelle juuri ennen kynnystä, siellä on ylimääräisiä hankintoja.
+
+```{r}
+#| label: tab-sens
+knitr::kable(sens |> mutate(`Ylimääräisiä ilmoituksia` = num(excess),
+                            `Suhteessa normaaliin kaistaan` = paste0(dec(excess_rel, 1), " kaistaa")) |>
+               select(Laskelma, `Ylimääräisiä ilmoituksia`, `Suhteessa normaaliin kaistaan`),
+             caption = "Herkkyystarkastelu: tulos eri laskentatavoilla.")
+```
+
+**Tulos.** Kynnyksen alapuolisella 10 %:n kaistalla on noin **`r num(b0$excess)` ilmoitusta enemmän** kuin tasainen jakauma ennustaa (90 %:n väli `r ci(bb0$excess, f = num)`). Se vastaa noin `r dec(b0$excess_rel, 1)` normaalin prosentin kaistan verran ylimääräisiä hankintoja. Todennäköisyys, että ylimääräistä massaa on ylipäätään (eli että se on suurempi kuin nolla), on `r pct(p_pos, 0)`. Kynnyksen yläpuolelta puuttuu vastaavasti noin `r num(b0$missing)` ilmoitusta.
+
+Herkkyystaulukko on tärkeä: tulos `r if (all(sens$excess > 0)) "säilyy samansuuntaisena kaikilla laskentatavoilla" else "riippuu laskentatavasta, joten siihen on suhtauduttava varauksella"`.
+
+## Tilastollinen testi: onko kynnyksen alapuoli ylikansoitettu?
+
+```{r}
+#| label: test
+
+near <- ss |> filter(rel >= 0.95, rel < 1.05)
+n_below <- sum(near$rel < 1); n_above <- sum(near$rel >= 1)
+cf_ratio <- with(b0$bins, sum(cf[x >= 0.95 & x < 1]) / sum(cf[x >= 0.95 & x < 1.05]))
+bt <- binom.test(n_below, n_below + n_above, p = cf_ratio)
+```
+
+**Testin valinta.** Jos kynnys ei vaikuttaisi, kynnyksen molemmin puolin olevien 5 %:n kaistojen pitäisi jakaa hankinnat suunnilleen siinä suhteessa, jonka vastaskenaario ennustaa (`r pct(cf_ratio)` alapuolelle, koska jakauma laskee hieman oikealle mentäessä). **Binomitesti** kertoo, kuinka todennäköistä havaittu jako olisi pelkän sattuman tuloksena.
+
+Kynnyksen alapuolella 95–100 %:n kaistalla oli `r num(n_below)` ja yläpuolella 100–105 %:n kaistalla `r num(n_above)` ilmoitusta. Alapuolen osuus oli `r pct(n_below / (n_below + n_above))`, kun odotettu oli `r pct(cf_ratio)`. Binomitesti: p `r fi_p(bt$p.value)`. Vaikutuksen koko on alapuolen osuuden ja odotetun osuuden ero, `r dec(100 * (n_below / (n_below + n_above) - cf_ratio), 1)` prosenttiyksikköä.
+
+## Ennuste ennen dataa: siirtyykö kasautuminen kynnyksen mukana?
+
+Kasautuminen voi johtua muustakin kuin kynnyksestä, esimerkiksi siitä, että 200 000 euroa on suosittu pyöreä luku. Vahvin testi on **luonnollinen koe**: vuoden 2026 alussa kynnys laski 221 000 eurosta 216 000 euroon. Jos kasautuminen johtuu kynnyksestä, vuoden 2026 hankintojen pitäisi kasautua uuden kynnyksen alle eikä vanhan.
+
+Tein ennusteen ennen kuin katsoin vuoden 2026 dataa: **216 000 euron alapuolella olevan 5 000 euron kaistan (211 000–216 000 €) osuus 211 000–221 000 euron hankinnoista nousee vuonna 2026 selvästi verrattuna vuosiin 2024–2025.** Vuosina 2024–2025 216 000–221 000 euron kaista oli "turvallisesti kynnyksen alla", vuonna 2026 se on kynnyksen yläpuolella.
+
+```{r}
+#| label: natexp
+
+ne <- ss |>
+  filter(estimatedValue >= 206000, estimatedValue < 226000, year >= 2024) |>
+  mutate(period = if_else(year >= 2026, "2026 (kynnys 216 000 €)", "2024–2025 (kynnys 221 000 €)"),
+         band = cut(estimatedValue, breaks = c(206000, 211000, 216000, 221000, 226000), right = FALSE,
+                    labels = c("206–211 t€", "211–216 t€", "216–221 t€", "221–226 t€")))
+
+ne_tab <- ne |> count(period, band) |> group_by(period) |> mutate(share = n / sum(n)) |> ungroup()
+
+n26 <- sum(ne$year >= 2026)
+has_2026 <- n26 >= 30
+if (has_2026) {
+  tab_ne <- table(ne$period, ne$band %in% c("216–221 t€"))
+  fe_ne  <- fisher.test(tab_ne)
+  share_2425 <- with(filter(ne, year < 2026), mean(band == "216–221 t€"))
+  share_26   <- with(filter(ne, year >= 2026), mean(band == "216–221 t€"))
+  # Bayesilainen ero: beta-binomiaalinen posteriori kummallekin kaudelle
+  k1 <- sum(ne$year < 2026 & ne$band == "216–221 t€"); n1 <- sum(ne$year < 2026)
+  k2 <- sum(ne$year >= 2026 & ne$band == "216–221 t€"); n2 <- n26
+  diff_draws <- rbeta(4000, k2 + 1, n2 - k2 + 1) - rbeta(4000, k1 + 1, n1 - k1 + 1)
+}
+```
+
+```{r}
+#| label: fig-natexp
+#| fig-cap: "Hankintojen jakautuminen 5 000 euron kaistoihin ennen kynnyksen laskua ja sen jälkeen."
+#| fig-height: 4.5
+
+ggplot(ne_tab, aes(band, share, fill = period)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.75) +
+  geom_text(aes(label = n), position = position_dodge(width = 0.8), vjust = -0.3, size = 3.2) +
+  scale_fill_manual(values = c(pal[["blue"]], pal[["orange"]]), name = NULL) +
+  scale_y_continuous(labels = lab_pct, expand = expansion(mult = c(0, 0.12))) +
+  labs(x = "Arvioitu arvo", y = "Osuus kauden ilmoituksista tällä välillä",
+       title = "Mihin hankinnat siirtyvät, kun kynnys laskee?")
+```
+
+**Kuvan lukuohje.** Jokaisessa kaistassa on kaksi pylvästä: sininen kuvaa vuosia 2024–2025, jolloin kynnys oli 221 000 euroa, ja oranssi vuotta 2026, jolloin kynnys on 216 000 euroa. Pylvään korkeus on kaistan osuus kauden kaikista 206 000–226 000 euron hankinnoista, ja pylvään päällä on lukumäärä. Jos kasautuminen seuraa kynnystä, oranssi pylväs on matalampi kaistalla 216–221 t€ (nyt kynnyksen yläpuolella) ja korkeampi kaistalla 211–216 t€.
+
+`r if (has_2026) paste0("Vuonna 2026 kaistalle 216 000–221 000 euroa osui ", pct(share_26), " tämän välin hankinnoista, kun vuosina 2024–2025 osuus oli ", pct(share_2425), ". Ero on ", dec(100 * median(diff_draws), 1), " prosenttiyksikköä (90 %:n väli ", ci(diff_draws, f = \(x) dec(100 * x, 1)), "). Todennäköisyys sille, että osuus laski, on ", pct(mean(diff_draws < 0), 0), ". Fisherin tarkka testi: p ", fi_p(fe_ne$p.value), ". ", if (mean(diff_draws < 0) > 0.9) "**Ennuste toteutui: kasautuminen siirtyi kynnyksen mukana.** Tämä on vahvin näyttö siitä, että kynnys itse vaikuttaa hankintayksiköiden arvioihin." else "Ennuste ei toteutunut selvästi. Tämä joko kertoo, että kasautuminen johtuu muusta kuin kynnyksestä, tai että vuoden 2026 aineisto on vielä liian pieni.") else paste0("Vuoden 2026 aineistossa on toistaiseksi vain ", n26, " tämän välin hankintaa, mikä ei riitä testiin. Ennuste on kirjattu tähän, ja tarkistan sen, kun dataa on kertynyt.")`
+
+Vuoden 2026 aineisto kattaa vain osan vuodesta, joten tulos tarkentuu vuoden loppuun mennessä.
+
+::: {.callout-note title="Faktalaatikko: Kynnysarvot ja manipulointi tutkimuksessa"}
+Tšekkiläiset taloustieteilijät **Ján Palguta ja Filip Pertold** tutkivat uudistusta, jossa Tšekin hankintayksiköt saivat kutsua tarjoajat itse, kun hankinnan arvo jäi uuden harkinnanvaraisen kynnyksen alle (*American Economic Journal: Economic Policy*, 2017). Hankintojen arvot alkoivat kasautua juuri kynnysten alle, ja ilmiö oli voimakkain rakennusurakoissa ja palveluissa. Kynnyksen alle manipuloiduissa hankinnoissa todennäköisyys, että voittaja oli yritys, jonka omistajat voi piilottaa, **kolminkertaistui**.
+
+Suomalainen tilanne on erilainen: Suomessa kynnyksen alle jäävät hankinnat ilmoitetaan edelleen julkisesti, ja yritysten omistus on läpinäkyvämpää. Tutkimus osoittaa silti mekanismin: kun kynnys muuttaa sääntöjä, osa hankinnoista sopeutuu kynnykseen eikä todelliseen arvoonsa.
+
+Kynnysarvojen kasautumisesta en löytänyt meta-analyysia, joten faktalaatikko perustuu yksittäiseen, laajalti viitattuun tutkimukseen.
+:::
+
+## Vastaskenaario: mitä kynnyksen varjo maksaa?
+
+Mitä tapahtuisi, jos ylimääräiset kynnyksen alle arvioidut hankinnat olisi kilpailutettu EU-tasolla? EU-ilmoitukset näkyvät koko Euroopan talousalueella, ja niiden tarjousajat ovat pidempiä. eForms-jälki-ilmoituksista voi mitata, kuinka paljon enemmän tarjouksia EU-tason kilpailutukset kynnyksen yläpuolella saavat kuin kansalliset kilpailutukset sen alapuolella.
+
+```{r}
+#| label: cf
+
+ef <- ef_load()
+lp <- lot_panel(ef, deflate)
+near_lots <- lp |>
+  filter(nature %in% c("Tavarat", "Palvelut"), procedure != "Suorahankinta",
+         !is.na(n_tenders), n_tenders >= 1, !is.na(est_value)) |>
+  mutate(rel = est_value / thr_for(issue_date, "sub_central")) |>
+  filter(rel >= 0.75, rel < 1.25)
+
+bidders <- near_lots |>
+  mutate(side = if_else(rel < 1, "Kynnyksen alla (75–100 %)", "Kynnyksen yllä (100–125 %)")) |>
+  group_by(side)
+bid_sum <- bidders |> summarise(n = n(), mean_bids = mean(n_tenders),
+                                single = mean(n_tenders == 1), .groups = "drop")
+has_sides <- nrow(bid_sum) == 2 && all(bid_sum$n >= 20)
+
+if (has_sides) {
+  a <- near_lots$n_tenders[near_lots$rel >= 1]; b <- near_lots$n_tenders[near_lots$rel < 1]
+  wt_bid <- wilcox.test(a, b, exact = FALSE)
+  cd_bid <- cliff_delta(a, b)
+  extra_bids <- bb(a, n = 2000) - bb(b, n = 2000)       # lisätarjoukset keskimäärin
+
+  # Ylimääräisen massan euromäärä: excess-ilmoitukset x tyypillinen arvo kaistalla 90–100 %
+  typical_val <- ss |> filter(rel >= 0.9, rel < 1, year >= last_year - 2) |>
+    mutate(v = deflate(estimatedValue, year)) |> pull(v) |> median()
+  years_n <- n_distinct(ss$year)
+  excess_eur_year <- bb0$excess / years_n * typical_val
+  # KKV: yksi lisätarjoaja ~3,2 % edullisempi voittotarjous (OLS, Ijäs 2026)
+  saving <- excess_eur_year * pmax(extra_bids[seq_len(nrow(bb0))], 0) * 0.032
+}
+```
+
+`r if (has_sides) paste0("Kynnyksen tuntumassa (75–125 % kynnyksestä) EU-tason kilpailutukset saivat keskimäärin ", dec(bid_sum$mean_bids[bid_sum$side == "Kynnyksen yllä (100–125 %)"], 1), " tarjousta ja kansalliset ", dec(bid_sum$mean_bids[bid_sum$side == "Kynnyksen alla (75–100 %)"], 1), " tarjousta. Ero on ", dec(median(extra_bids), 2), " tarjousta (90 %:n väli ", ci(extra_bids, f = \(x) dec(x, 2)), "). Wilcoxonin testi: p ", fi_p(wt_bid$p.value), ", Cliffin delta ", dec(cd_bid, 2), ". Wilcoxonin testi on valittu, koska tarjousmäärät ovat kokonaislukuja ja vinosti jakautuneita, jolloin keskiarvotesti olisi harhaanjohtava.") else "eForms-aineistossa on toistaiseksi liian vähän kynnyksen tuntumassa olevia kilpailutuksia vertailuun."`
+
+`r if (has_sides) paste0("Jos kynnyksen alle kasautuneet ylimääräiset hankinnat (noin ", num(b0$excess / years_n), " vuodessa, tyypillinen arvo ", eur(typical_val), ") olisi kilpailutettu EU-tasolla ja ne olisivat saaneet saman verran lisätarjouksia, Kilpailuviraston tutkimuksen mukainen hintavaikutus (3,2 % jokaista lisätarjoajaa kohden) tuottaisi noin **", eur(median(saving)), " säästön vuodessa** (90 %:n väli ", ci(saving, f = eur), "). Summa on pieni verrattuna julkisten hankintojen kokonaisuuteen. **Kynnysten aiheuttama vääristymä on todellinen, mutta sen suora hinta on maltillinen.** Suurempi kysymys on luottamus: jos jakaumasta näkyy, että arvioita sovitetaan sääntöihin, samaa voi tapahtua muissakin päätöksissä, joita data ei näe.") else ""`
+
+Varaukset: vertailu kynnyksen ylä- ja alapuolen välillä ei ole puhdas koe, koska yläpuolen hankinnat ovat myös hieman suurempia. Säästölaskelma olettaa lisäksi, että Kilpailuviraston tutkimuksen hintavaikutus pätee myös näihin hankintoihin.
+
+## Miten tätä voi käyttää käytännössä?
+
+**Hankintayksikölle:** jos oma hankinta-arvio osuu 90–100 %:iin kynnyksestä, kannattaa dokumentoida arvion perusteet tavallista huolellisemmin. Juuri tällä kaistalla tarkastaja, kilpailija tai toimittaja todennäköisimmin kysyy perusteluja.
+
+**Valvojalle ja tarkastajalle:** hankinnat, joiden arvio on juuri kynnyksen alla, ovat luonteva otos jälkitarkastukseen. Tarkastuksessa voi verrata arvioita toteutuneisiin laskuihin.
+
+**Lainsäätäjälle:** kynnyksen laskiessa 2026 kasautuminen tarjoaa vertailukohdan sille, miten muutokset vaikuttavat. Jos hankintalakia muutetaan, samaa menetelmää voi käyttää uudistuksen vaikutusten arviointiin.
+
+## Mitä tämä tarkoittaa yrityksellesi?
+
+Bunching-menetelmä on yleiskäyttöinen työkalu tilanteisiin, joissa jokin raja muuttaa ihmisten käyttäytymistä:
+
+- **Pankit ja rahoittajat.** Kasautuvatko luottohakemukset automaattisen hyväksynnän rajan alle? Jos kasautuvat, raja ohjaa hakijoita, ja riskimalli saattaa aliarvioida rajan tuntumassa olevien hakemusten riskiä.
+- **Compliance ja rahanpesun torjunta.** Raportointirajan alle jäävien tapahtumien kasautuminen (esimerkiksi 10 000 euron käteisraja) on klassinen merkki tapahtumien pilkkomisesta. Sama menetelmä mittaa ilmiön koon ja sen epävarmuuden.
+- **Palkitseminen ja myynti.** Kasautuvatko myyjien kaupat juuri bonuskynnyksen ylle kvartaalin viimeisellä viikolla? Se kertoo, että kynnys siirtää myyntiä ajassa eikä lisää sitä.
+- **Verotus ja tuet.** Yritysten liikevaihdon kasautuminen alv-rekisteröinnin tai tukikelpoisuuden rajan alle kertoo, kuinka paljon raja jarruttaa kasvua.
+- **Sisäinen tarkastus.** Hyväksyntärajojen alle jäävät hankinnat ja matkalaskut ovat halvin tapa löytää kohteet, joissa sisäinen valvonta ohittuu.
+
+Rakennan tällaisia analyyseja avoimesta ja organisaation omasta datasta. **[Varaa maksuton 30 minuutin keskustelu](https://www.kristianvepsalainen.com)**, niin katsotaan, mitä rajat tekevät sinun datallesi.
+
+---
+
+### Lähteet
+
+**Data:** Hilma (hankintailmoitukset.fi), avoin rajapinta. Eurostat: HICP (`prc_hicp_aind`).
+
+**Säädökset**
+
+- Laki julkisista hankinnoista ja käyttöoikeussopimuksista (1397/2016), 25 § (kansalliset kynnysarvot).
+- Tillkännagivande (2026:245) om tröskelvärden vid offentlig upphandling (EU-kynnysarvot 2026–2027).
+
+**Tutkimus**
+
+- Ijäs, O. (2026). *Are We Paying Too Much? The Cost of Low Competition in Public Procurement*. Kilpailu- ja kuluttajavirasto, Working Papers 1/2026.
+- Palguta, J. & Pertold, F. (2017). Manipulation of procurement contracts: Evidence from the introduction of discretionary thresholds. *American Economic Journal: Economic Policy*, 9(2), 293–315.
+
+*Koodi: R (tidyverse, ggdist). Kaikki analyysit ovat toistettavissa avoimella datalla.*

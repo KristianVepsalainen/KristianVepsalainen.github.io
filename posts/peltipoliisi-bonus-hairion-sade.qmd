@@ -1,9 +1,8 @@
 ---
 title: "Kalenteri liikuttaa liikennettä enemmän kuin maraton"
 subtitle: "Kuinka kauas pitää lähteä, kun kaupungissa on suurtapahtuma? Mittasin sen, ja vastaus oli lyhyempi matka kuin kukaan ajaa."
-date: 2026-11-25
+date: 2026-11-12
 categories: [avoin data, liikenne, LAM, kausivaihtelu]
-draft: true
 format:
   html:
     toc: true

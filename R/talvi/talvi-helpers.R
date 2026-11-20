@@ -133,6 +133,8 @@ kauden_indikaattorit <- function(d) {
 # ---------------------------------------------------------------------------
 tallenna_atom <- function(x, polku) {
   stopifnot(is.data.frame(x))
+  attr(x, "problems") <- NULL   # readr:n ulkoiset osoittimet eivät tallennu qs2:een
+  attr(x, "spec") <- NULL
   dir.create(dirname(polku), recursive = TRUE, showWarnings = FALSE)
   tmp <- paste0(polku, ".tmp")
   qd_save(x, tmp, compress_level = 9L)
@@ -152,4 +154,60 @@ lue_paiva <- function(lahteet = NULL) {
   }
   stopifnot(length(tiedostot) > 0)
   map(tiedostot, qd_read) |> list_rbind()
+}
+
+# ---------------------------------------------------------------------------
+# Alueen "tyypillisen sääaseman" talvi: y ~ asema + talvi alueittain, ennuste
+# kaikille alueen asemille kunakin talvena, keskiarvona. Asemalla vähintään
+# 10 kelvollista talvea. Syöte: alue_id, asema_id, kausi_alku ja mittari.
+# ---------------------------------------------------------------------------
+alue_sarja <- function(data, mittari) {
+  d0 <- data |>
+    filter(!is.na(.data[[mittari]])) |>
+    group_by(asema_id) |> filter(n() >= 10) |> ungroup() |>
+    transmute(alue_id, asema_id, kausi_alku, y = .data[[mittari]])
+  d0 |>
+    group_by(alue_id) |>
+    group_modify(\(d, k) {
+      n_as <- d |> count(kausi_alku, name = "n_asemat")
+      if (n_distinct(d$asema_id) == 1L) {
+        return(d |> transmute(kausi_alku, y) |> left_join(n_as, by = "kausi_alku"))
+      }
+      fit <- lm(y ~ factor(asema_id) + factor(kausi_alku), data = d)
+      if (fit$rank < length(coef(fit))) {
+        warning(sprintf("%s: asemien mittausjaksot eivät limity, käytetään keskiarvoa.", k$alue_id))
+        return(d |> group_by(kausi_alku) |> summarise(y = mean(y), .groups = "drop") |>
+                 left_join(n_as, by = "kausi_alku"))
+      }
+      grid <- expand_grid(asema_id = unique(d$asema_id), kausi_alku = unique(d$kausi_alku))
+      grid$p <- predict(fit, newdata = grid)
+      grid |> group_by(kausi_alku) |> summarise(y = mean(p), .groups = "drop") |>
+        left_join(n_as, by = "kausi_alku")
+    }) |>
+    ungroup()
+}
+
+# ---------------------------------------------------------------------------
+# Bayesilainen lineaarinen regressio tietämättömällä priorilla p(b, sigma) ∝ 1/sigma.
+# Posteriori suljetussa muodossa: sigma^2 ~ skaalattu käänteinen khiin neliö,
+# b | sigma ~ N(b_hat, sigma^2 (X'X)^-1). Ei MCMC:tä, laskenta sekunneissa.
+# Palauttaa arvonnat (b: n_draws x p, sigma) sekä OLS-tunnusluvut, jotka
+# vastaavat klassista t-testiä (sama jakauma tällä priorilla).
+# ---------------------------------------------------------------------------
+bayes_lm <- function(X, y, n_draws = 4000L) {
+  stopifnot(is.matrix(X), length(y) == nrow(X), !anyNA(X), !anyNA(y))
+  n <- nrow(X); p <- ncol(X)
+  qx <- qr(X)
+  if (qx$rank < p) stop("bayes_lm: suunnittelumatriisi ei ole täysiasteinen (", qx$rank, " < ", p, ").")
+  b_hat <- qr.coef(qx, y)
+  XtX_inv <- chol2inv(qr.R(qx))[order(qx$pivot), order(qx$pivot)]
+  df <- n - p
+  s2 <- sum((y - drop(X %*% b_hat))^2) / df
+  sigma2 <- df * s2 / rchisq(n_draws, df = df)
+  z <- matrix(rnorm(n_draws * p), n_draws) %*% chol(XtX_inv)
+  b <- sweep(z * sqrt(sigma2), 2, b_hat, "+")
+  colnames(b) <- colnames(X)
+  se <- sqrt(diag(XtX_inv) * s2)
+  list(b = b, sigma = sqrt(sigma2), b_hat = setNames(b_hat, colnames(X)), se = setNames(se, colnames(X)),
+       df = df, p_arvo = setNames(2 * pt(-abs(b_hat / se), df), colnames(X)))
 }

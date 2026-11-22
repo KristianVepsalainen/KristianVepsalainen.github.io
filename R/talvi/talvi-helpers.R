@@ -211,3 +211,57 @@ bayes_lm <- function(X, y, n_draws = 4000L) {
   list(b = b, sigma = sqrt(sigma2), b_hat = setNames(b_hat, colnames(X)), se = setNames(se, colnames(X)),
        df = df, p_arvo = setNames(2 * pt(-abs(b_hat / se), df), colnames(X)))
 }
+
+# ---------------------------------------------------------------------------
+# Tilastokeskuksen PxWebistä selaimella ladattu CSV (taulukkomuoto: aika
+# sarakkeissa, esim. "Liikevaihto, alkuperäinen indeksi 2024M01" tai
+# "Liikevaihto (1000 euroa) 2023"). Erotin tunnistetaan (sarkain, puolipiste,
+# pilkku), puuttuva = "." ym., ennakkotieto = "*". Palauttaa pitkän taulun:
+# id-sarakkeet sellaisinaan + tieto, aika, pvm, ennakko, arvo.
+# ---------------------------------------------------------------------------
+PX_PUUTTUVA <- c("", ".", "..", "...", "-", "x")
+
+px_lue <- function(polku) {
+  stopifnot(file.exists(polku))
+  eka <- readLines(polku, n = 1L, encoding = "UTF-8", warn = FALSE)
+  erotin <- if (grepl("\t", eka)) "\t" else if (grepl(";", eka)) ";" else ","
+  raaka <- read_delim(polku, delim = erotin, col_types = cols(.default = col_character()),
+                      na = PX_PUUTTUVA, locale = locale(encoding = "UTF-8"),
+                      progress = FALSE, show_col_types = FALSE, trim_ws = TRUE,
+                      name_repair = "unique_quiet")
+  aika_re <- "\\s(\\d{4}(M\\d{2}|Q\\d)?)\\*?$"
+  aika_sar <- names(raaka)[grepl(aika_re, names(raaka))]
+  if (length(aika_sar)) {
+    # Aika sarakkeissa: "Tieto 2024M01"
+    id_sar <- setdiff(names(raaka), aika_sar)
+    pitka <- raaka |>
+      pivot_longer(all_of(aika_sar), names_to = "sarake", values_to = "arvo_txt") |>
+      mutate(tieto = sub(aika_re, "", sarake), aika_txt = sub(paste0("^.*", aika_re), "\\1", sarake),
+             ennakko = grepl("\\*$", sarake))
+  } else if (grepl("^\\d{4}(M\\d{2}|Q\\d)?\\*?$", raaka[[1]][1])) {
+    # Aika riveillä (ensimmäinen sarake "Kuukausi"/"Vuosi"), muut sarakkeet ovat
+    # sarjoja, joiden nimessä on kaikki muut ulottuvuudet, esim.
+    # "45 Moottoriajoneuvojen kauppa ja korjaus Liikevaihto Alkuperäinen indeksisarja"
+    id_sar <- character()
+    aika1 <- names(raaka)[1]
+    pitka <- raaka |>
+      rename(aika_raaka = all_of(aika1)) |>
+      pivot_longer(-aika_raaka, names_to = "tieto", values_to = "arvo_txt") |>
+      mutate(ennakko = grepl("\\*$", aika_raaka), aika_txt = sub("\\*$", "", aika_raaka)) |>
+      select(-aika_raaka)
+  } else {
+    stop(basename(polku), ": aikaa ei löytynyt sarakkeista ('Tieto 2024M01') eikä ensimmäisestä sarakkeesta ('2024M01').")
+  }
+  out <- pitka |>
+    mutate(aika = aika_txt,
+           kk = case_when(grepl("M", aika) ~ as.integer(substr(aika, 6, 7)),
+                          grepl("Q", aika) ~ (as.integer(substr(aika, 6, 6)) - 1L) * 3L + 1L,
+                          TRUE ~ 1L),
+           pvm = as.Date(sprintf("%s-%02d-01", substr(aika, 1, 4), kk), format = "%Y-%m-%d"),
+           arvo = suppressWarnings(as.numeric(gsub(",", ".", gsub("[[:space:]\u00a0]", "", arvo_txt)))))
+  huonot <- out |> filter(!is.na(arvo_txt), is.na(arvo)) |> distinct(arvo_txt)
+  if (nrow(huonot)) stop(basename(polku), ": numeroksi muuttumattomia arvoja: ",
+                         paste(utils::head(huonot$arvo_txt), collapse = ", "))
+  stopifnot(!anyNA(out$pvm))
+  out |> select(all_of(id_sar), tieto, aika, pvm, ennakko, arvo)
+}

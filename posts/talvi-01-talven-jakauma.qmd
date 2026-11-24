@@ -1,0 +1,915 @@
+---
+title: "Talvi, osa 1: Mikä on talvi? Talven jakauma 33 pohjoisella alueella"
+subtitle: "Lumipäivät ja pakkaset 65 talven ajalta Suomesta, Ruotsista, Norjasta, Kanadasta ja Yhdysvalloista sekä etukäteen julkaistu ennuste talvelle 2026–27"
+date: "2026-11-24"
+author: "Kristian Vepsäläinen"
+categories: [talvi, avoin data, bayesilaiset menetelmät, ennusteet, ilmasto]
+lang: fi
+freeze: auto
+execute:
+  warning: false
+  message: false
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    code-summary: "Näytä koodi"
+    fig-width: 9
+    fig-height: 6
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tidyr)
+  library(purrr)
+  library(ggplot2)
+  library(ggdist)
+  library(sf)
+  library(giscoR)
+  library(mgcv)
+  library(knitr)
+  library(lubridate)
+  library(qs2)
+  library(here)
+})
+source(here("R", "talvi", "talvi-helpers.R"))
+select <- dplyr::select
+filter <- dplyr::filter
+
+options(mc.cores = 4)
+BACKEND <- if (requireNamespace("cmdstanr", quietly = TRUE)) "cmdstanr" else "rstan"
+MALLIT  <- here("data", "talvi", "raw", "mallit")   # isot mallitiedostot, .gitignore
+dir.create(MALLIT, recursive = TRUE, showWarnings = FALSE)
+
+VIIM_KAUSI   <- 2025L   # viimeinen päättynyt talvi = 2025–26
+ENNUSTEKAUSI <- 2026L   # ennustettava talvi = 2026–27
+LUMI_N       <- 151L    # joulu–huhtikuun päiviä (karkausvuonna 152, katkaistaan 151:een)
+set.seed(2026)
+
+theme_set(theme_minimal(base_size = 12) +
+            theme(panel.grid.minor = element_blank(), plot.title.position = "plot"))
+VARIT_MAA <- c(Suomi = "#1f5fa8", Ruotsi = "#e0a100", Norja = "#c0392b",
+               Kanada = "#7b3fa0", Yhdysvallat = "#2e8b57")
+
+fmt <- function(x, d = 0) formatC(x, format = "f", digits = d, big.mark = " ", decimal.mark = ",")
+```
+
+```{r}
+#| label: data
+#| include: false
+
+asemat <- qd_read(here("data", "talvi", "talvi_asemat.qs2"))
+kausi  <- qd_read(here("data", "talvi", "talvi_kausi.qs2"))
+paiva  <- lue_paiva()
+
+stopifnot(
+  nrow(asemat) > 300,
+  all(c("lahde", "alue", "asema_id", "kausi_alku", "tmean_djf", "fdd") %in% names(kausi)),
+  max(kausi$kausi_alku) >= VIIM_KAUSI
+)
+
+MAA_NIMI <- c(FI = "Suomi", SE = "Ruotsi", NO = "Norja", CA = "Kanada", US = "Yhdysvallat")
+alueet <- asemat |>
+  distinct(alue, alue_nimi, maa) |>
+  mutate(
+    alue_nimi = recode(alue_nimi,
+                       "Åland" = "Ahvenanmaa",
+                       "Helsinki-Uusimaa" = "Uusimaa",
+                       "Övre Norrland (Ruotsin Lappi ja Västerbotten)" = "Ruotsin Lappi ja Västerbotten"),
+    maa_fi  = unname(MAA_NIMI[maa]),
+    alue_id = gsub("-", "_", alue)          # Stanin parametrinimiin kelpaava tunnus
+  )
+stopifnot(!anyDuplicated(alueet$alue), !anyNA(alueet$maa_fi), nrow(alueet) == 33L)
+
+# Lumipäivät joulukuun alusta huhtikuun loppuun. Ennustettava jakso alkaa
+# 1.12., joten ennuste koskee kokonaan tulevaa aikaa.
+lumi_da <- paiva |>
+  filter(month(pvm) %in% c(12L, 1L, 2L, 3L, 4L)) |>
+  mutate(kausi_alku = talvikausi_alku(pvm)) |>
+  group_by(lahde, alue, asema_id, kausi_alku) |>
+  summarise(n_obs  = sum(!is.na(lumi_cm)),
+            n_lumi = sum(lumi_cm >= 1, na.rm = TRUE), .groups = "drop") |>
+  mutate(kattavuus = n_obs / LUMI_N,
+         lumipaivat_da = if_else(kattavuus >= KATTAVUUS_RAJA,
+                                 pmin(round(n_lumi / pmin(kattavuus, 1)), LUMI_N), NA_real_))
+rm(paiva); invisible(gc())
+
+as_k <- kausi |>
+  filter(kausi_alku <= VIIM_KAUSI) |>
+  left_join(lumi_da |> select(lahde, asema_id, kausi_alku, lumipaivat_da),
+            by = c("lahde", "asema_id", "kausi_alku")) |>
+  mutate(lumen_alku_pv = as.integer(pysyva_lumi_alku - as.Date(paste0(kausi_alku, "-07-01"))) + 1L) |>
+  left_join(alueet |> select(alue, alue_id, alue_nimi_fi = alue_nimi, maa_fi), by = "alue")
+stopifnot(!anyDuplicated(as_k[c("lahde", "asema_id", "kausi_alku")]),
+          all(as_k$lumipaivat_da >= 0 & as_k$lumipaivat_da <= LUMI_N, na.rm = TRUE),
+          !anyNA(as_k$alue_id))
+
+# Alue x talvi: asemien keskiarvo
+MITTARIT <- c("lumipaivat_da", "tmean_djf", "fdd", "hdd", "pakkaspaivat", "kovat_pakkaset",
+              "nollanylitykset", "lumipaivat", "pysyva_lumi_pv", "lumen_alku_pv",
+              "max_lumi_cm", "vesisade_lumelle")
+ak <- as_k |>
+  group_by(alue, alue_id, alue_nimi_fi, maa_fi, kausi_alku) |>
+  summarise(n_asemat_lumi = sum(!is.na(lumipaivat_da)),
+            n_asemat_t    = sum(!is.na(tmean_djf)),
+            across(all_of(MITTARIT), \(x) if (all(is.na(x))) NA_real_ else mean(x, na.rm = TRUE)),
+            .groups = "drop")
+```
+
+Talvesta puhutaan Suomessa kuin se olisi yksi asia. "Kunnon talvi", "lumeton talvi", "normaali talvi". Julkisessa keskustelussa talvea kuvataan yleensä yhdellä luvulla: Helsingin tammikuun keskilämpötila, lumen syvyys Sodankylässä maaliskuussa tai pakkasennätys jossain Lapin kylässä.
+
+Yksi luku ei kuitenkaan kerro talvesta juuri mitään. Kaksi talvea, joiden keskilämpötila on sama, voivat olla täysin erilaisia: toisessa on tasainen pakkanen ja lumi koko ajan maassa, toisessa vuorottelevat suojasäät ja kovat pakkaset, ja tiet ja jalkakäytävät ovat jäässä viikkokausia. Jotta talvea voi arvioida, pitää tietää koko **jakauma**: millaisia talvia jollakin alueella on, kuinka usein mitäkin, ja miten tämä jakauma on muuttunut.
+
+Tämä kirjoitus aloittaa sarjan, jossa selvitetään, onko talvi taloudelle ja ihmisille hyvä vai huono asia. Ennen kuin talven hyötyjä ja haittoja voi laskea, pitää sopia, mitä talvella tarkoitetaan ja miten sitä mitataan. Tässä osassa:
+
+1. mitataan talvi samalla tavalla 33 pohjoisella alueella Suomesta Alaskaan,
+2. näytetään, miltä talvien jakauma näyttää ja miten se on muuttunut,
+3. rakennetaan malli, joka ennustaa talven lumipäivät ja lämpötilan, ja testataan sitä menneillä talvilla,
+4. julkaistaan ennuste tulevalle talvelle 2026–27 ennen kuin talvi alkaa, jotta sen osuvuus voidaan tarkistaa keväällä,
+5. määritellään neljä vertailutalvea, joiden avulla talven vaikutuksia voi myöhemmin verrata toisiinsa.
+
+# Aineisto: 65 talvea, `r nrow(asemat)` sääasemaa
+
+```{r}
+#| label: aineisto-luvut
+#| include: false
+n_fmi  <- sum(asemat$lahde == "fmi")
+n_ghcn <- sum(asemat$lahde == "ghcn")
+n_as_k_kelpo <- sum(!is.na(as_k$lumipaivat_da) & !is.na(as_k$tmean_djf))
+n_as_k <- nrow(as_k)
+eka_kausi <- min(as_k$kausi_alku)
+```
+
+Säätiedot tulevat kahdesta avoimesta lähteestä:
+
+- **Ilmatieteen laitos**: `r n_fmi` sääasemaa kaikista Suomen 19 maakunnasta. Jokaisesta maakunnasta on valittu enintään viisi asemaa, ensisijaisesti ne, joilla on pisin yhtäjaksoinen mittaushistoria.
+- **Yhdysvaltain sää- ja ilmastovirasto NOAA:n GHCN-Daily-aineisto**: `r n_ghcn` asemaa Ruotsin Lapista ja Västerbottenista, Pohjois-Norjasta, Kanadan kolmesta pohjoisesta territoriosta (Jukon, Luoteisterritoriot ja Nunavut) sekä Alaskasta ja kahdeksasta Yhdysvaltain talvisesta osavaltiosta (Minnesota, Pohjois-Dakota, Montana, Wisconsin, Michigan, Maine, Vermont ja New Hampshire). GHCN kokoaa eri maiden virallisia säähavaintoja yhtenäiseen muotoon ja tarkistaa niiden laadun. Laaduntarkistuksessa hylätyt havainnot on poistettu.
+
+Aineistossa on yhteensä `r fmt(n_as_k)` asema-talvea talvesta `r talvikausi_nimi(eka_kausi)` talveen `r talvikausi_nimi(VIIM_KAUSI)`. Niistä `r fmt(n_as_k_kelpo)` on niin kattavia, että sekä lumi että lämpötila voidaan laskea luotettavasti.
+
+## Miten talvi mitataan?
+
+Talvelle ei ole yhtä virallista määritelmää, joten käytän tässä kahta helposti ymmärrettävää mittaria, jotka kertovat talvesta eri asioita:
+
+- **Lumipäivät**: monenako päivänä joulukuun alun ja huhtikuun lopun välisenä aikana maassa on ollut vähintään senttimetri lunta. Jaksossa on 151 päivää, joten 151 lumipäivää tarkoittaa, että lunta on ollut maassa koko ajan, ja 0 tarkoittaa, ettei lunta ole ollut lainkaan. Lumipäivät kertovat talven *näkyvyydestä*: hiihtokelistä, aurauksesta ja siitä, onko maisema valkoinen vai musta.
+- **Talven keskilämpötila**: joulu-, tammi- ja helmikuun päivittäisten lämpötilojen keskiarvo. Päivän lämpötilana käytetään vuorokauden alimman ja ylimmän lämpötilan keskiarvoa, koska se on ainoa tapa, jolla kaikkien maiden asemat saadaan samalle viivalle. Keskilämpötila kertoo talven *kylmyydestä*.
+
+Näiden lisäksi jokaiselle talvelle on laskettu joukko muita mittareita, joita tarvitaan myöhemmin, kun talven vaikutuksia lasketaan euroina:
+
+- **Pakkasmäärä** (pakkasastevuorokaudet): lasketaan yhteen, kuinka monta astetta pakkasen puolella jokainen loka–huhtikuun päivä oli. Jos esimerkiksi kolmen päivän keskilämpötilat ovat −5, −10 ja +2 astetta, pakkasmäärä on 5 + 10 + 0 = 15. Mitä suurempi luku, sitä kylmempi talvi kokonaisuutena.
+- **Lämmitystarveluku**: sama ajatus lämmityksen kannalta. Mittari kertoo, kuinka paljon ulkolämpötila jää huoneenlämmön alapuolelle koko vuoden aikana. Määritelmä on sama, jota EU:n tilastovirasto Eurostat käyttää.
+- **Nollanylitykset**: päivät, joina lämpötila käy sekä pakkasen että plussan puolella. Näinä päivinä sulanut vesi jäätyy uudelleen, ja tiet ja jalkakäytävät muuttuvat liukkaiksi.
+- **Kovat pakkaset**: päivät, joina alin lämpötila on −20 astetta tai kylmempi.
+- **Pysyvä lumipeite**: pisin yhtäjaksoinen jakso, jonka aikana lunta on maassa, sekä sen alku- ja loppupäivä.
+- **Vesisade lumelle**: päivät, joina lumen päälle sataa vettä. Ne kertovat jääkuoren riskistä.
+
+## Aineiston laatu
+
+```{r}
+#| label: laatu
+laatu <- as_k |>
+  group_by(maa_fi, alue_nimi_fi) |>
+  summarise(
+    asemia = n_distinct(asema_id),
+    `ensimmäinen talvi` = talvikausi_nimi(min(kausi_alku[!is.na(lumipaivat_da) | !is.na(tmean_djf)])),
+    `asema-talvia` = n(),
+    `kelvollisia (lumi)` = sum(!is.na(lumipaivat_da)),
+    `kelvollisia (lämpötila)` = sum(!is.na(tmean_djf)),
+    .groups = "drop"
+  ) |>
+  mutate(`hylätty %` = round(100 * (1 - pmax(`kelvollisia (lumi)`, `kelvollisia (lämpötila)`) / `asema-talvia`))) |>
+  arrange(maa_fi, alue_nimi_fi) |>
+  rename(maa = maa_fi, alue = alue_nimi_fi)
+
+kable(laatu, align = "llrlrrrr",
+      caption = "Asemat ja kelvolliset talvet alueittain. Talvi hylätään, jos yli 10 % päivistä puuttuu.")
+```
+
+Talvi on hylätty, jos yli kymmenesosa sen päivistä puuttuu. Puuttuvia päiviä ei arvata, koska yksikin puuttuva pakkasjakso voisi muuttaa talven kuvaa paljon. Kun puuttuvia päiviä on alle kymmenesosa, lukumäärät suhteutetaan havaittujen päivien määrään.
+
+Kaksi rajoitusta on hyvä tietää jo tässä vaiheessa:
+
+- **Asemien määrä vaihtelee.** Suomen maakunnista on 2–5 asemaa, Jukonista ja Luoteisterritorioista vain muutama. Pohjoisessa Kanadassa asemia on vähän, koska ihmisiäkin on vähän. Pienen asemamäärän alueilla tulokset ovat epävarmempia, ja malli näyttää sen leveämpinä vaihteluväleinä.
+- **Kaikilla asemilla ei ole pitkää historiaa.** Esimerkiksi Keski-Pohjanmaalla ei ole yhtään valittua asemaa, jolla olisi mittauksia sekä 1980-luvulta että nykyään. Siksi alueiden vertailu menneeseen tehdään vain niillä asemilla, joilla on pitkä historia, ja malli ottaa asemien vaihtumisen huomioon erikseen.
+
+# Millainen on talvi nykyään?
+
+```{r}
+#| label: fig-jakauma
+#| fig-height: 10
+#| fig-cap: "Lumipäivien jakauma talvina 1996–97 ... 2025–26. Jokainen piste on yksi talvi. Paksu musta viiva näyttää, missä puolet talvista on, ohut viiva, missä 90 % talvista on."
+nyky <- ak |>
+  filter(kausi_alku >= 1996, kausi_alku <= VIIM_KAUSI, !is.na(lumipaivat_da)) |>
+  mutate(alue_nimi_fi = reorder(alue_nimi_fi, lumipaivat_da, median))
+
+ggplot(nyky, aes(x = lumipaivat_da, y = alue_nimi_fi, colour = maa_fi)) +
+  stat_dots(side = "top", dotsize = 0.9, binwidth = 2, show.legend = TRUE) +
+  stat_pointinterval(aes(colour = NULL), .width = c(0.5, 0.9), point_size = 1.5,
+                     position = position_nudge(y = -0.1)) +
+  scale_colour_manual(values = VARIT_MAA, name = NULL) +
+  scale_x_continuous(limits = c(0, LUMI_N), breaks = c(0, 30, 60, 90, 120, 151)) +
+  labs(x = "Lumipäiviä joulukuun alusta huhtikuun loppuun (enintään 151)", y = NULL,
+       title = "Kuinka monena päivänä maassa on lunta?",
+       subtitle = "Talvet 1996–97 ... 2025–26, jokainen piste on yksi talvi") +
+  theme(legend.position = "top")
+```
+
+```{r}
+#| label: jakauma-luvut
+#| include: false
+nyky_yht <- nyky |>
+  group_by(alue_nimi_fi, maa_fi) |>
+  summarise(med = median(lumipaivat_da), q05 = quantile(lumipaivat_da, 0.05),
+            q95 = quantile(lumipaivat_da, 0.95), vaiht = q95 - q05, n = n(), .groups = "drop")
+lev <- nyky_yht |> slice_max(vaiht, n = 1)
+kap <- nyky_yht |> slice_min(vaiht, n = 1)
+uus <- nyky_yht |> filter(alue_nimi_fi == "Uusimaa")
+lap <- nyky_yht |> filter(alue_nimi_fi == "Lappi")
+stopifnot(nrow(uus) == 1, nrow(lap) == 1)
+```
+
+**Miten kuvaa luetaan?** Jokainen rivi on yksi alue, ja jokainen pieni piste on yksi talvi viimeisen 30 vuoden ajalta. Mitä enemmän pisteitä on kasautunut samaan kohtaan, sitä tavallisempi sellainen talvi on. Pisteiden alla oleva musta pallo on mediaani eli keskimmäinen talvi: puolet talvista on ollut lumisempia ja puolet vähälumisempia. Paksu musta viiva näyttää, mihin väliin puolet talvista osuu, ja ohut viiva, mihin väliin 90 % talvista osuu. Alueet on järjestetty niin, että vähälumisimmat ovat alhaalla.
+
+Kuvassa näkyy sarjan perusajatus: **talvi ei ole yksi luku vaan jakauma**. Lapissa lunta on maassa käytännössä koko ajan joulukuusta huhtikuuhun (mediaani `r fmt(lap$med)` päivää), ja talvet ovat keskenään hyvin samanlaisia. Uudellamaalla mediaani on `r fmt(uus$med)` päivää, mutta yksittäinen talvi voi osua mihin tahansa välillä `r fmt(uus$q05)`–`r fmt(uus$q95)` päivää. Vaihtelu on suurinta alueella `r lev$alue_nimi_fi`, jossa 90 % talvista mahtuu `r fmt(lev$vaiht)` päivän levyiseen väliin. Pienintä se on alueella `r kap$alue_nimi_fi`.
+
+Tällä on käytännön merkitystä. Jos kunta budjetoi aurauksen "keskimääräisen talven" mukaan, se ylittää budjettinsa joka toinen talvi. Lapissa ero keskimääräisen ja huonon talven välillä on pieni, etelässä suuri. Etelän talvi on siksi taloudellisesti *riskisempi*, vaikka se on lauhempi.
+
+# Lumikäyrä: kuinka paljon lunta yksi aste maksaa?
+
+```{r}
+#| label: lumikayra
+kayra_data <- ak |>
+  filter(!is.na(lumipaivat_da), !is.na(tmean_djf)) |>
+  mutate(lumi = round(lumipaivat_da), ei_lunta = LUMI_N - lumi)
+
+# Yleistetty additiivinen malli: lumipäivien osuus joustavana funktiona
+# talven keskilämpötilasta. Quasibinomiaalinen jakauma sallii, että talvet
+# vaihtelevat enemmän kuin pelkkä sattuma selittäisi.
+kayra_malli <- gam(cbind(lumi, ei_lunta) ~ s(tmean_djf, k = 8),
+                   family = quasibinomial(), data = kayra_data, method = "REML")
+
+kayra_grid <- tibble(tmean_djf = seq(quantile(kayra_data$tmean_djf, 0.005),
+                                     quantile(kayra_data$tmean_djf, 0.995), by = 0.1))
+pr <- predict(kayra_malli, kayra_grid, se.fit = TRUE)
+kayra_grid <- kayra_grid |>
+  mutate(fit = LUMI_N * plogis(pr$fit),
+         ala = LUMI_N * plogis(pr$fit - 1.96 * pr$se.fit),
+         yla = LUMI_N * plogis(pr$fit + 1.96 * pr$se.fit),
+         jyrkkyys = -c(NA, diff(fit)) / 0.1)    # menetetyt lumipäivät / +1 °C
+
+jyrkin <- kayra_grid |> filter(!is.na(jyrkkyys)) |> slice_max(jyrkkyys, n = 1)
+herkkyys_t <- function(t) {
+  p <- predict(kayra_malli, tibble(tmean_djf = c(t, t + 1)))
+  LUMI_N * (plogis(p[1]) - plogis(p[2]))
+}
+```
+
+```{r}
+#| label: fig-lumikayra
+#| fig-cap: "Talven keskilämpötila (joulu–helmikuu) ja lumipäivät. Jokainen piste on yhden alueen yksi talvi vuosilta 1961–2026. Musta käyrä on aineistoon sovitettu malli ja harmaa vyö sen 95 %:n epävarmuusväli."
+ggplot(kayra_data, aes(tmean_djf, lumipaivat_da)) +
+  geom_point(aes(colour = maa_fi), alpha = 0.35, size = 1.2) +
+  geom_ribbon(data = kayra_grid, aes(x = tmean_djf, ymin = ala, ymax = yla),
+              inherit.aes = FALSE, fill = "grey40", alpha = 0.3) +
+  geom_line(data = kayra_grid, aes(x = tmean_djf, y = fit), inherit.aes = FALSE, linewidth = 1) +
+  geom_vline(xintercept = jyrkin$tmean_djf, linetype = "dashed") +
+  annotate("label", x = jyrkin$tmean_djf, y = 20, hjust = 0, size = 3.5,
+           label = paste0("Jyrkin kohta: ", fmt(jyrkin$tmean_djf, 1), " °C\n",
+                          "+1 °C vie noin ", fmt(jyrkin$jyrkkyys), " lumipäivää")) +
+  scale_colour_manual(values = VARIT_MAA, name = NULL) +
+  scale_y_continuous(limits = c(0, LUMI_N), breaks = c(0, 30, 60, 90, 120, 151)) +
+  labs(x = "Talven keskilämpötila, joulu–helmikuu (°C)", y = "Lumipäiviä (joulu–huhtikuu)",
+       title = "Lumikäyrä: lumi katoaa ensin hitaasti, sitten nopeasti",
+       subtitle = "Kaikki 33 aluetta ja kaikki talvet samassa kuvassa") +
+  theme(legend.position = "top")
+```
+
+**Miten kuvaa luetaan?** Vaaka-akselilla on talven keskilämpötila: vasemmalla kylmät talvet, oikealla lauhat. Pystyakselilla on lumipäivien määrä. Jokainen piste on yksi talvi yhdellä alueella, ja väri kertoo maan. Musta käyrä kulkee pisteiden läpi ja näyttää, kuinka monta lumipäivää tietyn lämpöiseen talveen tyypillisesti liittyy. Harmaa vyö käyrän ympärillä kertoo, kuinka tarkasti käyrän paikka tiedetään.
+
+Käyrä on aineiston tärkein yksittäinen havainto. Kun talven keskilämpötila on kymmenen astetta pakkasella tai kylmempi, lumi pysyy maassa lähes koko talven. Asteen lämpeneminen ei silloin juuri muuta mitään. Mutta kun keskilämpötila lähestyy nollaa, lumi alkaa kadota nopeasti. Jyrkimmillään, noin `r fmt(jyrkin$tmean_djf, 1)` asteen kohdalla, yksi lisäaste vie talvesta noin `r fmt(jyrkin$jyrkkyys)` lumipäivää. Esimerkiksi −12 asteen talvessa yksi lisäaste vie vain `r fmt(herkkyys_t(-12), 1)` lumipäivää, mutta −3 asteen talvessa `r fmt(herkkyys_t(-3), 1)` päivää.
+
+Sama käyrä pätee Minnesotasta Ahvenanmaalle. Lumi ei siis välitä siitä, missä maassa se sataa, vaan siitä, kuinka lähellä nollaa talven lämpötila on.
+
+::: {.callout-note}
+## Faktalaatikko: lumen katoaminen ei ole suoraviivaista
+
+Yhdysvaltalaiset tutkijat Gottlieb ja Mankin analysoivat Nature-lehdessä vuonna 2024 lumipeitteen muutoksia 169 suurella pohjoisen pallonpuoliskon jokialueella. He totesivat, että ihmisen aiheuttama lämpeneminen on vähentänyt maaliskuun lumipeitettä vuosina 1981–2020 ja että lumipeitteen herkkyys lämpötilalle on voimakkaasti epälineaarinen: kylmillä alueilla lämpeneminen vaikuttaa vähän, mutta tietyn rajan jälkeen lumi vähenee yhä nopeammin. Tämä vastaa yllä olevaa lumikäyrää.
+
+Suomen osalta Ilmatieteen laitoksen tutkijat Luomaranta, Aalto ja Jylhä (2019) analysoivat lumensyvyyttä vuosina 1961–2014. Etelä- ja Länsi-Suomessa talven suurin lumensyvyys pieneni keskimäärin 2–4 senttimetriä vuosikymmenessä, mutta Pohjois-Suomessa tilastollisesti merkitsevää muutosta ei havaittu. Vuosien välinen vaihtelu oli suurempaa etelässä kuin pohjoisessa. Molemmat havainnot näkyvät myös tämän kirjoituksen aineistossa.
+
+*Lähteet: Gottlieb & Mankin (2024), Nature 625, 293–300. Luomaranta, Aalto & Jylhä (2019), International Journal of Climatology 39(7), 3147–3159.*
+:::
+
+### Vastakkainen tilanne: mitä yksi aste tekisi kullekin alueelle?
+
+```{r}
+#| label: aste-alueittain
+herkkyys <- ak |>
+  filter(kausi_alku >= 1996, !is.na(tmean_djf)) |>
+  group_by(alue_nimi_fi, maa_fi) |>
+  summarise(t_nyky = mean(tmean_djf), .groups = "drop") |>
+  mutate(menetys_1c = map_dbl(t_nyky, herkkyys_t),
+         lumi_nyky  = LUMI_N * plogis(predict(kayra_malli, tibble(tmean_djf = t_nyky)))) |>
+  arrange(desc(menetys_1c))
+
+kable(herkkyys |>
+        transmute(alue = alue_nimi_fi, maa = maa_fi,
+                  `talven keskilämpö nyt (°C)` = fmt(t_nyky, 1),
+                  `lumipäiviä käyrän mukaan` = fmt(lumi_nyky),
+                  `menetys, jos talvi +1 °C` = fmt(menetys_1c, 1)),
+      align = "llrrr",
+      caption = "Kuinka monta lumipäivää alue menettäisi, jos sen tyypillinen talvi olisi asteen lämpimämpi (lumikäyrän mukaan, talvet 1996–2026).")
+```
+
+Taulukko kääntää lumikäyrän alueiden kielelle. Se vastaa kysymykseen: *jos tämän alueen tyypillinen talvi olisi asteen lämpimämpi, montako lumipäivää menetettäisiin?* Alueet, joilla talvi on jo nyt lähellä nollaa, menettävät eniten. Kylmimmillä alueilla sama aste ei juuri näy lumessa. Tämä on vastaskenaario eli kuviteltu tilanne, jossa kaikki muu pysyy ennallaan ja vain lämpötila muuttuu. Todellisuudessa lämpenemisen mukana voi muuttua myös sademäärä, joten taulukko kuvaa lämpötilan osuutta, ei koko muutosta.
+
+# Onko talvi muuttunut? Vertailu 1961–1990 ja 1996–2025
+
+```{r}
+#| label: jaksotesti
+# Vain asemat, joilla on vähintään 20 kelvollista talvea kummassakin jaksossa.
+# Näin vertailu ei vääristy siitä, että asemia on tullut ja poistunut.
+jakso_lk <- function(k) case_when(k %in% 1961:1990 ~ "1961–1990", k %in% 1996:2025 ~ "1996–2025")
+
+testaa_jaksot <- function(mittari) {
+  pitkat <- as_k |>
+    mutate(jakso = jakso_lk(kausi_alku)) |>
+    filter(!is.na(jakso), !is.na(.data[[mittari]])) |>
+    count(asema_id, jakso) |>
+    pivot_wider(names_from = jakso, values_from = n, values_fill = 0) |>
+    filter(`1961–1990` >= 20, `1996–2025` >= 20) |>
+    pull(asema_id)
+
+  ak_p <- as_k |>
+    filter(asema_id %in% pitkat) |>
+    mutate(jakso = jakso_lk(kausi_alku)) |>
+    filter(!is.na(jakso)) |>
+    group_by(alue_nimi_fi, maa_fi, jakso, kausi_alku) |>
+    summarise(arvo = mean(.data[[mittari]], na.rm = TRUE), n_as = n_distinct(asema_id), .groups = "drop") |>
+    filter(is.finite(arvo))
+
+  ak_p |>
+    group_by(alue_nimi_fi, maa_fi) |>
+    filter(n_distinct(jakso) == 2) |>
+    group_modify(\(d, k) {
+      vanha <- d$arvo[d$jakso == "1961–1990"]; uusi <- d$arvo[d$jakso == "1996–2025"]
+      # Kun lähes kaikki talvet osuvat samaan arvoon (esim. lunta maassa kaikki
+      # 151 päivää joka talvi), luottamusväliä ei voi laskea. Silloin muutokseksi
+      # raportoidaan parittaisten erojen mediaani ilman väliä.
+      w <- tryCatch(suppressWarnings(wilcox.test(uusi, vanha, conf.int = TRUE, exact = FALSE)),
+                    error = \(e) NULL)
+      if (is.null(w) || anyNA(w$conf.int)) {
+        w0 <- suppressWarnings(wilcox.test(uusi, vanha, exact = FALSE))
+        w  <- list(estimate = median(outer(uusi, vanha, "-")), conf.int = c(NA_real_, NA_real_),
+                   p.value = if (is.finite(w0$p.value)) w0$p.value else 1)
+      }
+      tibble(asemia = max(d$n_as), n_vanha = length(vanha), n_uusi = length(uusi),
+             med_vanha = median(vanha), med_uusi = median(uusi),
+             muutos = unname(w$estimate), ala = w$conf.int[1], yla = w$conf.int[2],
+             p = w$p.value, katto = is.na(w$conf.int[1]))
+    }) |>
+    ungroup() |>
+    mutate(p_holm = p.adjust(p, method = "holm"), mittari = mittari)
+}
+
+jt_lumi <- testaa_jaksot("lumipaivat_da")
+jt_temp <- testaa_jaksot("tmean_djf")
+stopifnot(nrow(jt_lumi) >= 10, nrow(jt_temp) >= 10)
+```
+
+Kysymys "onko talvi muuttunut?" kuulostaa yksinkertaiselta, mutta siihen vastaaminen vaatii huolellisuutta. Jos verrataan suoraan 1960-luvun ja 2020-luvun asemia, vertailu voi vääristyä, koska asemia on siirretty, perustettu ja lakkautettu. Siksi tässä vertailussa ovat mukana vain asemat, joilla on vähintään 20 kelvollista talvea *kummallakin* 30 vuoden jaksolla.
+
+**Testin valinta.** Vertailen jaksoja Wilcoxonin järjestyssummatestillä. Testi ei oleta, että talvet jakautuvat tasaisesti keskiarvon ympärille (lumipäivissä ne eivät jakaudu, koska luku ei voi ylittää 151:tä eikä alittaa nollaa), ja yksittäinen poikkeuksellinen talvi ei vaikuta siihen liikaa. Muutoksen suuruutena raportoin Hodgesin ja Lehmannin estimaatin: se on tyypillinen ero uuden ja vanhan jakson talven välillä, kun kaikkia talvipareja verrataan keskenään. Koska alueita testataan monta kerralla, osa niistä näyttäisi "merkitsevältä" pelkästä sattumasta. Siksi p-arvot on korjattu Holmin menetelmällä, joka pitää todennäköisyyden yhdenkään väärän löydöksen tekemiselle alle 5 %:n.
+
+**Mitä p-arvo tarkoittaa?** P-arvo kertoo, kuinka todennäköistä olisi nähdä vähintään näin suuri ero, jos talvet eivät todellisuudessa olisi muuttuneet lainkaan. Pieni p-arvo (alle 0,05) tarkoittaa, että pelkkä sattuma on epätodennäköinen selitys. P-arvo ei kerro, kuinka suuri muutos on; sen kertoo muutoksen arvio ja sen 95 %:n luottamusväli.
+
+```{r}
+#| label: jaksotesti-taulu
+jt_taulu <- bind_rows(jt_lumi, jt_temp) |>
+  mutate(mittari = recode(mittari, lumipaivat_da = "Lumipäivät", tmean_djf = "Keskilämpö (°C)"),
+         d = if_else(mittari == "Lumipäivät", 0, 1)) |>
+  transmute(mittari, alue = alue_nimi_fi, maa = maa_fi, asemia,
+            `1961–1990` = map2_chr(med_vanha, d, fmt), `1996–2025` = map2_chr(med_uusi, d, fmt),
+            muutos = map2_chr(muutos, d, fmt),
+            `95 % väli` = if_else(is.na(ala), "ei laskettavissa*",
+                                  paste0(map2_chr(ala, d, fmt), " … ", map2_chr(yla, d, fmt))),
+            `p (Holm)` = if_else(p_holm < 0.001, "< 0,001", fmt(p_holm, 3))) |>
+  arrange(mittari, maa, alue)
+kable(jt_taulu, align = "lllrrrrrr",
+      caption = "Talvien mediaanit kahdella 30 vuoden jaksolla samoilla asemilla, muutos (Hodges–Lehmann), sen 95 %:n luottamusväli ja monitestauskorjattu p-arvo (Wilcoxonin testi). *Lähes kaikki talvet saivat saman arvon, joten väliä ei voi laskea.")
+
+n_katto <- sum(jt_lumi$katto)
+
+n_lumi_merk  <- sum(jt_lumi$p_holm < 0.05 & jt_lumi$muutos < 0)
+n_temp_merk  <- sum(jt_temp$p_holm < 0.05 & jt_temp$muutos > 0)
+n_temp_lamp  <- sum(jt_temp$muutos > 0)
+```
+
+Talven keskilämpötila on noussut `r n_temp_lamp` alueella `r nrow(jt_temp)`:stä, ja `r n_temp_merk` alueella muutos on tilastollisesti merkitsevä vielä monitestauskorjauksen jälkeenkin. Lumipäivissä merkitseviä vähennyksiä on `r n_lumi_merk` alueella `r nrow(jt_lumi)`:stä. Lumen muutos on siis harvemmin tilastollisesti varma kuin lämpötilan muutos. Se johtuu kahdesta asiasta: talvien välinen vaihtelu on lumessa suurta, ja lumikäyrän mukaan kylmimmillä alueilla lämpeneminen ei vielä näy lumessa juuri lainkaan. `r if (n_katto > 0) paste0("Ääritapauksena ", n_katto, " alueella lunta on ollut maassa käytännössä koko joulu–huhtikuun lähes joka talvi kummallakin jaksolla. Lumipäivät ovat siellä \"katossa\": mittari ei voi enää kasvaa, ja muutos näkyisi vasta, kun talvi lämpenee niin paljon, että lumi alkaa sulaa kesken talven. Näille alueille luottamusväliä ei voi laskea, ja taulukossa ne on merkitty tähdellä.") else ""`
+
+<!-- TARKISTA ensimmäisen renderöinnin jälkeen: kappaleen tulkinta vastaa taulukon lukuja. -->
+
+# Malli: alueiden talvet ja niiden suunta
+
+Jaksovertailu kertoo, että talvi on muuttunut, mutta sillä ei voi ennustaa. Ennustamista varten tarvitaan malli. Se rakennetaan kahdessa vaiheessa.
+
+**Vaihe 1: alueen talvi yhdeksi luvuksi.** Alueen asemat eivät ole samanlaisia: tunturin laella on enemmän lunta kuin laakson kaupungissa, ja asemia on vuosien varrella perustettu ja lakkautettu. Jos alueen talvi laskettaisiin pelkkänä asemien keskiarvona, alueen talvi näyttäisi muuttuvan aina, kun lumisempi asema lopettaa. Siksi jokaiselle asemalle lasketaan ensin sen oma pysyvä taso (esimerkiksi "tällä asemalla on tyypillisesti 12 lumipäivää enemmän kuin alueen muilla asemilla"), ja alueen talvi lasketaan sen jälkeen niin kuin kaikki asemat olisivat mitanneet joka talvi. Tulos on alueen **tyypillisen sääaseman** talvi. Tekninen nimi tälle on kaksisuuntainen kiinteiden vaikutusten malli.
+
+**Vaihe 2: jokaiselle alueelle oma trendi.** Jokaisen alueen talvista lasketaan suora, joka kuvaa pitkää kehitystä vuodesta 1961, sekä se, kuinka paljon yksittäiset talvet tyypillisesti poikkeavat suorasta. Alueet lasketaan erikseen, joten alueen tulos perustuu vain sen omiin talviin. Siksi alueilla, joilla on vähän asemia tai lyhyet mittaussarjat, epävarmuus on suurempi, ja se näkyy leveämpinä väleinä.
+
+Malli on **bayesilainen**. Se tarkoittaa, että tulos ei ole yksi luku, vaan jakauma kaikista arvoista, jotka ovat aineiston valossa uskottavia. Jos malli sanoo, että lumipäiviä on 80 % todennäköisyydellä 60–90, se tarkoittaa juuri sitä, mitä arkikielessä odottaisi. Tämä sopii sarjan teemaan: myös mallin vastaus on jakauma.
+
+Lumipäivät ovat lukumäärä väliltä 0–151, eikä malli saa ennustaa niitä tämän välin ulkopuolelle. Siksi lumipäivät muunnetaan ennen mallintamista niin sanotulle **logit-asteikolle**, joka venyttää välin 0–151 koko lukusuoralle: 75 lumipäivää on asteikon keskellä, ja 0 ja 151 ovat sen ääripäissä. Malli toimii venytetyllä asteikolla, ja tulokset muunnetaan lopuksi takaisin lumipäiviksi. Näin ennuste pysyy aina järkevällä välillä. Kummallekin mittarille käytetään normaalijakaumaa, ja jokaisella alueella on oma talvesta toiseen vaihtelunsa.
+
+```{r}
+#| label: aluesarjat
+# Vaihe 1: alueen tyypillisen aseman talvi. Jokaiselle alueelle sovitetaan
+# y ~ asema + talvi (pienimmän neliösumman menetelmä). Talven arvo on ennuste
+# kaikille alueen asemille kyseisenä talvena, keskiarvona. Asemalla oltava
+# vähintään 10 kelvollista talvea. Jos asemien mittausjaksot eivät limity
+# (malli ei ole estimoituva), käytetään tavallista keskiarvoa ja varoitetaan.
+alue_sarja <- function(mittari, data = as_k) {
+  d0 <- data |>
+    filter(!is.na(.data[[mittari]])) |>
+    group_by(asema_id) |> filter(n() >= 10) |> ungroup() |>
+    transmute(alue_id, asema_id, kausi_alku, y = .data[[mittari]])
+  d0 |>
+    group_by(alue_id) |>
+    group_modify(\(d, k) {
+      n_as <- d |> count(kausi_alku, name = "n_asemat")
+      if (n_distinct(d$asema_id) == 1L) {
+        return(d |> transmute(kausi_alku, y) |> left_join(n_as, by = "kausi_alku"))
+      }
+      fit <- lm(y ~ factor(asema_id) + factor(kausi_alku), data = d)
+      if (fit$rank < length(coef(fit))) {
+        warning(sprintf("%s: asemien mittausjaksot eivät limity, käytetään keskiarvoa.", k$alue_id))
+        return(d |> group_by(kausi_alku) |> summarise(y = mean(y), .groups = "drop") |>
+                 left_join(n_as, by = "kausi_alku"))
+      }
+      grid <- expand_grid(asema_id = unique(d$asema_id), kausi_alku = unique(d$kausi_alku))
+      grid$p <- predict(fit, newdata = grid)
+      grid |> group_by(kausi_alku) |> summarise(y = mean(p), .groups = "drop") |>
+        left_join(n_as, by = "kausi_alku")
+    }) |>
+    ungroup() |>
+    mutate(v = (kausi_alku - 1990) / 10)       # vuosikymmeniä vuodesta 1990
+}
+
+# Lumipäivät logit-asteikolle (empiirinen logit, äärellinen myös arvoilla 0 ja 151)
+lumi_logit <- function(y) qlogis((y + 0.5) / (LUMI_N + 1))
+lumi_takaisin <- function(z) pmin(pmax((LUMI_N + 1) * plogis(z) - 0.5, 0), LUMI_N)
+d_lumi <- alue_sarja("lumipaivat_da") |>
+  mutate(y = as.integer(round(pmin(pmax(y, 0), LUMI_N))), y_l = lumi_logit(y))
+stopifnot(isTRUE(all.equal(lumi_takaisin(lumi_logit(0:151)), 0:151)))
+d_temp <- alue_sarja("tmean_djf")
+stopifnot(n_distinct(d_lumi$alue_id) == 33L, n_distinct(d_temp$alue_id) == 33L,
+          !anyNA(d_lumi$y), !anyNA(d_temp$y),
+          !anyDuplicated(d_lumi[c("alue_id", "kausi_alku")]))
+
+# Asemat, joista alueen talvi lasketaan (tallennetaan ennusteen pisteytystä varten)
+mallin_asemat <- bind_rows(
+  as_k |> filter(!is.na(lumipaivat_da)) |> group_by(asema_id) |> filter(n() >= 10) |>
+    ungroup() |> distinct(lahde, asema_id, alue_id) |> mutate(mittari = "lumipaivat_da"),
+  as_k |> filter(!is.na(tmean_djf)) |> group_by(asema_id) |> filter(n() >= 10) |>
+    ungroup() |> distinct(lahde, asema_id, alue_id) |> mutate(mittari = "tmean_djf"))
+```
+
+```{r}
+#| label: mallit
+# Vaihe 2: jokaiselle alueelle oma bayesilainen trendimalli
+#   y = a + b * v + e,  e ~ N(0, sigma^2),  priori p(a, b, sigma) ∝ 1 / sigma.
+# Tällä priorilla posteriorijakauma tunnetaan tarkasti (normaali- ja käänteinen
+# khiin neliö -jakauma), joten arvot arvotaan suoraan kaavasta ilman
+# MCMC-simulointia. Laskenta vie sekunteja.
+N_DRAWS <- 4000L
+
+sovita_alueittain <- function(d, ycol) {
+  d |>
+    group_by(alue_id) |>
+    group_modify(\(x, k) {
+      y <- x[[ycol]]; X <- cbind(1, x$v); n <- nrow(X)
+      stopifnot(n >= 10, !anyNA(y))
+      XtX_inv <- solve(crossprod(X))
+      b_hat <- drop(XtX_inv %*% crossprod(X, y))
+      s2 <- max(sum((y - drop(X %*% b_hat))^2) / (n - 2), 1e-8)   # alaraja: alueet, joilla aina 151
+      sigma2 <- (n - 2) * s2 / rchisq(N_DRAWS, df = n - 2)
+      z <- matrix(rnorm(N_DRAWS * 2), N_DRAWS) %*% chol(XtX_inv)
+      tibble(draw = seq_len(N_DRAWS),
+             a = b_hat[1] + sqrt(sigma2) * z[, 1],
+             b = b_hat[2] + sqrt(sigma2) * z[, 2],
+             sigma = sqrt(sigma2))
+    }) |>
+    ungroup()
+}
+
+# Ennustejakaumat riveille (alue_id, v): lista, jossa kullekin riville N_DRAWS arvoa
+ennustejakaumat <- function(post, uusi, muunnos = identity) {
+  pl <- split(post, post$alue_id)
+  map(seq_len(nrow(uusi)), \(i) {
+    q <- pl[[uusi$alue_id[i]]]
+    muunnos(q$a + q$b * uusi$v[i] + q$sigma * rnorm(nrow(q)))
+  })
+}
+
+# Kulmakertoimet matriisina: rivit = arvonnat, sarakkeet = alueet$alue_id-järjestys
+kulmat <- function(post) {
+  out <- sapply(alueet$alue_id, \(a) post$b[post$alue_id == a])
+  stopifnot(nrow(out) == N_DRAWS, ncol(out) == nrow(alueet))
+  out
+}
+
+post_lumi    <- sovita_alueittain(d_lumi, "y_l")
+post_temp    <- sovita_alueittain(d_temp, "y")
+post_lumi_bt <- sovita_alueittain(d_lumi |> filter(kausi_alku <= 2015), "y_l")
+post_temp_bt <- sovita_alueittain(d_temp |> filter(kausi_alku <= 2015), "y")
+stopifnot(n_distinct(post_lumi$alue_id) == 33L, n_distinct(post_temp$alue_id) == 33L)
+```
+
+Mallissa käytetään niin sanottua tietämätöntä prioria. Se tarkoittaa, että mallille ei kerrota etukäteen mitään oletusta talvien suunnasta, vaan tulos nojaa kokonaan aineistoon. Tällä valinnalla tulosjakauma voidaan laskea suoraan tunnetulla kaavalla, joten raskasta simulointia ei tarvita.
+
+## Mihin suuntaan talvet kulkevat?
+
+```{r}
+#| label: trendit
+# Tyypillisen aseman odotettu muutos vuosikymmenessä alueittain
+trendi <- function(post, muunnos = identity) {
+  post |>
+    mutate(ero = muunnos(a + 0.5 * b) - muunnos(a - 0.5 * b)) |>
+    group_by(alue_id) |>
+    summarise(med = median(ero), q05 = quantile(ero, 0.05), q95 = quantile(ero, 0.95),
+              p_lasku = mean(ero < 0), .groups = "drop")
+}
+tr_lumi <- trendi(post_lumi, lumi_takaisin) |> left_join(alueet, by = "alue_id")
+tr_temp <- trendi(post_temp) |> left_join(alueet, by = "alue_id")
+```
+
+```{r}
+#| label: fig-kartta
+#| fig-height: 8
+#| fig-cap: "Lumipäivien muutos vuosikymmenessä Suomen maakunnissa mallin mukaan (mediaani). Luku maakunnan kohdalla on todennäköisyys sille, että lumipäivät ovat vähentyneet."
+maakunnat <- gisco_get_nuts(year = "2021", nuts_level = 3, country = "FI",
+                            resolution = "10", epsg = "4326") |>
+  st_transform(3067) |>
+  select(alue = NUTS_ID) |>
+  left_join(tr_lumi, by = "alue")
+stopifnot(nrow(maakunnat) == 19L, !anyNA(maakunnat$med))
+
+ggplot(maakunnat) +
+  geom_sf(aes(fill = med), colour = "white", linewidth = 0.3) +
+  geom_sf_text(aes(label = paste0(fmt(100 * p_lasku), " %")), size = 3) +
+  scale_fill_gradient2(low = "#b2182b", mid = "grey95", high = "#2166ac", midpoint = 0,
+                       name = "Lumipäiviä /\nvuosikymmen") +
+  labs(title = "Missä lumi vähenee nopeimmin?",
+       subtitle = "Tyypillisen sääaseman lumipäivien muutos vuosikymmenessä, talvet 1961–2026",
+       x = NULL, y = NULL) +
+  theme_void(base_size = 12)
+```
+
+**Miten karttaa luetaan?** Väri kertoo, kuinka monta lumipäivää maakunnan tyypillinen sääasema on mallin mukaan menettänyt (punainen) tai saanut (sininen) vuosikymmenessä. Mitä tummempi punainen, sitä nopeammin lumi vähenee. Maakunnan kohdalla oleva prosenttiluku on todennäköisyys sille, että lumipäivät ovat todella vähentyneet eivätkä vain näytä vähentyneen sattuman vuoksi. Esimerkiksi 99 % tarkoittaa, että aineiston valossa vähenemiseen voi luottaa lähes varmasti.
+
+```{r}
+#| label: trenditaulu
+kable(tr_lumi |>
+        left_join(tr_temp |> select(alue_id, t_med = med, t_q05 = q05, t_q95 = q95, t_p = p_lasku), by = "alue_id") |>
+        arrange(maa_fi, med) |>
+        transmute(alue = alue_nimi, maa = maa_fi,
+                  `lumipäivät / 10 v` = paste0(fmt(med, 1), " (", fmt(q05, 1), " … ", fmt(q95, 1), ")"),
+                  `P(lumi vähenee)` = paste0(fmt(100 * p_lasku), " %"),
+                  `lämpö °C / 10 v` = paste0(fmt(t_med, 2), " (", fmt(t_q05, 2), " … ", fmt(t_q95, 2), ")"),
+                  `P(lämpenee)` = paste0(fmt(100 * (1 - t_p)), " %")),
+      align = "llrrrr",
+      caption = "Mallin mukaiset muutokset vuosikymmenessä alueittain. Suluissa 90 %:n uskottavuusväli: aineiston valossa muutos on 90 %:n todennäköisyydellä tällä välillä.")
+```
+
+# Toimiiko malli? Takautuva testi talvilla 2016–2025
+
+```{r}
+#| label: takautuva
+# CRPS (jatkuva ranked probability score) otoksesta: pienempi on parempi.
+crps_otos <- function(x, y) {
+  x <- sort(x[!is.na(x)]); n <- length(x)
+  mean(abs(x - y)) - sum((2 * seq_len(n) - n - 1) * x) / n^2
+}
+
+takautuva <- function(post_bt, d, muunnos = identity) {
+  testi <- d |> filter(kausi_alku %in% 2016:2025)
+  # Ennustejakauma: mallin arpomat talvet (sisältää talvien välisen vaihtelun)
+  pp <- ennustejakaumat(post_bt, testi, muunnos)
+  # Naiivi vertailukohta: "talvet ovat kuten 1986–2015"
+  naiivi <- d |> filter(kausi_alku %in% 1986:2015) |>
+    group_by(alue_id) |> summarise(xn = list(y), .groups = "drop")
+  testi |>
+    mutate(x = pp,
+           q10 = map_dbl(x, quantile, 0.10), q25 = map_dbl(x, quantile, 0.25),
+           q75 = map_dbl(x, quantile, 0.75), q90 = map_dbl(x, quantile, 0.90)) |>
+    rename(tod = y) |>
+    left_join(naiivi, by = "alue_id") |>
+    mutate(n10 = map_dbl(xn, quantile, 0.10), n90 = map_dbl(xn, quantile, 0.90),
+           crps_malli  = map2_dbl(x, tod, crps_otos),
+           crps_naiivi = map2_dbl(xn, tod, crps_otos),
+           sis50 = tod >= q25 & tod <= q75,
+           sis80 = tod >= q10 & tod <= q90,
+           sis80_n = tod >= n10 & tod <= n90) |>
+    select(-x, -xn) |>
+    filter(!is.na(crps_naiivi))
+}
+
+bt_lumi <- takautuva(post_lumi_bt, d_lumi, lumi_takaisin)
+bt_temp <- takautuva(post_temp_bt, d_temp)
+
+arvio <- function(bt) {
+  w <- wilcox.test(bt$crps_malli, bt$crps_naiivi, paired = TRUE, exact = FALSE)
+  tibble(solut = nrow(bt),
+         kattavuus50 = mean(bt$sis50), kattavuus80 = mean(bt$sis80),
+         kattavuus80_naiivi = mean(bt$sis80_n),
+         taito = 1 - mean(bt$crps_malli) / mean(bt$crps_naiivi),
+         parempi = mean(bt$crps_malli < bt$crps_naiivi),
+         p = w$p.value)
+}
+ar_lumi <- arvio(bt_lumi); ar_temp <- arvio(bt_temp)
+```
+
+Ennustemallin arvo mitataan sillä, kuinka hyvin se osuu talviin, joita se ei ole nähnyt. Siksi sama malli on sovitettu uudelleen pelkästään talvilla 1961–2015, ja sillä on "ennustettu" talvet 2016–2025 ilman tietoa siitä, mitä niinä talvina tapahtui. Ennusteita verrataan kahdella tavalla.
+
+**1. Osuvatko vaihteluvälit?** Jos malli sanoo, että talvi osuu 80 %:n todennäköisyydellä tietylle välille, toteutuneista talvista noin 80 %:n pitäisi osua välille. Jos osuu paljon harvempi, malli on liian varma itsestään. Jos osuu lähes kaikki, malli on turhan varovainen.
+
+| | Lumipäivät | Talven keskilämpö |
+|---|---|---|
+| Testattuja alue-talvia | `r ar_lumi$solut` | `r ar_temp$solut` |
+| 50 %:n välille osui | `r fmt(100 * ar_lumi$kattavuus50)` % | `r fmt(100 * ar_temp$kattavuus50)` % |
+| 80 %:n välille osui | `r fmt(100 * ar_lumi$kattavuus80)` % | `r fmt(100 * ar_temp$kattavuus80)` % |
+| Naiivin ennusteen 80 %:n välille osui | `r fmt(100 * ar_lumi$kattavuus80_naiivi)` % | `r fmt(100 * ar_temp$kattavuus80_naiivi)` % |
+
+**2. Onko malli parempi kuin "kuten ennenkin"?** Vertailukohtana on naiivi ennuste, joka olettaa, että tulevat talvet ovat samanlaisia kuin talvet 1986–2015. Tämä on se tapa, jolla moni organisaatio talveen käytännössä varautuu: viime vuosikymmenten keskimääräinen talvi. Ennusteiden tarkkuutta mitataan CRPS-luvulla. Se mittaa koko ennustejakauman etäisyyttä toteutuneesta arvosta, joten se palkitsee sekä osumatarkkuudesta että oikein mitoitetusta epävarmuudesta. Mitä pienempi luku, sitä parempi ennuste.
+
+Malli oli naiivia ennustetta parempi `r fmt(100 * ar_lumi$parempi)` %:ssa lumipäivien ja `r fmt(100 * ar_temp$parempi)` %:ssa lämpötilan alue-talvista. Ennustetaito, eli kuinka paljon pienempi mallin keskimääräinen virhe on naiiviin ennusteeseen verrattuna, oli lumipäivissä `r fmt(100 * ar_lumi$taito)` % ja lämpötilassa `r fmt(100 * ar_temp$taito)` %. Eroa testattiin Wilcoxonin parittaisella testillä, koska samaa alue-talvea ennustetaan molemmilla menetelmillä ja virheet ovat vinosti jakautuneita. P-arvo on lumipäivissä `r if (ar_lumi$p < 0.001) "alle 0,001" else fmt(ar_lumi$p, 3)` ja lämpötilassa `r if (ar_temp$p < 0.001) "alle 0,001" else fmt(ar_temp$p, 3)`.
+
+<!-- TARKISTA ensimmäisen renderöinnin jälkeen: jos taito on negatiivinen tai kattavuus selvästi alle 80 %, tulkintaa on muutettava. -->
+
+```{r}
+#| label: fig-takautuva
+#| fig-height: 7
+#| fig-cap: "Takautuva testi kuudella esimerkkialueella. Vaaleansininen palkki on mallin 80 %:n ennusteväli, tummempi 50 %:n väli. Harmaa katkoviiva rajaa naiivin ennusteen 80 %:n välin. Musta piste on toteutunut talvi."
+esim <- c("Uusimaa", "Pohjois-Savo", "Lappi", "Ruotsin Lappi ja Västerbotten", "Minnesota", "Jukon")
+bt_lumi |>
+  left_join(alueet, by = "alue_id") |>
+  filter(alue_nimi %in% esim) |>
+  mutate(alue_nimi = factor(alue_nimi, esim)) |>
+  ggplot(aes(x = kausi_alku)) +
+  geom_linerange(aes(ymin = q10, ymax = q90), linewidth = 4, colour = "#9ecae1") +
+  geom_linerange(aes(ymin = q25, ymax = q75), linewidth = 4, colour = "#4292c6") +
+  geom_errorbar(aes(ymin = n10, ymax = n90), width = 0.4, colour = "grey40", linetype = "dashed") +
+  geom_point(aes(y = tod), size = 2) +
+  facet_wrap(~ alue_nimi, ncol = 3) +
+  scale_x_continuous(breaks = c(2016, 2019, 2022, 2025), labels = \(x) talvikausi_nimi(x)) +
+  labs(x = "Talvi", y = "Lumipäiviä (joulu–huhtikuu)",
+       title = "Ennustiko malli talvet 2016–2025 ilman tietoa niistä?",
+       subtitle = "Malli sovitettu vain talviin 1961–2015")
+```
+
+**Miten kuvaa luetaan?** Jokainen pystypalkki on mallin ennuste yhdelle talvelle. Vaaleansinisen palkin sisään toteutuneen talven pitäisi osua kahdeksan kertaa kymmenestä, tummansinisen sisään joka toinen kerta. Musta piste on se, mitä todella tapahtui. Harmaa katkoviiva näyttää, missä naiivi "kuten ennenkin" -ennuste olisi pitänyt talvea todennäköisenä. Kun musta piste on sinisen palkin sisällä mutta katkoviivan alareunassa, malli on ymmärtänyt talvien lämpenemisen, jota naiivi ennuste ei huomaa.
+
+# Ennuste talvelle 2026–27
+
+```{r}
+#| label: ennuste
+ennuste <- function(post, d, mittari, muunnos = identity) {
+  uusi <- tibble(alue_id = alueet$alue_id, kausi_alku = ENNUSTEKAUSI,
+                 v = (ENNUSTEKAUSI - 1990) / 10)
+  pp <- ennustejakaumat(post, uusi, muunnos)
+  draws <- tibble(alue_id = rep(uusi$alue_id, each = N_DRAWS),
+                  draw = rep(seq_len(N_DRAWS), times = nrow(uusi)),
+                  arvo = unlist(pp), mittari = mittari)
+  stopifnot(all(lengths(pp) == N_DRAWS))
+  normaali <- d |> filter(kausi_alku %in% 1991:2020) |>
+    group_by(alue_id) |> summarise(normaali = mean(y), .groups = "drop") |>
+    mutate(mittari = mittari)
+  list(draws = draws, normaali = normaali)
+}
+e_lumi <- ennuste(post_lumi, d_lumi, "lumipaivat_da", lumi_takaisin)
+e_temp <- ennuste(post_temp, d_temp, "tmean_djf")
+normaalit <- bind_rows(e_lumi$normaali, e_temp$normaali)
+
+# Ennalta rekisteröinti: ensimmäisellä ajokerralla tallennetaan ennuste,
+# asemat, joista alueen talvi lasketaan, ja aikaleima. Myöhemmät renderöinnit
+# lukevat aina tallennetun ennusteen, joten julkaistu ennuste ei muutu
+# jälkikäteen. Tiedosto on gitissä, joten commitin aikaleima todistaa, että
+# ennuste tehtiin ennen talvea.
+ennuste_tiedosto <- here("data", "talvi", "p01_ennuste_talvi2026.qs2")
+if (!file.exists(ennuste_tiedosto)) {
+  tallenna_atom(bind_rows(e_lumi$draws, e_temp$draws) |> mutate(laadittu = Sys.time()),
+                ennuste_tiedosto)
+  tallenna_atom(mallin_asemat, here("data", "talvi", "p01_ennuste_talvi2026_asemat.qs2"))
+}
+ennuste_draws <- qd_read(ennuste_tiedosto)
+laadittu <- min(ennuste_draws$laadittu)
+ennuste_yht <- ennuste_draws |>
+  left_join(normaalit, by = c("mittari", "alue_id")) |>
+  group_by(mittari, alue_id, normaali) |>
+  summarise(med = median(arvo), q10 = quantile(arvo, 0.10), q25 = quantile(arvo, 0.25),
+            q75 = quantile(arvo, 0.75), q90 = quantile(arvo, 0.90),
+            p_alle_normaalin = mean(arvo < normaali), .groups = "drop") |>
+  left_join(alueet, by = "alue_id")
+stopifnot(nrow(ennuste_yht) == 66L)
+```
+
+Tässä on mallin ennuste talvelle 2026–27. Ennuste on tallennettu `r format(laadittu, "%d.%m.%Y")` ja julkaistu ennen kuin ennustettava jakso alkaa 1.12.2026. Kun talvi on ohi, ennusteen osuvuus tarkistetaan samoilla asemilla ja samalla tavalla kuin takautuvassa testissä. Jos malli osuu huonosti, sekin raportoidaan.
+
+**Mitä ennustetaan?** Kunkin alueen tyypillisen sääaseman lumipäiviä 1.12.2026–30.4.2027 ja keskilämpötilaa 1.12.2026–28.2.2027. Keväällä toteutunut talvi lasketaan samoista asemista ja samalla menetelmällä kuin tässä kirjoituksessa.
+
+**Mihin ennuste perustuu?** Ainoastaan pitkän aikavälin kehitykseen ja talvien tyypilliseen vaihteluun. Malli ei tiedä mitään tämän syksyn säästä, merien lämpötiloista tai kausiennusteista. Se on siis *lähtötaso*: millaista talvea kannattaa odottaa, kun tiedetään vain, millaisia talvia alueella on ollut ja mihin suuntaan ne ovat kehittyneet. Juuri tällainen lähtötaso puuttuu useimmista talveen varautumisen laskelmista.
+
+```{r}
+#| label: fig-ennuste
+#| fig-height: 10
+#| fig-cap: "Ennuste talvelle 2026–27. Paksu palkki on 50 %:n ja ohut 80 %:n ennusteväli, piste mediaani. Pystyviiva on alueen normaali talvina 1991–2020."
+jarjestys <- ennuste_yht |> filter(mittari == "lumipaivat_da") |> arrange(med) |> pull(alue_nimi)
+ennuste_yht |>
+  mutate(mittari = recode(mittari, lumipaivat_da = "Lumipäiviä 1.12.–30.4.",
+                          tmean_djf = "Keskilämpö joulu–helmikuu (°C)")) |>
+  group_by(mittari) |>
+  ungroup() |>
+  mutate(alue_nimi = factor(alue_nimi, jarjestys)) |>
+  ggplot(aes(y = alue_nimi, colour = maa_fi)) +
+  geom_linerange(aes(xmin = q10, xmax = q90), linewidth = 1) +
+  geom_linerange(aes(xmin = q25, xmax = q75), linewidth = 3) +
+  geom_point(aes(x = med), size = 2, colour = "black") +
+  geom_point(aes(x = normaali), shape = 124, size = 5, colour = "black") +
+  facet_wrap(~ mittari, scales = "free_x") +
+  scale_colour_manual(values = VARIT_MAA, name = NULL) +
+  labs(x = NULL, y = NULL, title = "Millainen talvesta 2026–27 tulee?",
+       subtitle = "Ennuste perustuu pitkän aikavälin kehitykseen, ei syksyn säähän") +
+  theme(legend.position = "top")
+```
+
+```{r}
+#| label: ennustetaulu
+kable(ennuste_yht |>
+        select(mittari, alue = alue_nimi, maa = maa_fi, med, q10, q90, normaali, p_alle_normaalin) |>
+        pivot_wider(names_from = mittari, values_from = c(med, q10, q90, normaali, p_alle_normaalin)) |>
+        arrange(maa, alue) |>
+        transmute(alue, maa,
+                  `lumipäivät (80 % väli)` = paste0(fmt(med_lumipaivat_da), " (", fmt(q10_lumipaivat_da), "–", fmt(q90_lumipaivat_da), ")"),
+                  `normaali` = fmt(normaali_lumipaivat_da),
+                  `P(alle normaalin)` = paste0(fmt(100 * p_alle_normaalin_lumipaivat_da), " %"),
+                  `keskilämpö °C (80 % väli)` = paste0(fmt(med_tmean_djf, 1), " (", fmt(q10_tmean_djf, 1), " … ", fmt(q90_tmean_djf, 1), ")"),
+                  `normaali °C` = fmt(normaali_tmean_djf, 1)),
+      align = "llrrrrr",
+      caption = "Ennalta rekisteröity ennuste talvelle 2026–27. Normaali on alueen tyypillisen aseman keskiarvo talvina 1991–2020. P(alle normaalin) on todennäköisyys sille, että lumipäiviä on vähemmän kuin normaalitalvena.")
+```
+
+**Miten ennustetta luetaan?** Kuvassa jokaisella alueella on vaakasuora palkki. Paksun palkin sisään talvi osuu mallin mukaan joka toinen kerta, ohuen viivan sisään kahdeksan kertaa kymmenestä. Musta piste on keskimmäinen ennuste ja pieni pystyviiva on alueen normaali eli talvien 1991–2020 keskiarvo. Kun piste on pystyviivan vasemmalla puolella, malli odottaa normaalia vähälumisempaa tai lämpimämpää talvea. Taulukon viimeinen sarake kertoo saman todennäköisyytenä.
+
+Ennusteen leveys on tärkeämpi kuin sen keskikohta. Esimerkiksi etelän maakunnissa ennusteväli on niin leveä, että sekä lähes lumeton että runsasluminen talvi ovat täysin mahdollisia. Se ei ole mallin heikkous vaan rehellinen kuva siitä, mitä etelän talvesta voi tietää etukäteen.
+
+# Neljä vertailutalvea
+
+```{r}
+#| label: skenaariot
+# S0 normaalitalvi, S1 lauha talvi, S2 kova talvi, S3 2050-luvun tyypillinen talvi.
+# S1 ja S2 ovat todellisia havaittuja talvia, joten kaikki mittarit ovat
+# keskenään johdonmukaisia (sama talvi).
+sk_alue <- ak |> filter(kausi_alku %in% 1991:VIIM_KAUSI)
+
+s0 <- ak |> filter(kausi_alku %in% 1991:2020) |>
+  group_by(alue, alue_id, alue_nimi_fi, maa_fi) |>
+  summarise(across(all_of(MITTARIT), \(x) mean(x, na.rm = TRUE)), .groups = "drop") |>
+  mutate(skenaario = "S0 normaalitalvi", kausi = "1991–2020 keskiarvo")
+
+valitse_talvi <- function(kvantiili, nimi) {
+  sk_alue |>
+    filter(!is.na(fdd), n_asemat_t >= 1) |>
+    group_by(alue) |>
+    mutate(kohde = if (kvantiili == 0) min(fdd) else quantile(fdd, kvantiili)) |>
+    slice_min(abs(fdd - kohde), n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    mutate(skenaario = nimi, kausi = talvikausi_nimi(kausi_alku)) |>
+    select(alue, alue_id, alue_nimi_fi, maa_fi, all_of(MITTARIT), skenaario, kausi)
+}
+s1 <- valitse_talvi(0,   "S1 lauha talvi")
+s2 <- valitse_talvi(0.9, "S2 kova talvi")
+
+# S3: normaalitalvi siirrettynä mallin mukaisella muutoksella vuodesta 2005
+# (1991–2020 keskikohta) vuoteen 2050. Lumi muutetaan logit-asteikolla, jotta
+# tulos pysyy välillä 0–151.
+# Muutos 2005 -> 2050 = kulmakerroin x 4,5 vuosikymmentä (sarakkeet alueet$alue_id-järjestyksessä)
+dl <- kulmat(post_lumi) * 4.5
+dt <- kulmat(post_temp) * 4.5
+s3 <- s0 |>
+  mutate(j = match(alue_id, alueet$alue_id)) |>
+  rowwise() |>
+  mutate(
+    lumi_draws = list(LUMI_N * plogis(qlogis(pmin(pmax(lumipaivat_da / LUMI_N, 0.005), 0.995)) + dl[, j])),
+    temp_draws = list(tmean_djf + dt[, j]),
+    lumipaivat_da = median(lumi_draws), lumi_q05 = quantile(lumi_draws, 0.05), lumi_q95 = quantile(lumi_draws, 0.95),
+    tmean_djf = median(temp_draws), temp_q05 = quantile(temp_draws, 0.05), temp_q95 = quantile(temp_draws, 0.95)
+  ) |>
+  ungroup() |>
+  mutate(across(setdiff(MITTARIT, c("lumipaivat_da", "tmean_djf")), \(x) NA_real_),
+         skenaario = "S3 2050-talvi", kausi = "trendi vuoteen 2050") |>
+  select(-j, -lumi_draws, -temp_draws)
+
+skenaariot <- bind_rows(s0, s1, s2, s3)
+stopifnot(nrow(skenaariot) == 4L * 33L, !anyDuplicated(skenaariot[c("alue", "skenaario")]))
+tallenna_atom(skenaariot, here("data", "talvi", "talvi_skenaariot.qs2"))
+```
+
+Sarjan myöhemmissä laskelmissa tarvitaan yhteisiä vertailukohtia. Kun kysytään, mitä talvi maksaa, pitää kysyä: *mihin verrattuna?* Tässä määritellään neljä vertailutalvea jokaiselle 33 alueelle. Kolme ensimmäistä ovat todellisia, havaittuja talvia tai niiden keskiarvo. Keksittyjä ääritalvia ei käytetä.
+
+- **S0 normaalitalvi**: alueen talvien 1991–2020 keskiarvo. Tämä on vertailukohta, johon muita verrataan.
+- **S1 lauha talvi**: alueen lauhin talvi vuosina 1991–2026 pakkasmäärällä mitattuna. Esimerkiksi Uudellamaalla se on talvi `r s1$kausi[s1$alue_nimi_fi == "Uusimaa"]`.
+- **S2 kova talvi**: talvi, jonka pakkasmäärä on lähimpänä alueen talvien 90. persentiiliä. Se on siis talvi, jota kylmempiä on ollut vain joka kymmenes vuosi. Uudellamaalla se on talvi `r s2$kausi[s2$alue_nimi_fi == "Uusimaa"]`.
+- **S3 2050-talvi**: normaalitalvi, johon on lisätty mallin mukainen muutos vuodesta 2005 vuoteen 2050. Se kuvaa tyypillistä talvea 2050-luvulla, *jos kehitys jatkuu samanlaisena kuin vuodesta 1961 lähtien*.
+
+```{r}
+#| label: fig-skenaariot
+#| fig-height: 6
+#| fig-cap: "Neljä vertailutalvea kuudella esimerkkialueella. S3:n viiva on 90 %:n epävarmuusväli."
+skenaariot |>
+  filter(alue_nimi_fi %in% esim) |>
+  mutate(alue_nimi_fi = factor(alue_nimi_fi, rev(esim))) |>
+  ggplot(aes(y = alue_nimi_fi, x = lumipaivat_da, colour = skenaario)) +
+  geom_linerange(aes(xmin = lumi_q05, xmax = lumi_q95), linewidth = 1, na.rm = TRUE) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = c("S0 normaalitalvi" = "black", "S1 lauha talvi" = "#d6604d",
+                                 "S2 kova talvi" = "#4393c3", "S3 2050-talvi" = "#8c510a"), name = NULL) +
+  scale_x_continuous(limits = c(0, LUMI_N)) +
+  labs(x = "Lumipäiviä (joulu–huhtikuu)", y = NULL,
+       title = "Neljä vertailutalvea: normaali, lauha, kova ja 2050-luvun talvi") +
+  theme(legend.position = "top")
+```
+
+```{r}
+#| label: ruosteenoja
+# Vertailu ilmastomalleihin: mallin trendin mukainen talven lämpeneminen
+# Suomessa jaksosta 1981–2010 jaksoon 2040–2069 (keskikohdat 1995 ja 2054).
+fi_id <- alueet |> filter(maa == "FI") |> pull(alue_id)
+dfi <- rowMeans(kulmat(post_temp)[, fi_id, drop = FALSE]) * 5.9   # 1995 -> 2054
+fi_muutos <- quantile(dfi, c(0.05, 0.5, 0.95))
+```
+
+::: {.callout-note}
+## Faktalaatikko: mitä ilmastomallit sanovat 2050-luvun talvesta?
+
+Ilmatieteen laitoksen Ruosteenoja ja Jylhä (2021) laskivat Suomen ilmaston muutokset lähes 30 kansainvälisen ilmastomallin avulla. Keskimmäisessä päästöskenaariossa (SSP2-4.5) Suomen talven keskilämpötila nousee jaksosta 1981–2010 jaksoon 2040–2069 keskimäärin 3,3 astetta. Mallien välinen vaihteluväli on 1,2–5,4 astetta.
+
+**Vastaskenaario: entä jos lämpeneminen jatkuisi menneen tahtia?** Tämän kirjoituksen malli ei tiedä mitään ilmastofysiikasta. Se jatkaa vain havaittua kehitystä. Kun samat jaksot lasketaan sillä, Suomen maakuntien talvi lämpenee `r fmt(fi_muutos[2], 1)` astetta (90 %:n väli `r fmt(fi_muutos[1], 1)`–`r fmt(fi_muutos[3], 1)` astetta). Kaksi täysin eri tavalla tehtyä arviota osuvat `r if (fi_muutos[2] > 1.2 && fi_muutos[2] < 5.4) "samaan haarukkaan" else "eri kohtiin"`. Se tarkoittaa, että S3-talvi on `r if (fi_muutos[2] > 1.2 && fi_muutos[2] < 5.4) "linjassa ilmastomallien kanssa eikä mikään ääriskenaario" else "eri suuruusluokkaa kuin ilmastomallit, ja sitä on syytä tulkita varoen"`.
+
+*Lähde: Ruosteenoja, K. & Jylhä, K. (2021). Projected climate change in Finland during the 21st century calculated from CMIP6 model simulations. Geophysica 56(1), 39–69.*
+:::
+
+::: {.callout-note}
+## Faktalaatikko: koko pohjoinen pallonpuolisko
+
+Hallitustenvälinen ilmastopaneeli IPCC arvioi kuudennessa arviointiraportissaan, että pohjoisen pallonpuoliskon huhtikuun lumipeitteen pinta-ala on pienentynyt vuosina 1922–2018 keskimäärin 0,29 miljoonaa neliökilometriä vuosikymmenessä. Se vastaa joka vuosikymmen noin Suomen kokoista aluetta. Tämän kirjoituksen alueet ovat juuri sitä vyöhykettä, jossa muutos tapahtuu.
+
+*Lähde: IPCC (2021), AR6 WG1, luku 2, kuva 2.22.*
+:::
+
+# Rajoitukset
+
+- **Asemat eivät ole koko alue.** Sääasemat ovat usein kaupunkien ja lentokenttien lähellä. Tunturien ja erämaiden talvi voi olla toisenlainen. Malli kuvaa tyypillisen sääaseman talvea, ei alueen jokaista neliökilometriä.
+- **Lämpötilan määritelmä.** Keskilämpötila on laskettu alimman ja ylimmän lämpötilan keskiarvona, jotta kaikki maat ovat vertailukelpoisia. Suomessa se poikkeaa hieman Ilmatieteen laitoksen virallisesta vuorokauden keskilämpötilasta, mutta poikkeama on sama kaikkina vuosina, joten muutokset ja vertailut eivät vääristy.
+- **Suora trendi.** Malli olettaa, että muutos on ollut tasaista koko 65 vuoden ajan. Todellisuudessa lämpeneminen on kiihtynyt 1980-luvulta lähtien, joten malli saattaa aliarvioida viime vuosikymmenten muutosta ja siten myös tulevaa. S3-talvea kannattaa lukea varovaisena arviona.
+- **Talvet eivät ole toisistaan riippumattomia.** Jaksovertailun testi olettaa, että talvet ovat toisistaan riippumattomia. Peräkkäiset talvet voivat kuitenkin muistuttaa toisiaan esimerkiksi merien lämpötilojen kautta. Se voi tehdä p-arvoista hieman liian pieniä. Sama koskee trendimallia, joten sen epävarmuusvälit voivat olla hieman liian kapeita.
+- **Pohjois-Kanadan ohut aineisto.** Jukonista ja Luoteisterritorioista on vain muutama asema. Niiden tulokset ovat epävarmempia, ja se näkyy leveämpinä väleinä.
+
+# Mihin tätä voi käyttää?
+
+Talven jakauma on hyödyllinen kaikkialla, missä talvi maksaa tai tuottaa rahaa ja missä varaudutaan nykyään "tavalliseen talveen".
+
+- **Kunnan talvikunnossapidon budjetti.** Kun budjetti mitoitetaan normaalitalven mukaan, se ylittyy joka toinen talvi. Jakauman avulla voi valita tietoisesti, minkä talven kunta haluaa kattaa budjetilla (esimerkiksi talvet, jotka toteutuvat neljänä vuotena viidestä) ja kuinka suuri puskuri tarvitaan loppuja varten.
+- **Urakkahinnoittelu.** Rakennus- ja kunnossapitoyritys voi hinnoitella talvilisän jakaumasta eikä keskiarvosta. Silloin tiedetään, kuinka todennäköisesti urakka tuottaa tappiota huonona talvena.
+- **Varastot ja kampanjat.** Kauppa voi mitoittaa talvirenkaiden, lumilapioiden ja toppavaatteiden varastot alueittain sen mukaan, kuinka varma lumen tulo kullakin alueella on.
+- **Ennusteen pisteyttäminen.** Kun ennuste julkaistaan etukäteen ja tarkistetaan jälkikäteen, sen arvo voidaan todistaa. Sama periaate sopii minkä tahansa organisaation omiin ennusteisiin.
+
+# Miten tätä voi hyödyntää yrityksessä?
+
+Talvi on hyvä esimerkki riskistä, jota hinnoitellaan yhä keskiarvolla. Muutama ajatus siitä, miten saman lähestymistavan voi viedä pidemmälle:
+
+- **Lumitakuu asiakkaalle.** Matkailuyritys voi myydä lomapaketin, jonka hinnasta palautetaan osa, jos lumipäiviä on alle sovitun rajan. Jakauma kertoo, kuinka todennäköisesti takuu laukeaa ja paljonko se maksaa yritykselle keskimäärin. Takuu muuttaa asiakkaan riskin yrityksen myyntivaltiksi.
+- **Sääsidonnainen sopimusehto.** Auraus- tai kunnossapitosopimukseen voi kirjata, että hinta joustaa sovitun talvimittarin mukaan. Kumpikaan osapuoli ei silloin maksa liikaa satunnaisesta talvesta, ja tarjouksiin ei tarvitse piilottaa varmuusmarginaalia.
+- **Talven vaikutus omiin lukuihin.** Kun yrityksen myynti, poissaolot tai korjauskulut yhdistetään tähän talvi-indeksiin, saadaan selville, kuinka paljon talvi selittää vaihtelusta. Se erottaa johdon päätösten vaikutuksen sään vaikutuksesta, mikä on reilumpaa myös tulospalkkioiden kannalta.
+- **Etukäteen julkaistut ennusteet.** Jos ennusteet kirjataan ylös ennen tapahtumaa ja niiden osuvuus mitataan, organisaatio oppii, mihin ennusteisiin voi luottaa ja mihin ei. Tässä kirjoituksessa käytetty menettely (malli, takautuva testi, ennusteen tallennus ja pisteytys) sopii suoraan esimerkiksi kysyntä-, kassavirta- tai henkilöstöennusteisiin.
+
+Jos haluat selvittää, mitä talvi tai jokin muu sattumanvarainen tekijä maksaa omalle organisaatiollesi, ota yhteyttä tai varaa aika osoitteessa [kristianvepsalainen.com](https://www.kristianvepsalainen.com).
+
+# Lähteet
+
+**Aineistot**
+
+- Ilmatieteen laitos: avoin data, säähavainnot (päivätason lämpötila, sademäärä ja lumensyvyys). Lisenssi CC BY 4.0.
+- NOAA National Centers for Environmental Information: Global Historical Climatology Network Daily (GHCN-Daily), AWS Open Data -peili `noaa-ghcn-pds`.
+- Eurostat / GISCO: NUTS 2021 -aluerajat (giscoR-paketti).
+
+**Tutkimukset**
+
+- Gottlieb, A. R. & Mankin, J. S. (2024). Evidence of human influence on Northern Hemisphere snow loss. *Nature* 625, 293–300. <https://doi.org/10.1038/s41586-023-06794-y>
+- IPCC (2021). Climate Change 2021: The Physical Science Basis. Working Group I, luku 2, kuva 2.22.
+- Luomaranta, A., Aalto, J. & Jylhä, K. (2019). Snow cover trends in Finland over 1961–2014 based on gridded snow depth observations. *International Journal of Climatology* 39(7), 3147–3159. <https://doi.org/10.1002/joc.6007>
+- Ruosteenoja, K. & Jylhä, K. (2021). Projected climate change in Finland during the 21st century calculated from CMIP6 model simulations. *Geophysica* 56(1), 39–69.

@@ -229,7 +229,8 @@ px_lue <- function(polku) {
                       na = PX_PUUTTUVA, locale = locale(encoding = "UTF-8"),
                       progress = FALSE, show_col_types = FALSE, trim_ws = TRUE,
                       name_repair = "unique_quiet")
-  aika_re <- "\\s(\\d{4}(M\\d{2}|Q\\d)?)\\*?$"
+  aika_re <- "\\s(\\d{4}(M\\d{2}|Q\\d|/\\d{2})?)\\*?$"
+  aika_rivi_re <- "^\\d{4}(M\\d{2}|Q\\d|/\\d{2})?\\*?$"
   aika_sar <- names(raaka)[grepl(aika_re, names(raaka))]
   if (length(aika_sar)) {
     # Aika sarakkeissa: "Tieto 2024M01"
@@ -238,23 +239,34 @@ px_lue <- function(polku) {
       pivot_longer(all_of(aika_sar), names_to = "sarake", values_to = "arvo_txt") |>
       mutate(tieto = sub(aika_re, "", sarake), aika_txt = sub(paste0("^.*", aika_re), "\\1", sarake),
              ennakko = grepl("\\*$", sarake))
-  } else if (grepl("^\\d{4}(M\\d{2}|Q\\d)?\\*?$", raaka[[1]][1])) {
-    # Aika riveillä (ensimmäinen sarake "Kuukausi"/"Vuosi"), muut sarakkeet ovat
-    # sarjoja, joiden nimessä on kaikki muut ulottuvuudet, esim.
-    # "45 Moottoriajoneuvojen kauppa ja korjaus Liikevaihto Alkuperäinen indeksisarja"
-    id_sar <- character()
-    aika1 <- names(raaka)[1]
+  } else {
+    # Aika riveillä jossakin sarakkeessa (esim. "Kuukausi", "Vuosi").
+    # Muut tekstisarakkeet ovat ulottuvuuksia (esim. "Tieto", "Omistajaryhmä",
+    # "Maakunta") ja numeeriset sarakkeet mittareita; mittarin nimi -> tieto.
+    # Kattaa myös muodon, jossa aika on ensimmäinen sarake ja sarakenimessä on
+    # kaikki muut ulottuvuudet.
+    on_aika <- function(x) { x <- x[!is.na(x)]; length(x) > 0 && all(grepl(aika_rivi_re, x)) }
+    on_luku <- function(x) {
+      x <- x[!is.na(x)]
+      all(!is.na(suppressWarnings(as.numeric(gsub(",", ".", gsub("[[:space:] ]", "", x))))))
+    }
+    aika_ehd <- names(raaka)[vapply(raaka, on_aika, logical(1))]
+    if (!length(aika_ehd))
+      stop(basename(polku), ": aikaa ei löytynyt sarakkeista ('Tieto 2024M01') eikä riveiltä ('2024M01').")
+    aika1 <- aika_ehd[1]
+    muut <- setdiff(names(raaka), aika1)
+    mittarit <- muut[vapply(raaka[muut], on_luku, logical(1))]
+    id_sar <- setdiff(muut, mittarit)
+    if (!length(mittarit)) stop(basename(polku), ": numeerisia sarakkeita ei löytynyt.")
     pitka <- raaka |>
       rename(aika_raaka = all_of(aika1)) |>
-      pivot_longer(-aika_raaka, names_to = "tieto", values_to = "arvo_txt") |>
+      pivot_longer(all_of(mittarit), names_to = "tieto", values_to = "arvo_txt") |>
       mutate(ennakko = grepl("\\*$", aika_raaka), aika_txt = sub("\\*$", "", aika_raaka)) |>
       select(-aika_raaka)
-  } else {
-    stop(basename(polku), ": aikaa ei löytynyt sarakkeista ('Tieto 2024M01') eikä ensimmäisestä sarakkeesta ('2024M01').")
   }
   out <- pitka |>
     mutate(aika = aika_txt,
-           kk = case_when(grepl("M", aika) ~ as.integer(substr(aika, 6, 7)),
+           kk = case_when(grepl("M|/", aika) ~ as.integer(substr(aika, 6, 7)),
                           grepl("Q", aika) ~ (as.integer(substr(aika, 6, 6)) - 1L) * 3L + 1L,
                           TRUE ~ 1L),
            pvm = as.Date(sprintf("%s-%02d-01", substr(aika, 1, 4), kk), format = "%Y-%m-%d"),

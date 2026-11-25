@@ -223,21 +223,33 @@ PX_PUUTTUVA <- c("", ".", "..", "...", "-", "x")
 
 px_lue <- function(polku) {
   stopifnot(file.exists(polku))
-  eka <- readLines(polku, n = 1L, encoding = "UTF-8", warn = FALSE)
+  # Merkistö: UTF-8 tai (vanhat passiivitaulut) ISO-8859-1
+  tavut <- readBin(polku, "raw", n = min(file.size(polku), 200000L))
+  koodaus <- if (validUTF8(rawToChar(tavut[tavut != as.raw(0)]))) "UTF-8" else "ISO-8859-1"
+  eka <- readLines(polku, n = 1L, encoding = koodaus, warn = FALSE)
   erotin <- if (grepl("\t", eka)) "\t" else if (grepl(";", eka)) ";" else ","
   raaka <- read_delim(polku, delim = erotin, col_types = cols(.default = col_character()),
-                      na = PX_PUUTTUVA, locale = locale(encoding = "UTF-8"),
+                      na = PX_PUUTTUVA, locale = locale(encoding = koodaus),
                       progress = FALSE, show_col_types = FALSE, trim_ws = TRUE,
                       name_repair = "unique_quiet")
-  aika_re <- "\\s(\\d{4}(M\\d{2}|Q\\d|/\\d{2})?)\\*?$"
+  aika_re <- "(^|\\s)(\\d{4}(M\\d{2}|Q\\d|/\\d{2})?)\\*?$"
   aika_rivi_re <- "^\\d{4}(M\\d{2}|Q\\d|/\\d{2})?\\*?$"
+  aika_esi_re <- "^(\\d{4}(M\\d{2}|Q\\d|/\\d{2})?)(\\*?)\\s+(.+)$"
   aika_sar <- names(raaka)[grepl(aika_re, names(raaka))]
-  if (length(aika_sar)) {
+  esi_sar <- names(raaka)[grepl(aika_esi_re, names(raaka))]
+  if (!length(aika_sar) && length(esi_sar)) {
+    # Aika sarakeotsikon alussa: "2003 Kuolleet", "2019* Loukkaantuneet"
+    id_sar <- setdiff(names(raaka), esi_sar)
+    pitka <- raaka |>
+      pivot_longer(all_of(esi_sar), names_to = "sarake", values_to = "arvo_txt") |>
+      mutate(tieto = sub(aika_esi_re, "\\4", sarake), aika_txt = sub(aika_esi_re, "\\1", sarake),
+             ennakko = sub(aika_esi_re, "\\3", sarake) == "*")
+  } else if (length(aika_sar)) {
     # Aika sarakkeissa: "Tieto 2024M01"
     id_sar <- setdiff(names(raaka), aika_sar)
     pitka <- raaka |>
       pivot_longer(all_of(aika_sar), names_to = "sarake", values_to = "arvo_txt") |>
-      mutate(tieto = sub(aika_re, "", sarake), aika_txt = sub(paste0("^.*", aika_re), "\\1", sarake),
+      mutate(tieto = sub(aika_re, "", sarake), aika_txt = sub(paste0("^.*?", aika_re), "\\2", sarake, perl = TRUE),
              ennakko = grepl("\\*$", sarake))
   } else {
     # Aika riveillä jossakin sarakkeessa (esim. "Kuukausi", "Vuosi").

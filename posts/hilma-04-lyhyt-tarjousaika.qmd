@@ -1,0 +1,359 @@
+---
+title: "Julkinen raha ei valehtele, osa 4: Lyhyt tarjousaika, vähän tarjouksia"
+description: "Kuinka pitkän ajan julkinen ostaja antaa yrityksille tarjouksen tekemiseen, kasautuuko aika lain minimiin ja maksaako kiire kilpailussa? Bayesilainen malli, takautuva testi ja vastaskenaariot."
+author: "Kristian Vepsäläinen"
+date: today
+categories: [Hilma, julkiset hankinnat, kilpailu, bayes, ennustaminen]
+lang: fi
+draft: true
+format:
+  html:
+    code-fold: true
+    code-summary: "Näytä koodi"
+    toc: true
+    toc-depth: 3
+execute:
+  warning: false
+  message: false
+  freeze: auto
+---
+
+```{r}
+#| label: setup
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(here)
+  library(qs2)
+  library(brms)
+  library(ggdist)
+  library(patchwork)
+})
+select <- dplyr::select
+filter <- dplyr::filter
+set.seed(2026)
+options(mc.cores = 4)
+
+source(here("R", "hilma", "hilma-io.R"))
+source(here("R", "hilma", "hilma-eforms-parse.R"))
+source(here("R", "hilma", "hilma-helpers.R"))
+
+models_dir <- here("data", "hilma", "models")
+dir.create(models_dir, showWarnings = FALSE, recursive = TRUE)
+
+idx     <- hd("hilma_index")
+ef      <- ef_load()
+deflate <- make_deflator(hd("eurostat_hicp_fi"))
+```
+
+```{r}
+#| label: data-prep
+
+# 1) Kaikki hankintailmoitukset hakuindeksistä (myös ennen eFormsia):
+#    tarjousaika = määräaika - julkaisupäivä
+ix <- idx |>
+  filter(mainType == "ContractNotices", !isPlan,
+         !is.na(deadline), !is.na(datePublished)) |>
+  mutate(days = as.numeric(difftime(deadline, datePublished, units = "days")),
+         days = floor(days),
+         year = as.integer(format(datePublished, "%Y")),
+         eu = coalesce(isEuProcurement, FALSE),
+         regime = if_else(eu, "EU", "Kansallinen"))
+n_ix_all <- nrow(ix)
+n_bad_days <- sum(ix$days < 1 | ix$days > 365)
+ix <- ix |> filter(days >= 1, days <= 365)
+
+# 2) eForms: hankintailmoituksen osa yhdistetään saman menettelyn
+#    jälki-ilmoituksen samaan osaan (ContractFolderID + osan tunnus)
+cnl <- cn_lot_panel(ef) |>
+  filter(!is.na(days), days >= 1, days <= 365, !is.na(folder_id)) |>
+  arrange(issue_date) |>
+  distinct(folder_id, lot_id, .keep_all = TRUE)          # ensimmäinen hankintailmoitus
+
+lp <- lot_panel(ef, deflate)
+can <- lp |>
+  filter(!is.na(folder_id), !is.na(n_tenders), n_tenders >= 1, n_tenders <= 200,
+         procedure != "Suorahankinta") |>
+  arrange(issue_date) |>
+  distinct(folder_id, lot_id, .keep_all = TRUE) |>
+  select(folder_id, lot_id, n_tenders, single_value_real, est_value_real,
+         cpv2_can = cpv2, nature_can = nature, buyer_name, buyer_company_id, award_date = issue_date)
+
+linked <- cnl |>
+  inner_join(can, by = c("folder_id", "lot_id")) |>
+  mutate(nature = if_else(nature == "Muu / tuntematon", nature_can, nature),
+         cpv2 = coalesce(cpv2, cpv2_can),
+         log_days = log(days),
+         log_value = log(coalesce(est_value_real, deflate(lot_est_value,
+                                                          as.integer(format(issue_date, "%Y"))))),
+         has_value = !is.na(log_value),
+         year = as.integer(format(issue_date, "%Y"))) |>
+  filter(nature != "Muu / tuntematon", !is.na(cpv2),
+         procedure %in% c("Avoin", "Rajoitettu", "Neuvottelu tms."))
+
+link_rate <- nrow(linked) / nrow(cnl)
+stopifnot(nrow(ix) > 10000, nrow(linked) > 1000)
+```
+
+## Lyhyesti
+
+- Yritys tarvitsee aikaa tarjouksen tekemiseen: tarjouspyynnön lukemiseen, kysymyksiin, alihankkijoiden hintoihin ja liitteisiin. Hankintayksikkö päättää, kuinka paljon aikaa se antaa.
+- Hilman `r num(nrow(ix))` hankintailmoituksessa tarjousajan mediaani oli **`r num(median(ix$days))` päivää**, mutta jakauma on leveä. Kansallisissa hankinnoissa tarjousaika on usein vain pari viikkoa, ja EU-hankinnoissa se kasautuu lain vähimmäisaikaan.
+- Yhdistin hankintailmoitukset niiden jälki-ilmoituksiin ja mallinsin, kuinka tarjousaika liittyy saatujen tarjousten määrään. Testasin mallin ennustekyvyn takautuvasti.
+- Vastaskenaariossa lasken, kuinka monta tarjousta lisää saataisiin ja mitä se olisi euroina, jos lyhimmät kansalliset tarjousajat pidennettäisiin kolmeen viikkoon.
+
+## Mitä laki sanoo tarjousajasta?
+
+EU-kynnysarvot ylittävissä hankinnoissa laki asettaa vähimmäisajat. Avoimessa menettelyssä tarjousaika on vähintään **35 päivää** ilmoituksen lähettämisestä, ja sitä voi lyhentää viidellä päivällä, jos tarjoukset voi jättää sähköisesti. Koska lähes kaikki tarjoukset jätetään nykyään sähköisesti, käytännön vähimmäisaika on **30 päivää**. Ennakkoilmoituksella aikaa voi lyhentää edelleen.
+
+Kansallisissa hankinnoissa vähimmäisaikaa ei ole. Laki edellyttää vain, että aika on **kohtuullinen** ottaen huomioon hankinnan laajuus ja monimutkaisuus. Siksi kansallisissa hankinnoissa näkyvät hankintayksikön omat valinnat selvimmin.
+
+::: {.callout-tip title="Sanasto"}
+- **Tarjousaika**: aika ilmoituksen julkaisusta tarjousten jättämisen määräaikaan. Tässä se lasketaan kalenteripäivinä.
+- **Kansallinen hankinta**: kansallisen kynnysarvon (tavarat ja palvelut 60 000 €) mutta ei EU-kynnysarvon ylittävä hankinta.
+- **Logaritminen asteikko**: asteikko, jossa jokainen askel on kertolasku eikä yhteenlasku. Kahden ja neljän viikon ero on samanlainen kuin neljän ja kahdeksan viikon.
+:::
+
+## Aineisto ja sen laatu
+
+Käytän kahta aineistoa. Tarjousajan **jakaumaan** riittää Hilman hakuindeksi, jossa on kaikkien hankintailmoitusten julkaisupäivä ja määräaika vuodesta 2018 lähtien. Tarjousajan **yhteyteen tarjousmäärään** tarvitaan eForms-aineisto, jossa hankintailmoituksen voi yhdistää saman hankinnan jälki-ilmoitukseen menettelyn tunnisteen avulla.
+
+- Hakuindeksin `r num(n_ix_all)` hankintailmoituksesta `r num(n_bad_days)` (`r pct(n_bad_days / n_ix_all)`) oli tarjousajaltaan mahdottomia: määräaika ennen julkaisua tai yli vuoden päässä. Ne ovat lähes varmasti syöttövirheitä, ja ne on jätetty pois.
+- eForms-hankintailmoitusten osista `r pct(link_rate)` löysi parikseen jälki-ilmoituksen. Loput ovat joko vielä kesken, keskeytettyjä tai niiden jälki-ilmoitusta ei ole julkaistu. Tämä on itsessään havainto: **`r pct(1 - link_rate, 0)` kilpailutuksista ei julkisesta datasta näe, miten se päättyi.** Osa näistä on tuoreita kilpailutuksia, joiden tulos ei ole vielä valmis.
+
+```{r}
+#| label: fig-days
+#| fig-cap: "Tarjousajan jakauma kalenteripäivinä EU- ja kansallisissa hankinnoissa. Pystyviivat: 30 ja 35 päivää."
+#| fig-height: 5
+
+ggplot(filter(ix, days <= 70), aes(days, fill = regime)) +
+  geom_histogram(binwidth = 1, colour = "white", linewidth = 0.1) +
+  geom_vline(xintercept = c(30, 35), linetype = 2, colour = pal[["red"]]) +
+  facet_wrap(~regime, ncol = 1, scales = "free_y") +
+  scale_fill_manual(values = c(EU = pal[["blue"]], Kansallinen = pal[["orange"]]), guide = "none") +
+  scale_y_continuous(labels = \(x) num(x)) +
+  labs(x = "Tarjousaika (kalenteripäivää)", y = "Ilmoituksia (kpl)",
+       title = "Tarjousajat EU- ja kansallisissa hankinnoissa")
+
+days_sum <- ix |> group_by(regime) |>
+  summarise(n = n(), med = median(days), q10 = quantile(days, .1), q90 = quantile(days, .9),
+            at_min = mean(days %in% 30:31), under14 = mean(days < 14), .groups = "drop")
+```
+
+**Kuvan lukuohje.** Ylempi paneeli kuvaa EU-hankintoja ja alempi kansallisia. Vaaka-akselilla on tarjousajan pituus päivinä, ja jokainen pylväs on yhden päivän levyinen. Pylvään korkeus kertoo, monessako ilmoituksessa tarjousaika oli juuri niin pitkä. Punaiset katkoviivat ovat EU-hankintojen vähimmäisajat 30 ja 35 päivää. Paneeleilla on eri pystyasteikot, koska kansallisia hankintoja on enemmän.
+
+```{r}
+#| label: tab-days
+days_sum |>
+  transmute(Hankinta = regime, Ilmoituksia = num(n), `Mediaani (pv)` = num(med),
+            `10 % lyhyempi kuin` = num(q10), `10 % pidempi kuin` = num(q90),
+            `Tasan 30–31 pv` = pct(at_min), `Alle 14 pv` = pct(under14)) |>
+  knitr::kable()
+```
+
+EU-hankinnoista `r pct(days_sum$at_min[days_sum$regime == "EU"])` antaa tarjousaikaa täsmälleen 30–31 päivää. `r if (days_sum$at_min[days_sum$regime == "EU"] > 0.2) "**Lain minimi on siis monelle hankintayksikölle oletusarvo eikä alaraja.**" else "Lain minimi ei siis hallitse käytäntöä, vaan suurin osa antaa enemmän aikaa."` Kansallisissa hankinnoissa mediaani on `r num(days_sum$med[days_sum$regime == "Kansallinen"])` päivää, ja `r pct(days_sum$under14[days_sum$regime == "Kansallinen"])` antaa alle kaksi viikkoa.
+
+## Saavatko pidemmät tarjousajat enemmän tarjouksia?
+
+```{r}
+#| label: tests
+
+linked <- linked |>
+  mutate(band = cut(days, breaks = c(0, 13, 20, 29, 35, Inf), right = TRUE,
+                    labels = c("alle 14 pv", "14–20 pv", "21–29 pv", "30–35 pv", "yli 35 pv")))
+band_sum <- linked |> group_by(band) |>
+  summarise(n = n(), mean_bids = mean(n_tenders), med_bids = median(n_tenders),
+            single = mean(n_tenders == 1), .groups = "drop")
+kw <- kruskal.test(n_tenders ~ band, data = linked)
+eps2 <- unname(kw$statistic) / (nrow(linked) - 1)
+sp <- cor.test(linked$days, linked$n_tenders, method = "spearman", exact = FALSE)
+```
+
+```{r}
+#| label: fig-bands
+#| fig-cap: "Saatujen tarjousten määrä tarjousajan mukaan (keskiarvo ja yhden tarjouksen osuus)."
+#| fig-height: 4.5
+
+p1 <- ggplot(band_sum, aes(band, mean_bids)) +
+  geom_col(fill = pal[["blue"]]) +
+  geom_text(aes(label = dec(mean_bids, 1)), vjust = -0.3) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  labs(x = NULL, y = "Tarjouksia keskimäärin", title = "Tarjousten määrä")
+p2 <- ggplot(band_sum, aes(band, single)) +
+  geom_col(fill = pal[["red"]]) +
+  geom_text(aes(label = pct(single, 0)), vjust = -0.3) +
+  scale_y_continuous(labels = lab_pct, expand = expansion(mult = c(0, 0.12))) +
+  labs(x = NULL, y = "Yhden tarjouksen osuus", title = "Yhden tarjouksen kilpailutukset")
+p1 + p2 & theme(axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+**Kuvan lukuohje.** Kilpailutukset on jaettu viiteen ryhmään tarjousajan mukaan. Vasen kuva kertoo, montako tarjousta ryhmän kilpailutukset saivat keskimäärin, ja oikea kuva, kuinka suuri osa jäi yhden tarjouksen varaan.
+
+**Testien valinta.** Tarjousmäärät ovat kokonaislukuja, ja niiden jakauma on vino: useimmat saavat muutaman tarjouksen ja harvat kymmeniä. Siksi ryhmien vertailuun sopii **Kruskalin–Wallisin testi**, joka vertaa järjestystä eikä keskiarvoja. Tarjousajan ja tarjousmäärän yhteyttä mittaan **Spearmanin järjestyskorrelaatiolla**, joka ei oleta suoraviivaista yhteyttä.
+
+- Kruskalin–Wallisin testi: H = `r dec(kw$statistic, 1)`, p `r fi_p(kw$p.value)`, vaikutuksen koko ε² = `r dec(eps2, 3)`.
+- Spearmanin korrelaatio: ρ = `r dec(sp$estimate, 2)`, p `r fi_p(sp$p.value)`.
+
+Yhteys on `r if (sp$estimate > 0) "positiivinen: pidemmät tarjousajat liittyvät useampiin tarjouksiin" else "heikko tai negatiivinen"`, mutta vaikutuksen koko on `r if (eps2 < 0.01) "pieni" else "kohtalainen"`. Tämä ei vielä kerro, *aiheuttaako* pidempi aika enemmän tarjouksia. Laajat ja vaikeat hankinnat saavat pidemmän ajan, mutta ne ovat myös erilaisia hankintoja. Siksi tarvitaan malli, joka vakioi hankinnan koon, lajin ja tuoteluokan.
+
+## Bayesilainen malli
+
+Mallinnan tarjousten määrää **negatiivisella binomijakaumalla**, joka sopii lukumäärille, joiden vaihtelu on suurempaa kuin pelkkä sattuma selittäisi. Selittäjinä ovat:
+
+- tarjousajan logaritmi (kahden ja neljän viikon ero on mallissa yhtä suuri kuin neljän ja kahdeksan viikon)
+- hankinnan arvioidun arvon logaritmi
+- hankintalaji, menettely ja EU/kansallinen
+- tuoteluokka ja hankintayksikkö satunnaisvaikutuksina.
+
+```{r}
+#| label: model
+
+md <- linked |>
+  mutate(log_value_c = replace_na(log_value - median(log_value, na.rm = TRUE), 0),
+         log_days_c = log_days - log(30),
+         procedure = factor(recode(procedure, "Neuvottelu tms." = "Neuvottelu"),
+                            levels = c("Avoin", "Rajoitettu", "Neuvottelu")),
+         buyer = coalesce(buyer_company_id, buyer_name, "tuntematon")) |>
+  # Tyhjät faktoritasot pois (esim. "Rajoitettu", jos sitä ei käytetty lainkaan):
+  # brms tarkistaa ennustettaessa faktorin tasot, ei pelkkiä arvoja.
+  droplevels()
+
+f_days <- n_tenders ~ log_days_c + log_value_c + has_value + nature + procedure + regime +
+  (1 | cpv2) + (1 | buyer)
+fit_days <- brm(
+  drop_constant_terms(f_days, md),
+  family = negbinomial(),
+  data   = md,
+  prior  = c(prior(normal(1, 1), class = Intercept),
+             prior(normal(0, 0.5), class = b),
+             prior(exponential(1), class = sd),
+             prior(gamma(2, 0.5), class = shape)),
+  chains = 4, iter = 2000, seed = 2026, init = 0,
+  file = file.path(models_dir, "p4_days"), file_refit = "on_change"
+)
+stopifnot(max(rhat(fit_days), na.rm = TRUE) < 1.05)
+
+post <- as_draws_df(fit_days) |> as_tibble()
+# Tarjousajan kaksinkertaistumisen vaikutus tarjousmäärään (kerroin)
+double_eff <- exp(post$b_log_days_c * log(2))
+```
+
+**Tulos.** Kun hankinnan koko, laji, menettely ja tuoteluokka on vakioitu, **tarjousajan kaksinkertaistaminen muuttaa odotetun tarjousmäärän `r dec(median(double_eff), 2)`-kertaiseksi** (90 %:n väli `r ci(double_eff, f = \(x) dec(x, 2))`). Todennäköisyys sille, että pidempi aika lisää tarjouksia, on `r pct(mean(double_eff > 1), 0)`.
+
+```{r}
+#| label: fig-curve
+#| fig-cap: "Mallin ennustama tarjousmäärä tarjousajan funktiona tyypilliselle kansalliselle palveluhankinnalle (mediaani, 50 %:n ja 90 %:n välit)."
+#| fig-height: 4.5
+
+nd_curve <- tibble(days = c(7, 10, 14, 21, 28, 35, 45, 60)) |>
+  mutate(log_days_c = log(days) - log(30), log_value_c = 0, has_value = TRUE,
+         nature = "Palvelut", procedure = "Avoin", regime = "Kansallinen")
+ep_curve <- posterior_epred(fit_days, newdata = nd_curve, re_formula = NA, ndraws = 2000)
+curve <- tibble(days = rep(nd_curve$days, each = nrow(ep_curve)), mu = as.vector(ep_curve))
+
+ggplot(curve, aes(days, mu)) +
+  stat_lineribbon(.width = c(0.5, 0.9), fill = pal[["blue"]], alpha = 0.35, colour = pal[["navy"]]) +
+  scale_x_log10(breaks = nd_curve$days) +
+  labs(x = "Tarjousaika (päivää, logaritminen asteikko)", y = "Odotettu tarjousmäärä",
+       title = "Tarjousaika ja odotettu tarjousmäärä")
+```
+
+**Kuvan lukuohje.** Viiva kertoo, montako tarjousta malli odottaa tyypilliselle kansalliselle palveluhankinnalle eri tarjousajoilla. Vaalea vyö kattaa 90 % ja tummempi 50 % mallin epävarmuudesta. Vaaka-akseli on logaritminen, joten viikon lisäys lyhyeen aikaan näkyy suurempana askeleena kuin viikon lisäys pitkään aikaan.
+
+### Takautuva testi: osaako malli ennustaa?
+
+```{r}
+#| label: backtest
+
+bt_year <- max(md$year[md$year < as.integer(format(Sys.Date(), "%Y"))])
+train <- filter(md, year < bt_year); test <- filter(md, year == bt_year)
+has_bt <- nrow(train) > 500 && nrow(test) > 200
+if (has_bt) {
+  fit_bt <- update(fit_days, formula. = drop_constant_terms(f_days, train),
+                   newdata = train, seed = 2026, refresh = 0,
+                   file = file.path(models_dir, paste0("p4_days_bt", bt_year)),
+                   file_refit = "on_change")
+  test <- keep_seen_levels(test, train, drop_constant_terms(f_days, train))
+  pp <- posterior_predict(fit_bt, newdata = test, allow_new_levels = TRUE,
+                          sample_new_levels = "gaussian", ndraws = 1000)
+  lo <- apply(pp, 2, quantile, 0.05); hi <- apply(pp, 2, quantile, 0.95)
+  cover90 <- mean(test$n_tenders >= lo & test$n_tenders <= hi)
+  pred_med <- apply(pp, 2, median)
+  mae_model <- mean(abs(pred_med - test$n_tenders))
+  mae_naive <- mean(abs(median(train$n_tenders) - test$n_tenders))
+}
+```
+
+`r if (has_bt) paste0("Sovitin mallin vain vuotta ", bt_year, " edeltäneisiin kilpailutuksiin ja ennustin vuoden ", bt_year, " ", num(nrow(test)), " kilpailutuksen tarjousmäärät. Mallin 90 %:n ennusteväli osui oikein ", pct(cover90, 0), " tapauksista, kun tavoite on 90 %. Mallin keskimääräinen virhe oli ", dec(mae_model, 2), " tarjousta, kun yksinkertainen \"kaikki saavat mediaanimäärän\" -ennuste erehtyi ", dec(mae_naive, 2), " tarjousta. Malli on siis ", if (mae_model < mae_naive) paste0(pct(1 - mae_model / mae_naive, 0), " tarkempi kuin pelkkä keskiarvoarvaus.") else "yhtä tarkka kuin keskiarvoarvaus, joten sen vahvuus on epävarmuuden kuvaamisessa eikä pisteennusteessa.") else "Takautuvaan testiin ei ole vielä riittävästi aineistoa."`
+
+::: {.callout-note title="Faktalaatikko: Lyhyt tarjousaika korruptioriskin mittarina"}
+**Mihály Fazekas ja Gábor Kocsis** kehittivät kansainvälisesti vertailukelpoiset korruptioriskin mittarit julkisten hankintojen datasta (*British Journal of Political Science*, 2020). Yksi keskeisistä "punaisista lipuista" on **epätavallisen lyhyt tarjousaika**: jos aika on liian lyhyt, vain etukäteen tiedon saanut tarjoaja ehtii valmistella hyvän tarjouksen. Toinen keskeinen lippu on yhden tarjouksen kilpailutus.
+
+Mittareiden luotettavuutta on myös kyseenalaistettu. Gnaldi ja Del Sarto testasivat yleisiä korruptioriskimittareita italialaisella aineistolla ja havaitsivat, että lyhyt tarjousaika ei korreloinut muiden riskimittareiden kanssa. Yhden tarjouksen mittarit sen sijaan toimivat hyvin. **Lyhyt tarjousaika on siis vihje eikä todiste.** Tämän kirjoituksen malli mittaa sen yhteyttä kilpailuun suomalaisessa aineistossa.
+
+Tarjousajan ja tarjousmäärän yhteydestä en löytänyt meta-analyysia.
+:::
+
+## Vastaskenaario: kolmen viikon vähimmäisaika kansallisiin hankintoihin
+
+Kuvitellaan, että kansallisille hankinnoille säädettäisiin 21 päivän vähimmäistarjousaika, tai että hankintayksiköt ottaisivat sen omaksi käytännökseen. Mitä tapahtuisi?
+
+```{r}
+#| label: cf
+
+short <- md |> filter(regime == "Kansallinen", days < 21)
+has_short <- nrow(short) >= 30
+if (has_short) {
+  ep0 <- posterior_epred(fit_days, newdata = short, ndraws = 1000)
+  ep1 <- posterior_epred(fit_days, newdata = mutate(short, log_days_c = log(21) - log(30)),
+                         ndraws = 1000)
+  extra_per <- rowMeans(ep1 - ep0)                     # lisätarjouksia per kilpailutus
+
+  per_year <- nrow(short) / n_distinct(short$year)
+  val_year <- short |> summarise(v = sum(coalesce(single_value_real, est_value_real), na.rm = TRUE) /
+                                   n_distinct(year)) |> pull(v)
+  # KKV (Ijäs 2026): jokainen lisätarjoaja ~3,2 % edullisempi voittotarjous
+  saving <- val_year * pmin(extra_per * 0.032, 0.3)
+}
+share_short <- mean(md$regime == "Kansallinen" & md$days < 21) / mean(md$regime == "Kansallinen")
+```
+
+`r if (has_short) paste0("Aineistossa ", pct(share_short), " kansallisista kilpailutuksista (noin ", num(per_year), " osaa vuodessa) antoi alle 21 päivää tarjousaikaa. Mallin mukaan niiden pidentäminen 21 päivään toisi keskimäärin **", dec(median(extra_per), 2), " tarjousta lisää** jokaista kilpailutusta kohden (90 %:n väli ", ci(extra_per, f = \(x) dec(x, 2)), "). Näiden kilpailutusten sopimusarvo on noin ", eur(val_year), " vuodessa. Kilpailuviraston tutkimuksen hintavaikutuksella (3,2 % jokaista lisätarjoajaa kohden) säästö olisi noin **", eur(median(saving)), " vuodessa** (90 %:n väli ", ci(saving, f = eur), ").") else "Alle 21 päivän kansallisia kilpailutuksia on liian vähän vastaskenaarioon."`
+
+Hinta on hankintayksikön näkökulmasta pieni: hankinta käynnistyy noin viikkoa myöhemmin. Jos hankinta on suunniteltu hyvissä ajoin, viikolla ei ole merkitystä. Jos kiire johtuu huonosta suunnittelusta, lyhyt tarjousaika siirtää suunnittelun puutteen hinnaksi.
+
+Varaus: malli mittaa yhteyttä, joka on vakioitu hankinnan koon, lajin, menettelyn, tuoteluokan ja hankintayksikön suhteen. Jos lyhyen tarjousajan hankinnat poikkeavat jollain muulla, mittaamattomalla tavalla (esimerkiksi kiireellisyydeltään), todellinen vaikutus voi olla pienempi.
+
+## Miten tätä voi käyttää käytännössä?
+
+**Hankintayksikölle:** tarjousaika on halvin kilpailun lisäämisen keino. Se ei maksa mitään muuta kuin aikaa. Jos oma organisaatio käyttää tyypillisesti alle kahden viikon tarjousaikoja, ensimmäinen kokeilu on pidentää niitä ja seurata tarjousmääriä.
+
+**Päättäjälle:** EU-hankintojen kasautuminen lain minimiin kertoo, että vähimmäisaika ohjaa käytäntöä. Kansalliselle tasolle voisi harkita suositusta tai ohjetta kohtuullisesta ajasta.
+
+**Tarjoajalle:** hankintayksiköt, jotka toistuvasti antavat hyvin lyhyitä tarjousaikoja, kannattaa seurata aktiivisesti, jotta ilmoitukset huomaa heti. Lyhyen ajan kilpailutuksissa kilpailijoita on vähemmän.
+
+## Mitä tämä tarkoittaa yrityksellesi?
+
+- **Tarjousten seurantapalvelut.** Malli ennustaa jokaiselle uudelle hankintailmoitukselle odotetun tarjoajamäärän jo julkaisupäivänä. Hälytys "tähän tulee todennäköisesti vain 1–2 tarjousta" on arvokkaampi kuin pelkkä ilmoitus uudesta kilpailutuksesta.
+- **Resursointi.** Jos tarjoustiimin kapasiteetti on rajallinen, sen kannattaa priorisoida kilpailutukset, joissa odotettu kilpailijamäärä on pieni ja jäljellä oleva aika riittää laadukkaaseen tarjoukseen.
+- **Rekrytointi ja HR.** Sama ajatus toimii työpaikkailmoituksissa: kuinka hakuajan pituus vaikuttaa hakijamäärään ja laatuun? Malli on täsmälleen sama, vain data vaihtuu.
+- **Toimittajahallinta.** Yritys, joka itse kilpailuttaa toimittajiaan, voi mitata omien tarjouspyyntöjensä tarjousaikojen vaikutuksen ja löytää kohdan, jossa lisäaika lakkaa tuottamasta lisää kilpailua.
+- **Compliance.** Poikkeuksellisen lyhyet tarjousajat ovat tunnettu punainen lippu. Ne kannattaa nostaa automaattisesti tarkastettavaksi esimerkiksi rahoituspäätöksiä tai yrityskauppoja tehtäessä.
+
+Rakennan tällaisia ennustemalleja avoimesta ja organisaation omasta datasta. **[Varaa maksuton 30 minuutin keskustelu](https://www.kristianvepsalainen.com)**, niin katsotaan, missä aika maksaa sinun liiketoiminnassasi.
+
+---
+
+### Lähteet
+
+**Data:** Hilma (hankintailmoitukset.fi), avoin rajapinta (hakuindeksi ja eForms-ilmoitukset). Eurostat: HICP (`prc_hicp_aind`).
+
+**Säädökset:** Laki julkisista hankinnoista ja käyttöoikeussopimuksista (1397/2016).
+
+**Tutkimus**
+
+- Fazekas, M. & Kocsis, G. (2020). Uncovering high-level corruption: Cross-national objective corruption risk indicators using public procurement data. *British Journal of Political Science*, 50(1), 155–164.
+- Gnaldi, M. & Del Sarto, S. Validating corruption risk measures: a key step to monitoring SDG progress. arXiv:2309.01462.
+- Ijäs, O. (2026). *Are We Paying Too Much? The Cost of Low Competition in Public Procurement*. Kilpailu- ja kuluttajavirasto, Working Papers 1/2026.
+
+*Koodi: R (tidyverse, brms, ggdist). Kaikki analyysit ovat toistettavissa avoimella datalla.*

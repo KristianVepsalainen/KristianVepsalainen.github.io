@@ -2,10 +2,9 @@
 title: "Julkinen raha ei valehtele, osa 4: Lyhyt tarjousaika, vähän tarjouksia"
 description: "Kuinka pitkän ajan julkinen ostaja antaa yrityksille tarjouksen tekemiseen, kasautuuko aika lain minimiin ja maksaako kiire kilpailussa? Bayesilainen malli, takautuva testi ja vastaskenaariot."
 author: "Kristian Vepsäläinen"
-date: today
+date: 2026-11-26
 categories: [Hilma, julkiset hankinnat, kilpailu, bayes, ennustaminen]
 lang: fi
-draft: true
 format:
   html:
     code-fold: true
